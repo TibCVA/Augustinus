@@ -3,7 +3,7 @@ name: Run Scraper Twice a Day
 on:
   schedule:
     # Lancement chaque jour à 08h00 et 20h00 (UTC)
-    - cron: "27 10 * * *"
+    - cron: "36 10 * * *"
     - cron: "0 19 * * *"
   workflow_dispatch: # pour déclencher manuellement si besoin
 
