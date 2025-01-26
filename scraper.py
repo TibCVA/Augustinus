@@ -9,13 +9,14 @@ REFERENCE_50ML = 265.0
 
 def check_discount(current_price, reference_price):
     """
-    Retourne True si le prix actuel représente une réduction >= 20%
+    Retourne True si le prix actuel représente une réduction >= 5%
     par rapport au prix de référence.
+    (Au lieu de 20% comme avant.)
     """
     if reference_price == 0:
         return False
     discount_percentage = (1 - (current_price / reference_price)) * 100
-    return discount_percentage >= 20
+    return discount_percentage >= 5
 
 def parse_price(text):
     """
@@ -40,12 +41,19 @@ def find_potential_price_in_text(full_text):
                 return price_val
     return None
 
-def detect_size(product_text):
+def detect_size_and_ref(text):
     """
-    Détecte s'il est question de 30 ml ou 50 ml dans le texte.
-    Retourne (size, reference_price) ou (None, 0) si rien n'est trouvé.
+    Détecte si c'est 30 ml ou 50 ml, 
+    en ignorant les mentions 15 ml / 15ml / travel size, etc.
+    
+    Retourne (size, reference_price) ou (None, 0) si rien n'est trouvé ou si c'est un format non géré.
     """
-    lower = product_text.lower()
+    lower = text.lower()
+    # On ignore complètement si c'est du 15 ml ou travel size
+    # (souvent 15 ml n'est pas la contenance recherchée)
+    if "15ml" in lower or "15 ml" in lower or "travel" in lower:
+        return None, 0
+
     if "30ml" in lower or "30 ml" in lower:
         return "30 ml", REFERENCE_30ML
     elif "50ml" in lower or "50 ml" in lower:
@@ -56,10 +64,6 @@ def detect_size(product_text):
 # --- Fonctions de scraping (une par site) ---
 
 def scrape_augustinusbader():
-    """
-    1) Augustinus Bader (site officiel)
-       URL: https://augustinusbader.com/eu/en/the-cream-50-ml
-    """
     results = []
     site_name = "Augustinus Bader (Officiel)"
     url = "https://augustinusbader.com/eu/en/the-cream-50-ml"
@@ -70,28 +74,27 @@ def scrape_augustinusbader():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text:
-            # Cette page correspond essentiellement au 50 ml
-            price_found = find_potential_price_in_text(full_text)
-            if price_found and check_discount(price_found, REFERENCE_50ML):
-                results.append({
-                    "site": site_name,
-                    "url": url,
-                    "product": "The Cream 50 ml",
-                    "size": "50 ml",
-                    "current_price": price_found,
-                    "reference_price": REFERENCE_50ML,
-                })
+        # On veut "The Cream" (pas "The Rich Cream") 
+        # => on vérifie la mention "The Cream"
+        if "The Cream" in full_text and "Rich Cream" not in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
+            if size and ref_price > 0:
+                price_found = find_potential_price_in_text(full_text)
+                if price_found and check_discount(price_found, ref_price):
+                    results.append({
+                        "site": site_name,
+                        "url": url,
+                        "product": f"The Cream {size}",
+                        "size": size,
+                        "current_price": price_found,
+                        "reference_price": ref_price,
+                    })
     except Exception as e:
         print(f"[{site_name}] Erreur: {e}")
 
     return results
 
 def scrape_sephora():
-    """
-    2) Sephora France
-       URL: https://www.sephora.fr/p/the-cream-P10010288.html
-    """
     results = []
     site_name = "Sephora France"
     url = "https://www.sephora.fr/p/the-cream-P10010288.html"
@@ -102,9 +105,9 @@ def scrape_sephora():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
-            if size:
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
+            if size and ref_price > 0:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
                     results.append({
@@ -121,10 +124,6 @@ def scrape_sephora():
     return results
 
 def scrape_marionnaud():
-    """
-    3) Marionnaud
-       URL: https://www.marionnaud.fr/soin-visage/creme-de-jour/the-cream-50ml/p/BP_123456
-    """
     results = []
     site_name = "Marionnaud France"
     url = "https://www.marionnaud.fr/soin-visage/creme-de-jour/the-cream-50ml/p/BP_123456"
@@ -135,8 +134,8 @@ def scrape_marionnaud():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -154,10 +153,6 @@ def scrape_marionnaud():
     return results
 
 def scrape_nocibe():
-    """
-    4) Nocibé
-       URL: https://www.nocibe.fr/augustinus-bader-the-cream-50ml/p/123456
-    """
     results = []
     site_name = "Nocibé"
     url = "https://www.nocibe.fr/augustinus-bader-the-cream-50ml/p/123456"
@@ -168,8 +163,8 @@ def scrape_nocibe():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -187,22 +182,21 @@ def scrape_nocibe():
     return results
 
 def scrape_ohmycream():
-    """
-    5) Oh My Cream
-       URL: https://en.ohmycream.com/products/the-rich-cream-creme-anti-age-riche
-    """
     results = []
     site_name = "Oh My Cream"
     url = "https://en.ohmycream.com/products/the-rich-cream-creme-anti-age-riche"
-
+    # Remarque : L'URL mentionne "Rich Cream", mais on va quand même regarder
+    # le code filtrera "Rich Cream" => donc en théorie ça ne devrait rien remonter.
+    # À ajuster si vous voulez aussi suivre "The Rich Cream".
     try:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        # Filtre "The Cream" (exclut "Rich Cream")
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -220,10 +214,6 @@ def scrape_ohmycream():
     return results
 
 def scrape_printemps():
-    """
-    6) Printemps
-       URL: https://www.printemps.com/fr/fr/augustinus-bader-the-cream-50ml-1234567
-    """
     results = []
     site_name = "Printemps"
     url = "https://www.printemps.com/fr/fr/augustinus-bader-the-cream-50ml-1234567"
@@ -234,8 +224,8 @@ def scrape_printemps():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -253,10 +243,6 @@ def scrape_printemps():
     return results
 
 def scrape_noseparis():
-    """
-    7) NOSE Paris
-       URL: https://noseparis.com/fr/the-cream
-    """
     results = []
     site_name = "NOSE Paris"
     url = "https://noseparis.com/fr/the-cream"
@@ -267,8 +253,8 @@ def scrape_noseparis():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -286,10 +272,6 @@ def scrape_noseparis():
     return results
 
 def scrape_lookfantastic():
-    """
-    8) Lookfantastic
-       URL: https://www.lookfantastic.fr/augustinus-bader-the-cream-50ml/12345678.html
-    """
     results = []
     site_name = "Lookfantastic"
     url = "https://www.lookfantastic.fr/augustinus-bader-the-cream-50ml/12345678.html"
@@ -300,8 +282,8 @@ def scrape_lookfantastic():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -319,10 +301,6 @@ def scrape_lookfantastic():
     return results
 
 def scrape_cultbeauty():
-    """
-    9) Cult Beauty
-       URL: https://www.cultbeauty.co.uk/augustinus-bader-the-cream-50ml.html
-    """
     results = []
     site_name = "Cult Beauty"
     url = "https://www.cultbeauty.co.uk/augustinus-bader-the-cream-50ml.html"
@@ -333,8 +311,8 @@ def scrape_cultbeauty():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -352,10 +330,6 @@ def scrape_cultbeauty():
     return results
 
 def scrape_netaporter():
-    """
-    10) Net-A-Porter
-        URL: https://www.net-a-porter.com/en-fr/shop/product/augustinus-bader/the-cream-50ml/1234567
-    """
     results = []
     site_name = "Net-A-Porter"
     url = "https://www.net-a-porter.com/en-fr/shop/product/augustinus-bader/the-cream-50ml/1234567"
@@ -366,8 +340,8 @@ def scrape_netaporter():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -385,10 +359,6 @@ def scrape_netaporter():
     return results
 
 def scrape_beautylish():
-    """
-    11) Beautylish
-        URL: https://www.beautylish.com/s/augustinus-bader-the-cream-50ml
-    """
     results = []
     site_name = "Beautylish"
     url = "https://www.beautylish.com/s/augustinus-bader-the-cream-50ml"
@@ -399,8 +369,8 @@ def scrape_beautylish():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -418,10 +388,6 @@ def scrape_beautylish():
     return results
 
 def scrape_libertylondon():
-    """
-    12) Liberty London
-        URL: https://www.libertylondon.com/fr/augustinus-bader-the-cream-50ml-123456.html
-    """
     results = []
     site_name = "Liberty London"
     url = "https://www.libertylondon.com/fr/augustinus-bader-the-cream-50ml-123456.html"
@@ -432,8 +398,8 @@ def scrape_libertylondon():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -451,10 +417,6 @@ def scrape_libertylondon():
     return results
 
 def scrape_mecca():
-    """
-    13) MECCA
-        URL: https://www.mecca.com.au/augustinus-bader/the-cream/I-123456.html
-    """
     results = []
     site_name = "MECCA"
     url = "https://www.mecca.com.au/augustinus-bader/the-cream/I-123456.html"
@@ -465,8 +427,8 @@ def scrape_mecca():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -484,10 +446,6 @@ def scrape_mecca():
     return results
 
 def scrape_douglas():
-    """
-    14) Douglas
-        URL: https://www.douglas.fr/fr/p/augustinus-bader-the-cream-50ml/3001048576
-    """
     results = []
     site_name = "Douglas"
     url = "https://www.douglas.fr/fr/p/augustinus-bader-the-cream-50ml/3001048576"
@@ -498,8 +456,8 @@ def scrape_douglas():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -517,10 +475,6 @@ def scrape_douglas():
     return results
 
 def scrape_merci():
-    """
-    15) Merci
-        URL: https://merci-merci.com/en/collections/marque-augustinus-bader
-    """
     results = []
     site_name = "Merci"
     url = "https://merci-merci.com/en/collections/marque-augustinus-bader"
@@ -531,8 +485,8 @@ def scrape_merci():
         soup = BeautifulSoup(resp.text, "html.parser")
 
         full_text = soup.get_text(separator=" ")
-        if "The Cream" in full_text and "Augustinus Bader" in full_text:
-            size, ref_price = detect_size(full_text)
+        if "The Cream" in full_text and "Rich Cream" not in full_text and "Augustinus Bader" in full_text:
+            size, ref_price = detect_size_and_ref(full_text)
             if size:
                 price_found = find_potential_price_in_text(full_text)
                 if price_found and check_discount(price_found, ref_price):
@@ -549,16 +503,16 @@ def scrape_merci():
 
     return results
 
-# --- MAIN ---
 
 def main():
     """
-    Appelle les 15 fonctions de scraping, compile les offres, 
-    génère un index.html mobile-friendly et clair.
+    Appelle les 15 fonctions de scraping,
+    compile les offres détectées (réduc >= 5%),
+    génère index.html (mise en page simple, responsive).
     """
     all_offers = []
 
-    # 1. Scraping de chaque site
+    # 1. Appeler toutes les fonctions
     all_offers.extend(scrape_augustinusbader())
     all_offers.extend(scrape_sephora())
     all_offers.extend(scrape_marionnaud())
@@ -575,14 +529,13 @@ def main():
     all_offers.extend(scrape_douglas())
     all_offers.extend(scrape_merci())
 
-    # 2. Génération du HTML
+    # 2. Génération HTML
     with open("index.html", "w", encoding="utf-8") as f:
         f.write("<!DOCTYPE html><html lang='fr'>\n")
         f.write("<head>\n")
         f.write("  <meta charset='UTF-8'/>\n")
         f.write("  <meta name='viewport' content='width=device-width, initial-scale=1.0'/>\n")
-        f.write("  <title>Offres Augustinus Bader - The Cream</title>\n")
-        # Un peu de style pour un rendu clair & responsive
+        f.write("  <title>Offres Augustinus Bader – The Cream</title>\n")
         f.write("""
   <style>
     body {
@@ -643,15 +596,14 @@ def main():
                 line = f"""
 <li class='offer'>
   <div><strong>{o['product']}</strong> – {o['current_price']:.2f}€ 
-    (référence : {o['reference_price']:.2f}€)
-  </div>
-  <div>Site : <a href="{o['url']}" target="_blank">{o['site']}</a></div>
+    (référence : {o['reference_price']:.2f}€)</div>
+  <div>Site : <a href="{o['url']}" target="_blank">{o['site']}</a></div>
 </li>
 """
                 f.write(line)
             f.write("</ul>\n")
         else:
-            f.write("<p class='no-offers'>Aucune offre trouvée avec 20% de réduction ou plus.</p>\n")
+            f.write("<p class='no-offers'>Aucune offre trouvée avec 5% de réduction ou plus.</p>\n")
 
         f.write("<footer>Mis à jour automatiquement, 2 fois par jour.</footer>\n")
         f.write("</body></html>\n")
