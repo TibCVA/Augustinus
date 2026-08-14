@@ -150,7 +150,9 @@ const PRESETS = {
   hero() {
     sim.stage('hero');
     const p = sim.player.pos;
-    setCam(p.x + 2.4, p.y + 1.7, p.z + 4.4, p.x, p.y + 1.35, p.z);
+    // pulled back and biased left so her head clears the top scoreboard and she
+    // sits off the ability cluster
+    setCam(p.x + 2.7, p.y + 2.1, p.z + 4.9, p.x + 0.2, p.y + 1.05, p.z);
     settle(2, 8);
   },
   ult() {

@@ -1047,7 +1047,9 @@ export class Sim {
       this.hud?.damageNumber(_v1.set(-4.4, 1.2, -0.6), 42, 'phys');
       this.hud?.damageNumber(_v1.set(P.pos.x, 1.5, P.pos.z), 37, 'taken');
     } else if (name === 'hero') {
-      P.pos.set(-13.2, 0, 3.4); P.facing = 0.55;
+      // forward is (sin f, cos f); camera sits at +X/+Z, so f ≈ 0.5 faces it.
+      // Bias off-axis for a 3/4 hero shot rather than a flat front-on.
+      P.pos.set(-13.2, 0, 3.4); P.facing = 0.55 - 0.38;
       B.pos.set(30, 0, -2);
       P.play('showcase', { dur: 1e9, lock: true, loop: true, blend: 20 });
       P.anim.t = 1.2;
