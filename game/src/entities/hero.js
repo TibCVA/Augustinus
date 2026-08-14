@@ -222,7 +222,7 @@ const SERA = {
   cloth: 0x3b52b4, clothDark: 0x232c74, skin: 0xfbd9b8, skinShade: 0xe6ad88,
   hair: 0xffd86e, hairTip: 0xfff3cd, steel: 0xe3ecf7, core: 0x7cf0ff,
   capeTex: 'clothBlue', rimW: 0xffd79a, rimC: 0x74d3f0,
-  scale: 1.20, bulk: 1.04, headR: 0.198, hipY: 1.00, shX: 0.268, shY: 0.46,
+  scale: 1.20, bulk: 1.04, headR: 0.218, hipY: 1.00, shX: 0.268, shY: 0.46,
 };
 const KARGATH = {
   hero: 'kargath',
@@ -230,7 +230,7 @@ const KARGATH = {
   cloth: 0x7a2f1e, clothDark: 0x431a14, skin: 0xd89a67, skinShade: 0xa66c44,
   hair: 0x3d332a, hairTip: 0x5d5042, steel: 0xd0c9ba, core: 0xff9440,
   capeTex: 'clothRed', rimW: 0xffc078, rimC: 0x8fb6d8,
-  scale: 1.30, bulk: 1.32, headR: 0.205, hipY: 0.95, shX: 0.315, shY: 0.43,
+  scale: 1.30, bulk: 1.32, headR: 0.225, hipY: 0.95, shX: 0.315, shY: 0.43,
 };
 
 // ------------------------------------------------------------- rig builder --
@@ -318,10 +318,11 @@ function buildRig(spec) {
     const knee = joint(hip, 0, -legLen, 0, 'knee' + side, rig);
     const gp = [];
     // knee cop + greave + boot, all one plate mesh
-    gp.push([ell(0.108 * B, 0.10, 0.11 * B, 9, 7).translate(0, 0.005, 0.022), P, { ao: 0.18, aoY0: -0.08, aoY1: 0.06, top: 0.16 }]);
-    gp.push([new THREE.ConeGeometry(0.062, 0.11, 6).rotateX(Math.PI / 2).translate(0, 0.0, 0.11 * B), S ? TR : P, { ao: 0 }]);
+    gp.push([ell(0.112 * B, 0.105, 0.118 * B, 9, 7).translate(0, 0.005, 0.022), P, { ao: 0.18, aoY0: -0.08, aoY1: 0.06, top: 0.16 }]);
+    gp.push([ell(0.062 * B, 0.085, 0.075, 7, 5).translate(0, -0.035, 0.095 * B), P, { ao: 0.15, aoY0: -0.1, aoY1: 0.02, top: 0.18 }]);
     gp.push([limb(0.118 * B, 0.106 * B, shinLen, 9).translate(0, -0.05, 0.005), P,
       { ao: 0.28, aoY0: -shinLen, aoY1: -0.1, to: PS, y0: -shinLen, y1: -0.1 }]);
+    gp.push([cbox(0.034, shinLen * 0.62, 0.05, 0.012).translate(0, -shinLen * 0.48, 0.108 * B), TR, { ao: 0 }]);
     gp.push([new THREE.TorusGeometry(0.112 * B, 0.024, 5, 12).rotateX(Math.PI / 2).translate(0, -shinLen + 0.03, 0), TR, { ao: 0 }]);
     // foot: sole slab + toe cap + heel
     gp.push([chamferBox(0.165 * B, 0.11, 0.26, 0.035).translate(0, -shinLen - 0.11, 0.05), PS, { ao: 0.3, aoY0: -shinLen - 0.13, aoY1: -shinLen }]);
@@ -353,12 +354,13 @@ function buildRig(spec) {
 
     // layered plate: 3 abdominal lames -> breastplate -> gorget, each lapping the last
     const pp = [];
-    const lameR = S ? [0.163, 0.180, 0.198] : [0.190, 0.212, 0.232];
-    for (let i = 0; i < 3; i++) {
-      const y = 0.02 + i * 0.085;
-      pp.push([band(lameR[i] * B * 0.94, lameR[i] * B, y, y + 0.095, 13), i === 1 ? PS : P,
-        { ao: 0.3, aoY0: 0.0, aoY1: 0.28, top: 0.12 }]);
-    }
+    // ribbed abdomen: one watertight lathe whose profile steps out/in three
+    // times — reads as overlapping lames with no gaps or sawtooth seams
+    const rib = S
+      ? [[0.150, 0.00], [0.178, 0.035], [0.168, 0.080], [0.192, 0.115], [0.182, 0.160], [0.206, 0.195], [0.198, 0.240]]
+      : [[0.186, 0.00], [0.218, 0.04], [0.206, 0.090], [0.234, 0.130], [0.222, 0.180], [0.252, 0.215], [0.240, 0.255]];
+    pp.push([lathe(rib.map(([r, y]) => [r * B, y]), 15), P,
+      { ao: 0.26, aoY0: 0.0, aoY1: 0.26, top: 0.14, to: PS, y0: 0.24, y1: 0.0 }]);
     const chest = S
       ? [[0.198 * B, 0.24], [0.234 * B, 0.34], [0.250 * B, 0.43], [0.238 * B, 0.505], [0.176 * B, 0.575]]
       : [[0.228 * B, 0.22], [0.272 * B, 0.32], [0.288 * B, 0.42], [0.268 * B, 0.50], [0.196 * B, 0.565]];
@@ -406,13 +408,13 @@ function buildRig(spec) {
     sh.add(mesh(assemble(ap), mBody));
 
     const pp = [];
-    const R0 = 0.155 * B * big;
+    const R0 = 0.142 * B * big;
     // main dome, pushed inboard so it sinks into the chest
     pp.push([new THREE.SphereGeometry(R0, 11, 7, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1.22, 1.0, 1.16)
       .translate(-sx * 0.035 * B, 0.03, 0), P, { ao: 0.22, aoY0: -0.14, aoY1: 0.12, top: 0.2, to: PS, y0: 0.12, y1: -0.12 }]);
     // second lame wrapping the upper arm — the overlap kills the shoulder gap
     pp.push([new THREE.SphereGeometry(R0 * 0.94, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.52).scale(1.14, 0.72, 1.08)
-      .translate(-sx * 0.02 * B, -0.085, 0), PS, { ao: 0.3, aoY0: -0.2, aoY1: -0.02 }]);
+      .translate(-sx * 0.02 * B, -0.085, 0), S ? P2 : PS, { ao: 0.3, aoY0: -0.2, aoY1: -0.02 }]);
     pp.push([new THREE.TorusGeometry(R0 * 1.08, 0.019, 5, 14).rotateX(Math.PI / 2).scale(1.16, 1, 1.1)
       .translate(-sx * 0.035 * B, 0.015, 0), TR, { ao: 0 }]);
     if (S) {
@@ -451,10 +453,10 @@ function buildRig(spec) {
     if (S) {
       // --- eyes: lidded almond, iris, pupil, catchlight, brow ---
       for (const sx of [-1, 1]) {
-        const ex = sx * R * 0.335, ey = hy + R * 0.06, ez = R * 0.80;
-        const eye = ell(R * 0.225, R * 0.175, R * 0.13, 9, 7).rotateZ(sx * 0.18).rotateY(sx * 0.26).translate(ex, ey, ez);
+        const ex = sx * R * 0.335, ey = hy + R * 0.11, ez = R * 0.80;
+        const eye = ell(R * 0.235, R * 0.185, R * 0.13, 9, 7).rotateZ(sx * 0.18).rotateY(sx * 0.26).translate(ex, ey, ez);
         bp.push([eye, 0xfdf8f0, { ao: 0.3, aoY0: ey - R * 0.16, aoY1: ey + R * 0.06 }]);
-        bp.push([ell(R * 0.128, R * 0.148, R * 0.085, 8, 6).translate(ex + sx * 0.004, ey - R * 0.01, ez + R * 0.075), 0x1d6bb4,
+        bp.push([ell(R * 0.135, R * 0.158, R * 0.088, 8, 6).translate(ex + sx * 0.004, ey - R * 0.01, ez + R * 0.075), 0x1d6bb4,
           { ao: 0, to: 0x74d6f5, y0: ey - R * 0.14, y1: ey + R * 0.12 }]);
         bp.push([ell(R * 0.062, R * 0.078, R * 0.055, 7, 5).translate(ex + sx * 0.004, ey - R * 0.02, ez + R * 0.10), 0x0d1522, { ao: 0 }]);
         bp.push([ell(R * 0.042, R * 0.042, R * 0.034, 6, 5).translate(ex - sx * 0.022, ey + R * 0.085, ez + R * 0.108), 0xffffff, { ao: 0 }]);
@@ -475,8 +477,8 @@ function buildRig(spec) {
       hp.push([new THREE.SphereGeometry(R * 1.09, 13, 9, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1.07, 1.07, 1.10)
         .translate(0, hy + R * 0.04, -R * 0.06), spec.hair, HA]);
       // forehead mass, swept up and to one side
-      hp.push([ell(R * 1.00, R * 0.50, R * 0.66, 12, 8).rotateZ(0.18).translate(-R * 0.06, hy + R * 0.58, R * 0.34), spec.hair, HA]);
-      hp.push([ell(R * 0.58, R * 0.56, R * 0.54, 9, 7).translate(-R * 0.62, hy + R * 0.46, R * 0.44), spec.hair, HA]);
+      hp.push([ell(R * 1.00, R * 0.46, R * 0.66, 12, 8).rotateZ(0.16).translate(-R * 0.06, hy + R * 0.70, R * 0.32), spec.hair, HA]);
+      hp.push([ell(R * 0.56, R * 0.52, R * 0.52, 9, 7).translate(-R * 0.64, hy + R * 0.56, R * 0.42), spec.hair, HA]);
       // back volume
       hp.push([ell(R * 1.00, R * 0.94, R * 0.86, 12, 9).translate(0, hy + R * 0.08, -R * 0.46), spec.hair,
         { ao: 0.3, aoY0: hy - R * 0.8, aoY1: hy + R * 0.6 }]);

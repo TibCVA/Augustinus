@@ -285,7 +285,6 @@ function buildAtlas(cellDrawers, S = 512) {
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   t.generateMipmaps = false;
   t.minFilter = t.magFilter = THREE.LinearFilter;
-  t.userData.canvas = c;
   return t;
 }
 
@@ -405,7 +404,6 @@ function buildDecalAtlas(S = 512) {
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   t.generateMipmaps = false;
   t.minFilter = t.magFilter = THREE.LinearFilter;
-  t.userData.canvas = c;
   return t;
 }
 
@@ -563,8 +561,14 @@ class ParticlePool {
   clear() { this.n = 0; this.geo.instanceCount = 0; this.mesh.visible = false; }
 }
 
+// Upload only the live slice of an instanced attribute. The range record is
+// allocated once per attribute and then reused, so the loop stays alloc-free.
 function pushRange(attr, count) {
-  if (attr.clearUpdateRanges) { attr.clearUpdateRanges(); attr.addUpdateRange(0, count); }
+  const r = attr.updateRanges;
+  if (r) {
+    if (r.length === 0) r.push({ start: 0, count });
+    else { r[0].start = 0; r[0].count = count; r.length = 1; }
+  }
   attr.needsUpdate = true;
 }
 
@@ -1501,7 +1505,6 @@ class TrailBank {
 
 // =================================================================== VFX ===
 export class VFX {
-  static DEBUG_DECALS = false;
   constructor({ scene, groundHeight, gradeUniforms, onText }) {
     this.scene = scene;
     this.groundHeight = groundHeight || (() => 0);
@@ -1984,9 +1987,9 @@ export class VFX {
 
     // --- shockwave train ---------------------------------------------------
     // fast thin outrunner
-    this.ringPool.spawn({ x, y: gy + 0.20, z, r0: 0.8, r1: r * 2.2, dur: 0.6, col: 0xcfe6ff, alpha: 0.8, thick: 0.045, dust: 0.14, emis: 0.8, ease: 3.4 });
-    // main bright shockwave
-    this.ringPool.spawn({ x, y: gy + 0.19, z, r0: 1.2, r1: r * 1.9, dur: 0.9, col: 0xffbe64, alpha: 1, thick: 0.16, dust: 0.7, emis: 1.05, ease: 3 });
+    this.ringPool.spawn({ x, y: gy + 0.20, z, r0: 0.8, r1: r * 2.2, dur: 0.6, col: 0xcfe6ff, alpha: 0.85, thick: 0.032, dust: 0.14, emis: 0.95, ease: 3.4 });
+    // main bright shockwave — thin band, hot lip, heavy dust skirt behind it
+    this.ringPool.spawn({ x, y: gy + 0.19, z, r0: 1.2, r1: r * 1.9, dur: 0.9, col: 0xffbe64, alpha: 1, thick: 0.10, dust: 0.85, emis: 1.3, ease: 3 });
     // hot inner ring
     this.ringPool.spawn({ x, y: gy + 0.18, z, r0: 0.3, r1: r * 1.0, dur: 0.5, col: 0xffe3ab, alpha: 0.85, thick: 0.24, dust: 0.35, emis: 0.8, ease: 2.4 });
     // slow soot skirt
@@ -2002,7 +2005,6 @@ export class VFX {
     this.decalPool.spawn({ x, y: gy + 0.11, z, size: r * 1.9, dur: 11, col: 0xffb254, sprite: 0, hot: 1, alpha: 1 });
     this.decalPool.spawn({ x, y: gy + 0.10, z, size: r * 3.0, dur: 8, col: 0xff9a3c, sprite: 2, hot: 0.35, alpha: 0.7 });
     this.decalPool.spawn({ x, y: gy + 0.12, z, size: r * 2.2, dur: 1.6, col: 0xffd28a, sprite: 3, hot: 1, alpha: 0.0 });
-    if (VFX.DEBUG_DECALS) return;
 
     // --- vertical light burst ---------------------------------------------
     // the column uses a double-tapered streak so its hot zone sits ABOVE the
@@ -2138,7 +2140,7 @@ export class VFX {
         x: x + Math.cos(a) * rr, y: gy + rf(0.3, 3.0), z: z + Math.sin(a) * rr,
         vx: Math.cos(a) * rf(1.0, 4.0), vy: rf(2.0, 5.6), vz: Math.sin(a) * rf(1.0, 4.0),
         life: rf(1.2, 2.1), size: rf(2.0, 3.6), sizeEnd: rf(4.4, 7.0),
-        col: 0xa48b68, alpha: rf(0.42, 0.68), sprite: A_SMOKE, drag: 1.5, glow: 1,
+        col: 0xa48b68, alpha: rf(0.26, 0.44), sprite: A_SMOKE, drag: 1.5, glow: 1,
         rot: rf(0, 6.28), rotV: rf(-0.8, 0.8), fadePow: 1.5,
       });
     }
@@ -2160,7 +2162,7 @@ export class VFX {
         x: x + Math.cos(a) * rr, y: gy + rf(0.6, 3.2), z: z + Math.sin(a) * rr,
         vx: Math.cos(a) * rf(2, 7), vy: rf(2.4, 5.4), vz: Math.sin(a) * rf(2, 7),
         life: rf(0.9, 1.8), size: rf(1.1, 2.1), sizeEnd: rf(2.8, 4.6),
-        col: 0x3a2f24, alpha: rf(0.34, 0.55), sprite: A_SOOT, drag: 2.6, glow: 1, fadePow: 1.4,
+        col: 0x3a2f24, alpha: rf(0.2, 0.36), sprite: A_SOOT, drag: 2.6, glow: 1, fadePow: 1.4,
       });
     }
   }
