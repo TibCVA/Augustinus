@@ -49,7 +49,7 @@ export class HUD {
         sweep: el.querySelector('.abSweep'),
         cd: el.querySelector('.abCd'),
         pips: el.querySelector('.abPips'),
-        state: '', deg: -1, txt: '', prevCd: null, castT: 0,
+        state: '', deg: -1, txt: '', prevCd: null, castT: 0, castCls: '', castAlt: false,
       };
     }
     this.setState(this.ab.A, 'ready');
@@ -123,8 +123,9 @@ export class HUD {
     this.seq = 0;
     for (const k of AB_KEYS) {
       const a = this.ab[k];
-      a.prevCd = null; a.castT = 0;
+      a.prevCd = null; a.castT = 0; a.castCls = '';
       a.el.classList.remove('cast');
+      a.el.classList.remove('cast2');
     }
     this.snapStates();
   }
@@ -250,17 +251,21 @@ export class HUD {
           : p.mana < AB_MANA[k] ? 'noMana' : 'ready';
       this.setState(a, state);
 
-      // cast / press feedback: cooldown jumped up from zero
-      if (a.prevCd !== null && cd > a.prevCd + 0.05 && a.prevCd <= 0.02) {
-        a.el.classList.remove('cast');
-        void a.el.offsetWidth; // restart the keyframes (only on an actual cast)
-        a.el.classList.add('cast');
+      // cast / press feedback: cooldown jumped up from zero.
+      // alternate two identical classes so the keyframes restart without a
+      // forced reflow (no layout reads in the frame loop)
+      if (!locked && a.prevCd !== null && cd > a.prevCd + 0.05 && a.prevCd <= 0.02) {
+        const on = a.castAlt ? 'cast2' : 'cast';
+        if (a.castCls) a.el.classList.remove(a.castCls);
+        a.el.classList.add(on);
+        a.castCls = on;
+        a.castAlt = !a.castAlt;
         a.castT = 0.45;
       }
       a.prevCd = cd;
       if (a.castT > 0) {
         a.castT -= dt;
-        if (a.castT <= 0) a.el.classList.remove('cast');
+        if (a.castT <= 0 && a.castCls) { a.el.classList.remove(a.castCls); a.castCls = ''; }
       }
 
       if (state === 'cooling') {

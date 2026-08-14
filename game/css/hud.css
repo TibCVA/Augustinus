@@ -417,8 +417,10 @@ html, body {
   border: 2px solid rgba(255, 236, 190, 0.95);
   box-shadow: 0 0 12px rgba(255, 214, 130, 0.9), inset 0 0 12px rgba(255, 226, 160, 0.55);
 }
-.abBtn.cast .abFlash { animation: abCastRing 0.42s cubic-bezier(0.2, 0.7, 0.3, 1); }
-.abBtn.cast .abFace { animation: abCastFace 0.32s ease-out; }
+.abBtn.cast .abFlash,
+.abBtn.cast2 .abFlash { animation: abCastRing 0.42s cubic-bezier(0.2, 0.7, 0.3, 1); }
+.abBtn.cast .abFace,
+.abBtn.cast2 .abFace { animation: abCastFace 0.32s ease-out; }
 @keyframes abCastRing {
   0%   { opacity: 1; transform: scale(0.82); }
   100% { opacity: 0; transform: scale(1.55); }

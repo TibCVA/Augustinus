@@ -2036,14 +2036,14 @@ export class VFX {
     });
 
     // --- radial god-ray streaks -------------------------------------------
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * TAU + rf(-0.11, 0.11);
-      const pitch = rf(0.5, 1.35);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU + rf(-0.13, 0.13);
+      const pitch = rf(0.55, 1.35);
       const cp = Math.cos(pitch), sp = Math.sin(pitch);
       const dx = Math.cos(a) * cp, dy = sp, dz = Math.sin(a) * cp;
       const sp0 = rf(8, 15);
       this.pAdd.spawn({
-        x: x + dx * 1.2, y: gy + 0.5 + dy * 1.2, z: z + dz * 1.2,
+        x: x + dx * 2.0, y: gy + 1.5 + dy * 2.0, z: z + dz * 2.0,
         vx: dx * sp0, vy: dy * sp0, vz: dz * sp0,
         dirX: dx, dirY: dy, dirZ: dz,
         life: rf(0.44, 0.7), size: rf(0.5, 0.95), sizeEnd: rf(0.1, 0.24),
@@ -2130,13 +2130,15 @@ export class VFX {
     // --- dust: annular curtain + outward-riding skirt -----------------------
     // spawned in a ring, not at the centre, so the crater and the hero stay
     // readable while the plume frames the impact.
-    for (let i = 0; i < 24; i++) {
-      const a = rf(0, TAU), rr = rf(r * 0.45, r * 1.15);
+    // curtain sits OUTSIDE the crater lip so it darkens bright pavement rather
+    // than washing out the scorch mark it is supposed to frame
+    for (let i = 0; i < 30; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.9, r * 1.7);
       this.pAlpha.spawn({
-        x: x + Math.cos(a) * rr, y: gy + rf(0.2, 1.6), z: z + Math.sin(a) * rr,
+        x: x + Math.cos(a) * rr, y: gy + rf(0.3, 3.0), z: z + Math.sin(a) * rr,
         vx: Math.cos(a) * rf(1.0, 4.0), vy: rf(2.0, 5.6), vz: Math.sin(a) * rf(1.0, 4.0),
-        life: rf(1.2, 2.1), size: rf(1.5, 2.7), sizeEnd: rf(3.8, 6.2),
-        col: 0xb59d7a, alpha: rf(0.30, 0.5), sprite: A_SMOKE, drag: 1.5, glow: 1,
+        life: rf(1.2, 2.1), size: rf(2.0, 3.6), sizeEnd: rf(4.4, 7.0),
+        col: 0xa48b68, alpha: rf(0.42, 0.68), sprite: A_SMOKE, drag: 1.5, glow: 1,
         rot: rf(0, 6.28), rotV: rf(-0.8, 0.8), fadePow: 1.5,
       });
     }
@@ -2152,10 +2154,10 @@ export class VFX {
       });
     }
     // dark soot puffs, kept out at the rim so the core stays clean
-    for (let i = 0; i < 14; i++) {
-      const a = rf(0, TAU), rr = rf(r * 0.5, r * 1.1);
+    for (let i = 0; i < 16; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.85, r * 1.5);
       this.pAlpha.spawn({
-        x: x + Math.cos(a) * rr, y: gy + rf(0.5, 2.6), z: z + Math.sin(a) * rr,
+        x: x + Math.cos(a) * rr, y: gy + rf(0.6, 3.2), z: z + Math.sin(a) * rr,
         vx: Math.cos(a) * rf(2, 7), vy: rf(2.4, 5.4), vz: Math.sin(a) * rf(2, 7),
         life: rf(0.9, 1.8), size: rf(1.1, 2.1), sizeEnd: rf(2.8, 4.6),
         col: 0x3a2f24, alpha: rf(0.34, 0.55), sprite: A_SOOT, drag: 2.6, glow: 1, fadePow: 1.4,
