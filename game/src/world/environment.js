@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tex, mats, uTime, uSunDir, PAL } from '../core/assets.js';
 import { SEED, makeRng } from '../core/rng.js';
-import { Bucket, mat4, lathe, jitterGeo, boxUV } from './props.js';
+import { Bucket, mat4, lathe, jitterGeo, boxUV, bakeTint, chamferBox, puffNormals } from './props.js';
 
 // Local deterministic stream so environment tweaks never shift other modules' RNG.
 const ER = makeRng(SEED ^ 0x7c1d53);
@@ -552,6 +552,542 @@ export function buildEnvironment(scene, quality = 1) {
     tint: [0xffe2b0, 0xffd9a0], size: 2.6, tex_: tex.dot,
     speed: 0.5, flutter: 0.35, rise: 0.02, additive: true, opacity: 0.5,
   }));
+
+  // ============================================== midground + background ====
+  // The world beyond the arena rim: floating karst islets at three depth tiers,
+  // ruined elven architecture (viaducts, colonnades, a rotunda) and two landmark
+  // spires standing out of the cloud sea. Everything merges into ONE opaque draw
+  // call (+1 for the mist skirts) and is shaded by the *same* skyRay() the dome
+  // and the cloud strata use, blended with the same exp2 curve as scene.fog — so
+  // each tier lands in correct aerial perspective and can never read as a decal
+  // pasted on the sky. Read-only set dressing: nothing is closer than 78 units
+  // from the arena centre and nothing rises near the play surface.
+  {
+    const KEEP = ['position', 'normal', 'color'];
+    const solid = [];
+    const skirts = [];                       // [x, y, z, w, h] mist puffs
+
+    // `bands` bakes horizontal sedimentary strata into the vertex colour before
+    // the placement matrix, so cliff faces carry rock structure instead of
+    // reading as one flat facetted value.
+    function add(geo, M, tint, bands) {
+      let g = geo.index ? geo.toNonIndexed() : geo;
+      if (!g.attributes.normal) g.computeVertexNormals();
+      bakeTint(g, tint);
+      if (bands) {
+        const p = g.attributes.position, c = g.attributes.color, k = bands[0], a = bands[1];
+        for (let i = 0; i < p.count; i++) {
+          const y = p.getY(i);
+          const b = 1 + a * (Math.sin(y * k) * 0.62 + Math.sin(y * k * 2.37 + 1.7) * 0.38);
+          c.setXYZ(i, c.getX(i) * b, c.getY(i) * b, c.getZ(i) * b);
+        }
+      }
+      if (M) g.applyMatrix4(M);
+      for (const k of Object.keys(g.attributes)) if (!KEEP.includes(k)) g.deleteAttribute(k);
+      solid.push(g);
+    }
+    const sub = (M, l) => (M ? M.clone().multiply(l) : l);
+    const D2R = Math.PI / 180;
+    const px = (deg, r) => Math.cos(deg * D2R) * r;
+    const pz = (deg, r) => Math.sin(deg * D2R) * r;
+    // Placement matrix: long axis tangent to the ring, so faces turn to the arena.
+    const at = (deg, r, y = 0, skew = 0, tilt = 0) =>
+      mat4(px(deg, r), y, pz(deg, r), tilt, -(deg + 90 + skew) * D2R, tilt * 0.6);
+
+    // Deliberately darker than the arena palette: these masses are backlit and
+    // must hold a value *below* the sky so the haze — not the albedo — is what
+    // lifts them toward the horizon.
+    const T_ROCK = { base: 0x6c6151, jitter: 0.16, moss: 0.26, ao: 0.55 };
+    const T_STONE = { base: 0xa79b83, jitter: 0.11, moss: 0.34, ao: 0.36 };
+    const T_GRASS = { base: 0x4d7331, jitter: 0.18, ao: 0.28, topLight: 0.22 };
+    const T_PINK = { base: 0xcd7d9a, jitter: 0.13, ao: 0.36, topLight: 0.40 };
+    const T_GREEN = { base: 0x4b7431, jitter: 0.16, ao: 0.36, topLight: 0.30 };
+    const T_GOLD = { base: 0xffcf8e, jitter: 0.05, ao: 0 };
+
+    // ------------------------------------------------------------ dressing --
+    // Trees and columns are built at *absolute* size no matter how big the mass
+    // under them is: they are the scale reference that makes the islets read as
+    // landmasses rather than pebbles.
+    function bgTree(M, x, z, h, pink) {
+      const tr = new THREE.CylinderGeometry(h * 0.04, h * 0.08, h * 0.55, 5);
+      tr.translate(0, h * 0.27, 0);
+      add(tr, sub(M, mat4(x, 0, z)), { base: 0x8a7154, jitter: 0.1, ao: 0.45, aoY0: 0, aoY1: h * 0.4 });
+      for (let i = 0; i < 3; i++) {
+        const bs = h * ER.f(0.23, 0.34);
+        const g = new THREE.IcosahedronGeometry(bs, 0);
+        g.scale(1.35, 0.82, 1.25);
+        puffNormals(g);
+        add(g, sub(M, mat4(x + ER.spread(h * 0.22), h * ER.f(0.56, 0.82), z + ER.spread(h * 0.22), 0, ER.f(6.28))),
+          { ...(pink ? T_PINK : T_GREEN), aoY0: -bs, aoY1: bs });
+      }
+    }
+    function bgColumn(M, x, z, h, r = 0.55, broken = false, ry = 0) {
+      const hh = broken ? h * ER.f(0.26, 0.68) : h;
+      add(chamferBox(r * 3.1, r * 0.6, r * 3.1, r * 0.14), sub(M, mat4(x, 0, z, 0, ry)),
+        { ...T_STONE, ao: 0.45, aoY0: 0, aoY1: r * 0.6 });
+      const shaft = lathe([[r * 1.12, 0], [r, r * 0.6], [r * 0.85, hh * 0.92], [r * 0.92, hh]], 8);
+      if (broken) jitterGeo(shaft, r * 0.17, ER);
+      add(shaft, sub(M, mat4(x, r * 0.6, z, 0, ry)), { ...T_STONE, aoY0: 0, aoY1: hh * 0.55 });
+      if (!broken) {
+        add(chamferBox(r * 2.7, r * 0.5, r * 2.7, r * 0.12), sub(M, mat4(x, hh + r * 0.55, z, 0, ry)),
+          { ...T_STONE, ao: 0.2, aoY0: 0, aoY1: r * 0.5 });
+      }
+    }
+
+    // ------------------------------------------------------------- islets ---
+    // Inverted teardrop: a flat plateau with a long root that dives into the
+    // cloud deck, so the mass reads as floating without ever showing a "cut".
+    // Three archetypes so a ring of islets never reads as one shape repeated:
+    // anvil (plateau on a tapered root), stack (sheer sea-stack cliffs) and
+    // raft (low, wide, barely more than a shelf).
+    // Roots end blunt and broken, never in a needle point — a tapered cone is
+    // the single most "default 3D" shape a floating island can have.
+    const ISLE_PROFILE = {
+      anvil: (R, deep) => [
+        [R * 0.02, -deep * 1.06], [R * 0.13, -deep], [R * 0.30, -deep * 0.84],
+        [R * 0.45, -deep * 0.62], [R * 0.64, -deep * 0.40], [R * 0.82, -deep * 0.20],
+        [R * 0.93, -deep * 0.07], [R * 1.00, -R * 0.34], [R * 0.99, -R * 0.10],
+        [R * 0.87, R * 0.12],
+      ],
+      stack: (R, deep) => [
+        [R * 0.02, -deep * 1.04], [R * 0.30, -deep], [R * 0.55, -deep * 0.82],
+        [R * 0.76, -deep * 0.60], [R * 0.90, -deep * 0.38], [R * 0.97, -deep * 0.18],
+        [R * 1.02, -R * 0.55], [R * 0.96, -R * 0.16], [R * 0.84, R * 0.14],
+      ],
+      raft: (R, deep) => [
+        [R * 0.02, -deep * 1.05], [R * 0.26, -deep], [R * 0.48, -deep * 0.68],
+        [R * 0.72, -deep * 0.42], [R * 0.90, -deep * 0.18], [R * 1.00, -R * 0.20],
+        [R * 1.00, -R * 0.06], [R * 0.90, R * 0.08],
+      ],
+    };
+    function bgIslet(M, R, o = {}) {
+      const {
+        deep = R * 2.6, trees = 0, ruin = 0, stack = 0, pink = true, seg = 11,
+        grass = true, style = 'anvil', sx = 1, sz = 1,
+      } = o;
+      const shape = mat4(0, 0, 0, 0, ER.f(6.28), 0, sx, 1, sz);
+      const body = lathe(ISLE_PROFILE[style](R, deep), seg, true);
+      jitterGeo(body, R * 0.14, ER, 0.55);
+      add(body, sub(M, shape), { ...T_ROCK, aoY0: -deep * 0.5, aoY1: R * 0.12 }, [18 / R, 0.13]);
+      if (grass) {
+        const cap = new THREE.SphereGeometry(R * 0.88, seg, 4, 0, 6.2832, 0, Math.PI * 0.46);
+        jitterGeo(cap, R * 0.07, ER, 0.25);
+        add(cap, sub(M, mat4(0, -R * 0.08, 0, 0, ER.f(6.28), 0, sx, 0.3, sz)),
+          { ...T_GRASS, aoY0: -R * 0.3, aoY1: R * 0.1 });
+        // scrub clumps so the plateau isn't a flat painted disc
+        for (let i = 0, n = 2 + (R > 15 ? 2 : 0); i < n; i++) {
+          const a = ER.f(6.28), rr = R * ER.f(0.25, 0.78), bs = R * ER.f(0.09, 0.17);
+          const g = new THREE.IcosahedronGeometry(bs, 0);
+          g.scale(1.4, 0.62, 1.3);
+          puffNormals(g);
+          add(g, sub(M, mat4(Math.cos(a) * rr * sx, R * 0.06, Math.sin(a) * rr * sz, 0, ER.f(6.28))),
+            { ...T_GREEN, aoY0: -bs, aoY1: bs });
+        }
+      }
+      if (stack > 0) {
+        // blunt, broken rock tower — a pinnacle, not a party hat
+        const sp = lathe([
+          [R * 0.38, 0], [R * 0.34, stack * 0.22], [R * 0.30, stack * 0.5],
+          [R * 0.25, stack * 0.74], [R * 0.19, stack * 0.9], [R * 0.13, stack],
+        ], 8, true);
+        jitterGeo(sp, R * 0.10, ER, 0.4);
+        add(sp, sub(M, mat4(ER.spread(R * 0.36 * sx), R * 0.02, ER.spread(R * 0.36 * sz), 0, ER.f(6.28))),
+          { ...T_ROCK, ao: 0.5, aoY0: 0, aoY1: stack * 0.8 }, [26 / R, 0.12]);
+      }
+      for (let i = 0; i < trees; i++) {
+        const a = ER.f(6.28), rr = R * ER.f(0.18, 0.7);
+        bgTree(M, Math.cos(a) * rr * sx, Math.sin(a) * rr * sz, ER.f(4.2, 6.4), pink && ER.next() > 0.3);
+      }
+      for (let i = 0; i < ruin; i++) {
+        const a = ER.f(6.28), rr = R * ER.f(0.15, 0.62);
+        bgColumn(M, Math.cos(a) * rr * sx, Math.sin(a) * rr * sz, ER.f(5, 9), ER.f(0.45, 0.7), ER.next() > 0.45);
+      }
+    }
+
+    // --------------------------------------------------------- architecture --
+    // Broken viaduct: repeated bays are the strongest scale cue in the frame.
+    function bgViaduct(M, { bays = 5, span = 22, pierH = 18, w = 7, dead = 2 } = {}) {
+      const R = span * 0.5, t = span * 0.15, total = bays * span;
+      for (let i = 0; i <= bays; i++) {
+        const x = -total / 2 + i * span;
+        const gone = i > bays - dead;
+        const ph = gone ? pierH * ER.f(0.3, 0.62) : pierH;
+        add(chamferBox(t * 1.7, ph, w * 1.12, t * 0.18), sub(M, mat4(x, 0, 0)),
+          { ...T_STONE, ao: 0.42, aoY0: 0, aoY1: ph * 0.7 });
+      }
+      for (let i = 0; i < bays; i++) {
+        const cx = -total / 2 + span * (i + 0.5);
+        const gone = i >= bays - dead;
+        const segs = 9;
+        for (let k = 0; k < segs; k++) {
+          const a = Math.PI * (k + 0.5) / segs;
+          if (gone && a < 2.0) continue;         // collapsed half of the end bays
+          const rr = R - t * 0.5;
+          add(chamferBox(Math.PI * R / segs * 1.1, t, w, t * 0.16),
+            sub(M, mat4(cx + Math.cos(a) * rr, pierH + Math.sin(a) * rr, 0, 0, 0, a - Math.PI / 2)),
+            { ...T_STONE, ao: 0.3, aoY0: 0, aoY1: t });
+        }
+        if (!gone) {
+          add(chamferBox(span * 1.02, t * 0.85, w * 1.2, t * 0.16), sub(M, mat4(cx, pierH + R, 0)),
+            { ...T_STONE, ao: 0.25, moss: 0.6, aoY0: 0, aoY1: t });
+          for (const s of [-1, 1]) {
+            add(chamferBox(span * 0.9, t * 0.5, t * 0.4, t * 0.1),
+              sub(M, mat4(cx, pierH + R + t * 0.85, s * w * 0.55)), { ...T_STONE, ao: 0.2, aoY0: 0, aoY1: t });
+          }
+        }
+      }
+      // rock plinth, stretched along the span, diving into the cloud deck
+      const plinth = lathe([
+        [total * 0.02, -52], [total * 0.16, -32], [total * 0.28, -14],
+        [total * 0.34, -3], [total * 0.30, 1.5],
+      ], 9, true);
+      jitterGeo(plinth, total * 0.02, ER);
+      add(plinth, sub(M, mat4(0, 0, 0, 0, 0, 0, 1.45, 1, 0.5)), { ...T_ROCK, aoY0: -30, aoY1: 1 });
+    }
+
+    // Colonnade terrace: platform, two rows of columns (half of them snapped),
+    // a surviving stretch of architrave and a pediment stub.
+    function bgTemple(M, { w = 46, h = 13, n = 7 } = {}) {
+      const d = w * 0.42;
+      add(chamferBox(w * 1.22, 3.2, d * 1.5, 0.7), sub(M, mat4(0, -3.2, 0)), { ...T_STONE, ao: 0.45, aoY0: -3.2, aoY1: 1.5 });
+      add(chamferBox(w * 1.08, 2.2, d * 1.3, 0.55), sub(M, mat4(0, -1.0, 0)), { ...T_STONE, ao: 0.35, aoY0: -1, aoY1: 1.4 });
+      const gap = w / (n - 1);
+      for (let i = 0; i < n; i++) {
+        const x = -w / 2 + i * gap;
+        const broken = i > n - 3.5;
+        bgColumn(M, x, -d * 0.5, h, 1.05, broken);
+        bgColumn(M, x, d * 0.5, h * 0.94, 0.9, broken || ER.next() > 0.6);
+      }
+      const keep = w * 0.62;
+      add(chamferBox(keep, 2.3, d * 1.35, 0.4), sub(M, mat4(-w * 0.5 + keep * 0.5, h + 1.2, 0)),
+        { ...T_STONE, ao: 0.3, moss: 0.55, aoY0: 0, aoY1: 2.3 });
+      add(chamferBox(keep * 0.55, 1.5, d * 1.5, 0.35), sub(M, mat4(-w * 0.5 + keep * 0.35, h + 3.5, 0)),
+        { ...T_STONE, ao: 0.2, moss: 0.6, aoY0: 0, aoY1: 1.5 });
+      // rubble + the rock shelf the whole thing stands on
+      for (let i = 0; i < 4; i++) {
+        const g = new THREE.IcosahedronGeometry(ER.f(1.2, 2.6), 0);
+        jitterGeo(g, 0.5, ER);
+        add(g, sub(M, mat4(ER.spread(w * 0.6), -1.4, d * ER.f(0.6, 1.1) * (ER.next() > 0.5 ? 1 : -1), ER.f(3), ER.f(3))),
+          { ...T_STONE, ao: 0.3, aoY0: -2, aoY1: 2 });
+      }
+      const shelf = lathe([[w * 0.06, -46], [w * 0.3, -26], [w * 0.55, -11], [w * 0.72, -3], [w * 0.66, -1]], 9, true);
+      jitterGeo(shelf, w * 0.035, ER);
+      add(shelf, sub(M, mat4(0, -3, 0, 0, 0, 0, 1.15, 1, 0.75)), { ...T_ROCK, aoY0: -26, aoY1: -1 });
+    }
+
+    // Landmark spire: tapered elven tower + buttress fins + floating gold rings.
+    function bgSpire(M, { h = 52, r = 8, sat = 3, root = true } = {}) {
+      add(lathe([
+        [r * 1.75, 0], [r * 1.62, h * 0.035], [r * 1.30, h * 0.06], [r * 1.22, h * 0.11],
+        [r, h * 0.15], [r * 0.9, h * 0.33], [r * 1.06, h * 0.36], [r * 0.98, h * 0.40],
+        [r * 0.80, h * 0.60], [r * 0.72, h * 0.70], [r * 0.94, h * 0.745],
+        [r * 0.86, h * 0.785], [r * 0.62, h * 0.83],
+      ], 10), M, { ...T_STONE, ao: 0.42, aoY0: 0, aoY1: h * 0.5 }, [26 / h, 0.09]);
+      add(new THREE.ConeGeometry(r * 0.62, h * 0.30, 8), sub(M, mat4(0, h * 0.96, 0)),
+        { ...T_STONE, ao: 0.25, moss: 0.5, aoY0: -h * 0.15, aoY1: h * 0.15 });
+      // buttress fins + the little satellite turrets that give it elven scale
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + 0.4;
+        add(chamferBox(r * 0.34, h * 0.44, r * 1.05, r * 0.08),
+          sub(M, mat4(Math.cos(a) * r * 1.3, h * 0.05, Math.sin(a) * r * 1.3, 0, -a + Math.PI / 2)),
+          { ...T_STONE, ao: 0.45, aoY0: 0, aoY1: h * 0.3 });
+      }
+      for (let i = 0; i < sat; i++) {
+        const a = (i / sat) * Math.PI * 2 + 1.1, sh = h * ER.f(0.30, 0.46), sr = r * 0.34;
+        add(lathe([[sr * 1.4, 0], [sr * 1.15, sh * 0.08], [sr, sh * 0.14], [sr * 0.86, sh]], 8),
+          sub(M, mat4(Math.cos(a) * r * 1.9, -h * 0.02, Math.sin(a) * r * 1.9)),
+          { ...T_STONE, ao: 0.45, aoY0: 0, aoY1: sh * 0.5 });
+        add(new THREE.ConeGeometry(sr * 1.0, sh * 0.34, 7), sub(M, mat4(Math.cos(a) * r * 1.9, sh * 1.15, Math.sin(a) * r * 1.9)),
+          { ...T_STONE, ao: 0.2, moss: 0.5, aoY0: -sh * 0.17, aoY1: sh * 0.17 });
+      }
+      const ring = new THREE.TorusGeometry(r * 1.15, r * 0.07, 5, 16);
+      ring.rotateX(Math.PI / 2);
+      add(ring, sub(M, mat4(0, h * 1.15, 0)), T_GOLD);
+      const ring2 = new THREE.TorusGeometry(r * 0.75, r * 0.055, 5, 14);
+      ring2.rotateX(Math.PI / 2);
+      add(ring2, sub(M, mat4(0, h * 1.23, 0)), T_GOLD);
+      // root, so the tower stands on a piece of the world rather than on nothing
+      if (root) {
+        const rk = lathe([
+          [r * 0.06, -h * 1.0], [r * 0.9, -h * 0.62], [r * 1.7, -h * 0.34],
+          [r * 2.4, -h * 0.12], [r * 2.6, -h * 0.02], [r * 2.2, h * 0.02],
+        ], 10, true);
+        jitterGeo(rk, r * 0.2, ER, 0.5);
+        add(rk, M, { ...T_ROCK, aoY0: -h * 0.5, aoY1: 0 }, [40 / h, 0.12]);
+      }
+    }
+
+    // Rotunda: drum, ring of columns, surviving arc of entablature. Reads as a
+    // sanctum silhouette from any angle.
+    function bgRotunda(M, { R = 22, h = 12, cols = 12 } = {}) {
+      add(lathe([[R * 1.3, -3.2], [R * 1.26, -1.2], [R * 1.12, -0.6], [R * 1.06, 0]], 14),
+        M, { ...T_STONE, ao: 0.4, aoY0: -3.2, aoY1: 0 });
+      for (let i = 0; i < cols; i++) {
+        const a = (i / cols) * Math.PI * 2;
+        bgColumn(M, Math.cos(a) * R, Math.sin(a) * R, h, 0.95, i % 5 === 3, -a);
+      }
+      add(lathe([[R * 1.1, h + 1.1], [R * 1.16, h + 1.9], [R * 1.1, h + 3.0], [R * 0.96, h + 3.3]], 14),
+        M, { ...T_STONE, ao: 0.25, moss: 0.6, aoY0: h, aoY1: h + 3.3 });
+      // drum wall + truncated dome (never seen from inside — these sit far below
+      // the horizon line of every camera)
+      add(lathe([[R * 0.62, 0], [R * 0.66, h * 0.9], [R * 0.6, h + 2.4]], 12),
+        M, { ...T_STONE, ao: 0.4, aoY0: 0, aoY1: h });
+      const dome = [];
+      for (let i = 0; i <= 5; i++) {
+        const t = (i / 5) * 0.78;
+        dome.push([Math.cos(t * Math.PI / 2) * R * 0.62, h + 2.4 + Math.sin(t * Math.PI / 2) * R * 0.5]);
+      }
+      const dg = lathe(dome, 12, false);
+      jitterGeo(dg, R * 0.035, ER);
+      add(dg, M, { ...T_STONE, ao: 0.15, moss: 0.7, aoY0: h, aoY1: h + R * 0.5 });
+      const shelf = lathe([[R * 0.1, -44], [R * 0.6, -24], [R * 1.1, -10], [R * 1.5, -3.4], [R * 1.4, -2.8]], 10, true);
+      jitterGeo(shelf, R * 0.08, ER);
+      add(shelf, M, { ...T_ROCK, aoY0: -24, aoY1: -3 });
+    }
+
+    // Far ghost: a big hazed massif that only ever reads as a value shape.
+    function bgMassif(M, { R = 70, h = 26, deep = 70 } = {}) {
+      // Flat-shouldered mesa: at this range only the value shape survives, and a
+      // stepped table silhouette reads as land where a cone reads as a paper tent.
+      const g = lathe([
+        [R * 0.05, -deep], [R * 0.34, -deep * 0.6], [R * 0.70, -deep * 0.28],
+        [R * 0.95, -deep * 0.06], [R, -R * 0.04], [R * 0.97, h * 0.42],
+        [R * 0.74, h * 0.55], [R * 0.68, h * 0.86], [R * 0.34, h],
+      ], 11, true);
+      jitterGeo(g, R * 0.17, ER, 0.5);
+      add(g, M, { ...T_ROCK, moss: 0.16, aoY0: -deep * 0.5, aoY1: h }, [30 / R, 0.11]);
+      for (let i = 0; i < 3; i++) {
+        const a = ER.f(6.28), rr = R * ER.f(0.1, 0.45);
+        const sp = lathe([[R * 0.14, 0], [R * 0.11, h * 0.5], [R * 0.07, h * 0.8], [R * 0.03, h]], 6, true);
+        jitterGeo(sp, R * 0.03, ER, 0.4);
+        add(sp, sub(M, mat4(Math.cos(a) * rr, h * 0.7, Math.sin(a) * rr)), { ...T_ROCK, aoY0: 0, aoY1: h * 0.7 });
+      }
+    }
+
+    const skirt = (deg, r, y, w, h) => skirts.push([px(deg, r), y, pz(deg, r), w, h]);
+
+    // ------------------------------------------------------- near-mid ring --
+    // First layer past the rim: reads at full contrast and overlaps everything
+    // behind it. Kept low — tops hover around the deck so these never crowd the
+    // arena silhouette, they sit under it.
+    for (const [deg, r, y, R, o] of [
+      [-118, 92, -6, 10, { deep: 24, style: 'stack', stack: 8, trees: 3, ruin: 1, sx: 1.3, sz: 0.8 }],
+      [-100, 104, -4, 12, { deep: 26, trees: 3, stack: 8, sx: 1.25, sz: 0.85 }],
+      [-84, 124, 0, 10, { deep: 20, style: 'raft', trees: 2, ruin: 1, sx: 1.35, sz: 0.9 }],
+      [-68, 148, -5, 15, { deep: 34, style: 'stack', stack: 12, trees: 2 }],
+      [-48, 112, -10, 9, { deep: 20, style: 'raft' }],
+      [-131, 130, -3, 12, { deep: 26, trees: 2, ruin: 1, sx: 0.85, sz: 1.3 }],
+      [-150, 142, -7, 14, { deep: 32, style: 'stack', ruin: 2, stack: 9 }],
+      [-166, 118, -9, 9, { deep: 19, style: 'raft', trees: 1 }],
+      [-32, 124, -7, 10, { deep: 22, trees: 1, sx: 1.3 }],
+      [-12, 142, -2, 13, { deep: 27, style: 'stack', stack: 10 }],
+      [18, 114, -9, 9, { deep: 19, style: 'raft' }],
+      [52, 132, -4, 12, { deep: 25, trees: 2, sx: 1.25, sz: 0.85 }],
+      [88, 104, -8, 9, { deep: 19, style: 'raft' }],
+      [118, 130, 0, 13, { deep: 27, trees: 2, ruin: 1 }],
+      [150, 144, -6, 11, { deep: 22, style: 'stack', stack: 8 }],
+      [176, 112, -11, 9, { deep: 19, style: 'raft' }],
+      [70, 154, 2, 14, { deep: 30, style: 'stack', stack: 11 }],
+    ]) {
+      bgIslet(at(deg, r, y, 0, ER.spread(0.05)), R, o);
+      if (R >= 12) skirt(deg, r, y - R * 0.9, R * 3.0, R * 1.1);
+    }
+
+    // Bare rock down *inside* the chasm, mostly veiled by the deck: read only as
+    // dark shapes through the gaps, which is what gives the drop its depth.
+    for (const [deg, r, y, R, o] of [
+      [-95, 96, -30, 11, { deep: 24, grass: false }],
+      [-72, 130, -36, 13, { deep: 28, grass: false, style: 'stack' }],
+      [-135, 112, -28, 10, { deep: 22, grass: false, sx: 1.3 }],
+      [-158, 152, -38, 12, { deep: 26, grass: false, style: 'raft' }],
+      [-20, 118, -32, 11, { deep: 24, grass: false }],
+      [60, 142, -34, 12, { deep: 26, grass: false, style: 'stack' }],
+      [130, 108, -30, 10, { deep: 22, grass: false, style: 'raft' }],
+    ]) bgIslet(at(deg, r, y, 0, ER.spread(0.07)), R, o);
+
+    // ------------------------------------------------------------ mid ring --
+    for (const [deg, r, y, R, o] of [
+      [-91, 205, -4, 20, { deep: 42, trees: 3, ruin: 2, stack: 15, sx: 1.3, sz: 0.85 }],
+      [-118, 244, 3, 18, { deep: 36, style: 'raft', trees: 2, sx: 1.4 }],
+      [-152, 196, -10, 16, { deep: 34, style: 'stack', ruin: 1 }],
+      [-76, 246, -2, 17, { deep: 36, trees: 2, stack: 13 }],
+      [-40, 232, -5, 20, { deep: 42, style: 'stack', stack: 17, trees: 2 }],
+      [-14, 268, -8, 16, { deep: 33, style: 'raft', sx: 1.3 }],
+      [40, 218, -6, 18, { deep: 36, trees: 2 }],
+      [96, 252, 0, 19, { deep: 38, ruin: 2, style: 'raft', sx: 1.35 }],
+      [140, 202, -9, 15, { deep: 32, style: 'stack' }],
+      [168, 248, -5, 17, { deep: 35, trees: 1 }],
+    ]) {
+      bgIslet(at(deg, r, y, 0, ER.spread(0.04)), R, o);
+      skirt(deg, r, y - R * 0.8, R * 3.2, R * 1.2);
+    }
+
+    // River-frame cluster: tall karst pinnacles standing against the sun glow,
+    // stacked near→far so the low camera gets real parallax up the left side.
+    bgIslet(at(-114, 252, 30), 20, { deep: 54, style: 'stack', trees: 3, ruin: 2, stack: 14 });
+    skirt(-114, 252, -4, 96, 40);
+    // citadel karst: seen from the river camera this is pure underside, so it
+    // needs a silhouette standing on it to read as anything but a floating slab
+    bgIslet(at(-124, 292, 46), 17, { deep: 74, style: 'stack', trees: 2, ruin: 2 });
+    bgSpire(at(-124, 292, 46), { h: 26, r: 4.2, sat: 2, root: false });
+    skirt(-124, 292, 2, 104, 46);
+    bgIslet(at(-141, 250, 32), 15, { deep: 58, style: 'stack', trees: 2, stack: 10 });
+    skirt(-141, 250, -4, 92, 40);
+    bgIslet(at(-145, 300, 22), 22, { deep: 62, trees: 2, ruin: 1, sx: 1.35, sz: 0.8 });
+    bgTemple(at(-145, 300, 22, 26), { w: 30, h: 9, n: 5 });
+    skirt(-145, 300, -6, 110, 44);
+
+    // ---------------------------------------------------------- structures --
+    bgViaduct(at(-70, 250, -32, 6), { bays: 5, span: 26, pierH: 26, w: 8, dead: 2 });
+    skirt(-70, 250, -24, 200, 58);
+    bgTemple(at(-97, 216, -8, -14), { w: 46, h: 13, n: 7 });
+    skirt(-97, 216, -14, 110, 40);
+    bgViaduct(at(-133, 232, -18, -10), { bays: 4, span: 21, pierH: 19, w: 6, dead: 1 });
+    skirt(-133, 232, -14, 150, 48);
+    bgTemple(at(34, 262, -8, 20), { w: 40, h: 12, n: 6 });
+    bgViaduct(at(128, 268, -16, -8), { bays: 4, span: 22, pierH: 20, w: 6, dead: 1 });
+
+    // Base-frame landmark pair: a broken sanctum with its bell tower beside it.
+    bgSpire(at(-61, 344, -34), { h: 66, r: 12 });
+    skirt(-61, 344, -22, 116, 50);
+    bgSpire(at(-55, 316, -26), { h: 34, r: 6, sat: 2 });
+    bgRotunda(at(-73, 336, -16), { R: 24, h: 13, cols: 12 });
+    skirt(-73, 336, -20, 132, 48);
+    // River-frame landmark: a needle standing clear of the cloud sea.
+    bgSpire(at(-130, 288, -26), { h: 84, r: 11 });
+    skirt(-130, 288, -14, 118, 54);
+    bgSpire(at(-137, 340, -20), { h: 46, r: 8, sat: 2 });
+    bgRotunda(at(150, 330, -14), { R: 18, h: 10, cols: 10 });
+
+    // --------------------------------------------------- far ghost skyline --
+    for (const [deg, r, y, R, h] of [
+      [-95, 480, -24, 78, 26], [-52, 512, -26, 88, 22], [-24, 460, -22, 62, 20],
+      [-146, 448, -20, 70, 30], [-172, 505, -24, 82, 22], [16, 495, -22, 74, 24],
+      [62, 460, -20, 60, 18], [108, 500, -24, 80, 22], [136, 450, -22, 66, 20],
+    ]) {
+      bgMassif(at(deg, r, y), { R, h, deep: 80 });
+      skirt(deg, r, y + 2, R * 3.0, R * 1.1);
+    }
+
+    // ------------------------------------------------------------ material --
+    const merged = mergeGeometries(solid, false);
+    merged.computeBoundingSphere();
+    for (const g of solid) g.dispose?.();
+    const bgMat = new THREE.ShaderMaterial({
+      fog: false, vertexColors: true,
+      uniforms: shareSky({ uHazeK: { value: 0.0030 } }),
+      vertexShader: `
+        varying vec3 vWorld; varying vec3 vNrm; varying vec3 vCol;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorld = wp.xyz;
+          vNrm = normalize(mat3(modelMatrix) * normal);
+          vCol = color;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: `
+        ${SKY_UNIFORMS_GLSL}
+        uniform float uHazeK;
+        varying vec3 vWorld; varying vec3 vNrm; varying vec3 vCol;
+        ${SKY_FN_GLSL}
+        void main() {
+          vec3 rv = vWorld - cameraPosition;
+          float dist = length(rv);
+          vec3 dir = rv / dist;
+          vec3 N = normalize(vNrm);
+          float lam = max(dot(N, uSunDir), 0.0);
+          float up = N.y * 0.5 + 0.5;
+          // cool sky dome above, warm bounce off the cloud sea below
+          // cool sky dome above, warm bounce off the lit cloud sea underneath
+          vec3 col = vCol * mix(vec3(0.30, 0.23, 0.17), vec3(0.22, 0.28, 0.43), up);
+          col += vCol * uSunTint * lam * 1.25;
+          col += vCol * uSunTint * (dot(N, uSunDir) * 0.5 + 0.5) * 0.08;   // wrap
+          // backlit halo: the key sits behind this ring, so edges catch light
+          float rim = pow(1.0 - abs(dot(N, dir)), 2.6);
+          col += uSunTint * rim * (0.10 + 0.90 * max(dot(dir, uSunDir), 0.0)) * 0.50;
+          vec3 sky = skyRay(dir);
+          // roots soften as they go down into the deck instead of hanging there
+          col = mix(col, sky * 1.03, smoothstep(-3.0, -30.0, vWorld.y) * 0.62);
+          // aerial perspective — same exp2 curve as scene.fog and the strata
+          float hd = dist * uHazeK;
+          col = mix(col, sky, 1.0 - exp(-hd * hd));
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    });
+    const bgMesh = new THREE.Mesh(merged, bgMat);
+    bgMesh.castShadow = false;
+    bgMesh.receiveShadow = false;
+    bgMesh.renderOrder = -6;
+    bgMesh.matrixAutoUpdate = false; bgMesh.updateMatrix();
+    group.add(bgMesh);
+
+    // ------------------------------------------------------- mist skirts ----
+    // Soft cloud caught around the feet of the big masses: hides every place a
+    // silhouette meets the deck, so nothing looks stamped onto the cloud sea.
+    {
+      const N = skirts.length;
+      const pos = new Float32Array(N * 4 * 3);
+      const cor = new Float32Array(N * 4 * 2);
+      const uvs = new Float32Array(N * 4 * 2);
+      const index = new Uint16Array(N * 6);
+      const CX = [-1, 1, 1, -1], CY = [-1, -1, 1, 1];
+      for (let i = 0; i < N; i++) {
+        const [x, y, z, w, h] = skirts[i];
+        for (let v = 0; v < 4; v++) {
+          const o = (i * 4 + v) * 3, o2 = (i * 4 + v) * 2;
+          pos[o] = x; pos[o + 1] = y; pos[o + 2] = z;
+          cor[o2] = CX[v] * 0.5 * w; cor[o2 + 1] = CY[v] * 0.5 * h;
+          uvs[o2] = CX[v] * 0.5 + 0.5; uvs[o2 + 1] = CY[v] * 0.5 + 0.5;
+        }
+        const b = i * 4, q = i * 6;
+        index[q] = b; index[q + 1] = b + 1; index[q + 2] = b + 2;
+        index[q + 3] = b; index[q + 4] = b + 2; index[q + 5] = b + 3;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('aCorner', new THREE.BufferAttribute(cor, 2));
+      g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      g.setIndex(new THREE.BufferAttribute(index, 1));
+      const mat = new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, fog: false,
+        uniforms: shareSky({ tMap: { value: tex.cloud }, uHazeK: { value: 0.0026 } }),
+        vertexShader: `
+          attribute vec2 aCorner;
+          varying vec2 vUv; varying vec3 vWorld;
+          void main() {
+            vUv = uv;
+            vWorld = position;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            mv.xy += aCorner;
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: `
+          ${SKY_UNIFORMS_GLSL}
+          uniform sampler2D tMap; uniform float uHazeK;
+          varying vec2 vUv; varying vec3 vWorld;
+          ${SKY_FN_GLSL}
+          void main() {
+            vec4 t = texture2D(tMap, vUv);
+            if (t.a < 0.01) discard;
+            vec3 rv = vWorld - cameraPosition;
+            float dist = length(rv);
+            vec3 dir = rv / dist;
+            float az = dot(normalize(vWorld.xz + vec2(1e-5)), normalize(uSunDir.xz + vec2(1e-5)));
+            vec3 col = t.rgb * mix(vec3(0.42, 0.44, 0.62), vec3(1.30, 0.94, 0.62), smoothstep(-0.8, 0.9, az));
+            col *= mix(1.0, 0.42, smoothstep(0.78, 0.10, vUv.y));
+            float hd = dist * uHazeK;
+            float haze = 1.0 - exp(-hd * hd);
+            col = mix(col, skyRay(dir), haze);
+            gl_FragColor = vec4(col, smoothstep(0.10, 0.62, t.a) * 0.40 * (1.0 - haze * 0.45));
+          }`,
+      });
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = -6;
+      mesh.matrixAutoUpdate = false; mesh.updateMatrix();
+      group.add(mesh);
+    }
+  }
 
   // ---------------------------------------------------------------- update --
   function update(dt) {

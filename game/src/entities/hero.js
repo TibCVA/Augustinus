@@ -6,24 +6,30 @@
 //
 // Everything a joint carries is merged into at most three meshes (matte body /
 // metal plate / emissive) using vertex colours, so a fully detailed hero costs
-// ~21 draw calls instead of one per part. Rim light (warm gold from the sun
+// ~22 draw calls instead of one per part. Rim light (warm gold from the sun
 // side, cool teal from ambient) is injected into every material — that fresnel
 // edge is what separates a MOBA character from a grey mannequin.
+//
+// The face is a painted alpha decal (core/assets.js texFace) laid on a
+// spherical patch that hugs the skull: geometry eyes at this scale just read as
+// buried beads, a painted decal reads as a character.
 import * as THREE from 'three';
 import { tex, uTime } from '../core/assets.js';
 import { chamferBox, lathe } from '../world/props.js';
 import { Unit, assemble, addDualRim, addVertexGlow, ell, cbox, strand } from './units.js';
 
-const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
-const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+const _v1 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion();
 const _e1 = new THREE.Euler();
 const _m4 = new THREE.Matrix4();
 const DOWN = new THREE.Vector3(0, -1, 0);
+const clamp = THREE.MathUtils.clamp;
+const fin = (x, d = 0) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
 
-function sm01(x) { x = THREE.MathUtils.clamp(x, 0, 1); return x * x * (3 - 2 * x); }
-function outCubic(x) { x = THREE.MathUtils.clamp(x, 0, 1); return 1 - Math.pow(1 - x, 3); }
-function outQuint(x) { x = THREE.MathUtils.clamp(x, 0, 1); return 1 - Math.pow(1 - x, 5); }
-function inQuad(x) { x = THREE.MathUtils.clamp(x, 0, 1); return x * x; }
+function sm01(x) { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); }
+function outCubic(x) { x = clamp(x, 0, 1); return 1 - Math.pow(1 - x, 3); }
+function outQuint(x) { x = clamp(x, 0, 1); return 1 - Math.pow(1 - x, 5); }
+function inQuad(x) { x = clamp(x, 0, 1); return x * x; }
 
 function mesh(geo, mat, cast = false) {
   const m = new THREE.Mesh(geo, mat);
@@ -51,9 +57,60 @@ function ringPlates(n, { r, y, w, h, d, tilt = -0.16, phase = 0, c = 0.02 }) {
   }
   return out;
 }
-// partial revolve (armour band / collar) — real thickness via an out-and-back profile
+// partial revolve (armour band / collar) — real thickness via an out-and-back
+// profile, so a trim band always sinks into the plate it wraps instead of
+// hovering next to it like a hula hoop.
 function band(rIn, rOut, y0, y1, seg = 14) {
   return lathe([[rIn, y0], [rOut, (y0 + y1) * 0.5], [rOut * 0.99, y1], [rIn * 0.96, y1]], seg);
+}
+// place a feature on the surface of a head sphere of radius d centred at (0,hy,0)
+function onHead(g, az, el, d, hy) {
+  return g.translate(0, 0, d).rotateX(-el).rotateY(az).translate(0, hy, 0);
+}
+
+// --------------------------------------------------------------- face decal --
+// A spherical patch conforming to the skull, carrying the painted face texture.
+// The UV window is chosen so the painted pupils land at ±0.30 R — anything
+// narrower and she goes cross-eyed, anything wider and the eyes slide onto the
+// temples.
+function facePatch(rx, ry, rz, hy, {
+  az = 0.72, el1 = 0.56, el0 = -0.70, seg = 11,
+  u0 = 0.12, u1 = 0.88, v0 = 0.08, v1 = 0.92, lift = 1.018,
+} = {}) {
+  const nx = seg + 1, ny = seg + 1, N = nx * ny;
+  const pos = new Float32Array(N * 3), nor = new Float32Array(N * 3), uv = new Float32Array(N * 2);
+  const col = new Float32Array(N * 3);
+  const idx = [];
+  for (let j = 0; j < ny; j++) {
+    const t = j / (ny - 1);
+    const e = el1 + (el0 - el1) * t;
+    const ce = Math.cos(e), se = Math.sin(e);
+    for (let i = 0; i < nx; i++) {
+      const s = i / (nx - 1);
+      const a = (s * 2 - 1) * az;
+      const k = j * nx + i;
+      const dx = Math.sin(a) * ce, dy = se, dz = Math.cos(a) * ce;
+      pos[k * 3] = dx * rx * lift; pos[k * 3 + 1] = hy + dy * ry * lift; pos[k * 3 + 2] = dz * rz * lift;
+      const nl = 1 / Math.hypot(dx / rx, dy / ry, dz / rz);
+      nor[k * 3] = dx / rx * nl; nor[k * 3 + 1] = dy / ry * nl; nor[k * 3 + 2] = dz / rz * nl;
+      uv[k * 2] = u0 + (u1 - u0) * s;
+      uv[k * 2 + 1] = v1 + (v0 - v1) * t;
+      col[k * 3] = col[k * 3 + 1] = col[k * 3 + 2] = 1;
+    }
+  }
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i, b = a + 1, c = a + nx + 1, d = a + nx;
+      idx.push(a, c, b, a, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(idx);
+  return g;
 }
 
 // ------------------------------------------------------------------ blade --
@@ -76,7 +133,7 @@ function bladeGeo({ len = 1.05, w = 0.058, th = 0.022, steps = 8 }) {
   const g = new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: false, steps });
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
-    const t = THREE.MathUtils.clamp(p.getZ(i) / len, 0, 1);
+    const t = clamp(p.getZ(i) / len, 0, 1);
     let f = 1 - 0.16 * t;
     if (t > 0.84) f *= Math.max(0.03, 1 - Math.pow((t - 0.84) / 0.16, 1.25));
     p.setX(i, p.getX(i) * f);
@@ -87,20 +144,74 @@ function bladeGeo({ len = 1.05, w = 0.058, th = 0.022, steps = 8 }) {
   return g;
 }
 
+// -------------------------------------------------------------------- hands --
+// Mitten-simple but with a real thumb and separated fingers: at MOBA distance
+// that is all a hand needs, and at close range it is the difference between a
+// character and a mannequin.
+function gripFist(sx, sk, ss) {
+  // wraps a hilt running along local +Y through the origin
+  const p = [];
+  p.push([chamferBox(0.082, 0.215, 0.128, 0.032).translate(0, -0.108, 0).translate(-sx * 0.058, 0.028, 0), sk,
+    { ao: 0.20, aoY0: -0.10, aoY1: 0.09, top: 0.14 }]);
+  for (let i = 0; i < 4; i++) {
+    const y = 0.082 - i * 0.047;
+    const w = 0.142 - i * 0.008;
+    p.push([chamferBox(w, 0.042, 0.112 - i * 0.005, 0.016).translate(0, -0.021, 0)
+      .rotateZ(sx * 0.05).translate(sx * 0.014, y, 0.004), sk,
+    { ao: 0.20, aoY0: y - 0.028, aoY1: y + 0.020, top: 0.24 }]);
+  }
+  // thumb laid diagonally over the fingers
+  p.push([chamferBox(0.050, 0.125, 0.055, 0.02).translate(0, -0.125, 0).rotateZ(sx * 1.20).rotateX(-0.30)
+    .translate(-sx * 0.046, 0.086, 0.056), sk, { ao: 0.1, aoY0: 0.0, aoY1: 0.09, top: 0.16 }]);
+  // wrist plug so the cuff never shows a gap
+  p.push([ell(0.062, 0.05, 0.062, 8, 5).translate(0, 0.115, 0), ss, { ao: 0 }]);
+  return p;
+}
+function openHand(sx, sk, ss) {
+  // relaxed half-closed hand hanging from a wrist at the origin. Fingers are a
+  // single curled mass with two grooves — separate twig fingers read as a rake.
+  const p = [];
+  // One compact mass: palm + a single curled finger block + thumb. A row of
+  // separate finger beads reads as a string of pearls at gameplay distance.
+  p.push([ell(0.058, 0.046, 0.054, 8, 6), ss, { ao: 0 }]);
+  p.push([chamferBox(0.104, 0.115, 0.086, 0.036).translate(0, -0.112, 0).rotateX(0.16)
+    .translate(0, 0.006, 0.004), sk, { ao: 0.24, aoY0: -0.13, aoY1: 0.0, top: 0.18 }]);
+  p.push([chamferBox(0.096, 0.062, 0.070, 0.028).translate(0, -0.062, 0).rotateX(1.02)
+    .translate(0, -0.096, 0.028), sk, { ao: 0.30, aoY0: -0.17, aoY1: -0.08, top: 0.24 }]);
+  // two shallow grooves so the finger mass reads as fingers, not a mitten
+  for (const gz of [-0.020, 0.020])
+    p.push([chamferBox(0.014, 0.056, 0.076, 0.005).translate(0, -0.056, 0).rotateX(1.02)
+      .translate(gz, -0.092, 0.030), ss, { ao: 0.2, aoY0: -0.16, aoY1: -0.08 }]);
+  // thumb tucked along the index side
+  p.push([chamferBox(0.030, 0.070, 0.036, 0.013).translate(0, -0.070, 0).rotateZ(-sx * 0.70).rotateX(0.30)
+    .translate(-sx * 0.044, -0.032, 0.024), sk, { ao: 0.16, aoY0: -0.11, aoY1: -0.01, top: 0.18 }]);
+  return p;
+}
+
 // ------------------------------------------------------------------- cape --
 // One draw call. Rows are transformed in the vertex shader by a CPU-run chain
 // so the cloth lags behind on turns, billows on dashes and never clips the body.
+//
+// The chain is deliberately paranoid: a single non-finite value coming out of
+// the sim (a bad facing, a bad airY) used to poison `dirs` permanently and the
+// cloth exploded into a screen-filling sheet. Every input is sanitised, every
+// node is hard-clamped to its rest reach from the root, and if anything still
+// comes out non-finite the whole chain snaps back to the rest pose.
 class Cape {
   constructor(mat, o) {
     this.rows = o.rows; this.seg = o.seg;
+    this.maxReach = (this.rows - 1) * this.seg;
     this.uT = []; this.uR = [];
-    for (let i = 0; i < this.rows; i++) { this.uT.push(new THREE.Vector3()); this.uR.push(new THREE.Matrix3()); }
-    this.nodes = []; this.dirs = []; this.stiff = [];
+    this.nodes = []; this.dirs = []; this.stiff = []; this.rest = [];
     for (let i = 0; i < this.rows; i++) {
-      this.nodes.push(new THREE.Vector3(0, -i * this.seg, 0));
-      this.dirs.push(new THREE.Vector3(0, -1, -0.06).normalize());
-      this.stiff.push(26 - i * 2.6);
+      this.uT.push(new THREE.Vector3());
+      this.uR.push(new THREE.Matrix3());
+      this.nodes.push(new THREE.Vector3());
+      this.dirs.push(new THREE.Vector3());
+      this.rest.push(new THREE.Vector3(0, -1, -0.10 - 0.03 * i).normalize());
+      this.stiff.push(23 - i * 2.1);
     }
+    this.reset();
     this.geo = this.build(o);
     // wrap whatever patches the material already carries (rim light) with the
     // per-row vertex transform
@@ -108,6 +219,15 @@ class Cape {
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.frustumCulled = false;
     this.phase = Math.random() * 10;
+  }
+  reset() {
+    for (let i = 0; i < this.rows; i++) {
+      this.dirs[i].copy(this.rest[i]);
+      if (i === 0) this.nodes[0].set(0, 0, 0);
+      else this.nodes[i].copy(this.nodes[i - 1]).addScaledVector(this.dirs[i], this.seg);
+      this.uT[i].copy(this.nodes[i]);
+      this.uR[i].identity();
+    }
   }
   patch(mat, rows, uT, uR) {
     const prev = mat.onBeforeCompile;
@@ -133,7 +253,10 @@ class Cape {
     mat.customProgramCacheKey = () => key + '|cape' + rows;
   }
   build(o) {
-    const { rows, seg, cols, w0, w1, thick, curl = 0.09, ragged = 0, fold = 0.05, folds = 3 } = o;
+    const {
+      rows, seg, cols, w0, w1, thick, curl = 0.09, ragged = 0, vhem = 0,
+      fold = 0.05, folds = 3, lining = [1, 1, 1], uIn = 0, vIn = 0,
+    } = o;
     const nx = cols + 1;
     const N = rows * nx;
     const pos = new Float32Array(N * 2 * 3);
@@ -141,13 +264,15 @@ class Cape {
     const aRow = new Float32Array(N * 2);
     const aLoc = new Float32Array(N * 2 * 3);
     const cols3 = new Float32Array(N * 2 * 3);
-    const idx = [];
     const put = (base, i, j, sgn) => {
       const k = base + i * nx + j;
       const u = (j / cols) * 2 - 1;
       const hw = w0 + (w1 - w0) * (i / (rows - 1));
       let y = -i * seg;
-      if (ragged && i === rows - 1) y -= ragged * (j % 2 === 0 ? 0 : 1);
+      if (i === rows - 1) {
+        if (ragged) y -= ragged * (j % 2 === 0 ? 0 : 1);
+        if (vhem) y -= vhem * (1 - u * u);      // soft V hem, deepest at the spine
+      }
       const f = i / (rows - 1);
       const x = u * hw;
       // baked vertical folds so the cloth never reads as a flat board
@@ -156,11 +281,16 @@ class Cape {
       pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
       aLoc[k * 3] = x; aLoc[k * 3 + 1] = y + i * seg; aLoc[k * 3 + 2] = z;
       aRow[k] = i;
-      uvs[k * 2] = j / cols; uvs[k * 2 + 1] = 1 - f;
-      const sh = (1 - 0.16 * f * f) * (1 + 0.10 * Math.cos((j / cols) * Math.PI * folds));
-      cols3[k * 3] = sh; cols3[k * 3 + 1] = sh; cols3[k * 3 + 2] = sh;
+      uvs[k * 2] = uIn + (1 - 2 * uIn) * (j / cols);
+      uvs[k * 2 + 1] = 1 - vIn - (1 - 2 * vIn) * f;
+      const sh = (1 - 0.20 * f * f) * (1 + 0.11 * Math.cos((j / cols) * Math.PI * folds));
+      const L = base === 0 ? 1 : 0;
+      cols3[k * 3] = sh * (L ? 1 : lining[0]);
+      cols3[k * 3 + 1] = sh * (L ? 1 : lining[1]);
+      cols3[k * 3 + 2] = sh * (L ? 1 : lining[2]);
     };
     for (let i = 0; i < rows; i++) for (let j = 0; j < nx; j++) { put(0, i, j, 1); put(N, i, j, -1); }
+    const idx = [];
     for (let i = 0; i < rows - 1; i++) {
       for (let j = 0; j < cols; j++) {
         const a = i * nx + j, b = a + 1, c = a + nx + 1, d = a + nx;
@@ -187,23 +317,41 @@ class Cape {
     g.computeVertexNormals();
     return g;
   }
-  // ctx: lean (0..1 backward), side (turn lag), lift (billow up), gust
+  // ctx: lean (0..1 backward), side (turn lag), lift (billow up), all sanitised
   update(dt, ctx) {
+    dt = fin(dt, 1 / 60);
+    if (dt <= 0) return;
+    dt = Math.min(dt, 0.05);
+    const lean = clamp(fin(ctx.lean), 0, 2.2);
+    const side = clamp(fin(ctx.side), -1.1, 1.1);
+    const lift = clamp(fin(ctx.lift), -0.8, 1.6);
     this.phase += dt;
-    const R = this.rows;
+    const R = this.rows, seg = this.seg;
+    let bad = false;
     for (let i = 1; i < R; i++) {
       const f = i / (R - 1);
-      const flap = Math.sin(this.phase * 3.1 - i * 0.85) * (0.05 + 0.11 * f) * (0.35 + ctx.lean);
+      const flap = Math.sin(this.phase * 3.1 - i * 0.85) * (0.05 + 0.11 * f) * (0.35 + lean);
       _v1.set(
-        ctx.side * (0.22 + 0.75 * f) + Math.sin(this.phase * 1.6 + i * 0.7) * 0.045 * (0.3 + f),
-        -1 + ctx.lift * (0.35 + 0.8 * f),
-        -(0.08 + ctx.lean * (0.45 + 0.75 * f)) + flap,
-      ).normalize();
-      if (_v1.z > -0.04) { _v1.z = -0.04; _v1.normalize(); }   // never swing into the body
+        side * (0.22 + 0.75 * f) + Math.sin(this.phase * 1.6 + i * 0.7) * 0.045 * (0.3 + f),
+        -1 + lift * (0.35 + 0.8 * f),
+        -(0.08 + lean * (0.45 + 0.75 * f)) + flap,
+      );
+      if (_v1.z > -0.04) _v1.z = -0.04;   // never swing into the body
+      const len = _v1.length();
+      if (!(len > 1e-4) || !Number.isFinite(len)) _v1.copy(this.rest[i]);
+      else _v1.multiplyScalar(1 / len);
       const k = 1 - Math.exp(-this.stiff[i] * dt);
-      this.dirs[i].lerp(_v1, k).normalize();
-      this.nodes[i].copy(this.nodes[i - 1]).addScaledVector(this.dirs[i], this.seg);
+      const d = this.dirs[i].lerp(_v1, k);
+      const dl = d.length();
+      if (!(dl > 1e-3) || !Number.isFinite(dl)) { d.copy(this.rest[i]); bad = true; } else d.multiplyScalar(1 / dl);
+      const n = this.nodes[i].copy(this.nodes[i - 1]).addScaledVector(d, seg);
+      // hard clamp: a segment can never reach further from the root than the
+      // rest chain would. Belt and braces on top of the unit-length dirs.
+      const reach = i * seg;
+      if (n.lengthSq() > reach * reach) n.setLength(reach);
+      if (!Number.isFinite(n.x + n.y + n.z)) bad = true;
     }
+    if (bad) { this.reset(); return; }
     this.uR[0].identity();
     this.uT[0].set(0, 0, 0);
     for (let i = 1; i < R; i++) {
@@ -216,26 +364,37 @@ class Cape {
 }
 
 // ---------------------------------------------------------------- palettes --
+// Values are deliberately kept off pure white: the sun + fresnel rim add ~0.35
+// on top of albedo and the bloom threshold is 0.94, so a 0xf8f4e8 plate blows
+// out into a white blob. Mid-value plate + dark shade + small bright accents is
+// what gives the Wild Rift read.
 const SERA = {
   hero: 'sera',
-  plate: 0xf8f4e8, plateShade: 0xd8dfee, plate2: 0x4c7fe0, trim: 0xf7c65e,
-  cloth: 0x3b52b4, clothDark: 0x232c74, skin: 0xfbd9b8, skinShade: 0xe6ad88,
-  hair: 0xffd86e, hairTip: 0xfff3cd, steel: 0xe3ecf7, core: 0x7cf0ff,
-  capeTex: 'clothBlue', rimW: 0xffd79a, rimC: 0x74d3f0,
-  scale: 1.20, bulk: 1.04, headR: 0.218, hipY: 1.00, shX: 0.268, shY: 0.46,
+  plate: 0xeee6d2, plateShade: 0xb0bdd6, plate2: 0x4a7ede, trim: 0xd8a33c, trimDeep: 0x976722,
+  cloth: 0x3d55c4, clothDark: 0x232c7e, skin: 0xf3cba4, skinShade: 0xd39a72,
+  hair: 0xffc63c, hairMid: 0xffdc79, hairTip: 0xfff2c0, steel: 0xdae6f4, core: 0x7cf0ff,
+  capeTex: 'clothBlue', faceTex: 'faceSera', rimW: 0xffd79a, rimC: 0x74d3f0,
+  scale: 1.14, bulk: 1.0, headR: 0.198, hipY: 1.20, shX: 0.252, shY: 0.505,
+  thigh: 0.545, shin: 0.485, armU: 0.375, armF: 0.335, neck: 0.700,
+  hpY: 2.98,
 };
 const KARGATH = {
   hero: 'kargath',
-  plate: 0x949aa4, plateShade: 0x62666f, plate2: 0xc4522f, trim: 0xeaa550,
-  cloth: 0x7a2f1e, clothDark: 0x431a14, skin: 0xd89a67, skinShade: 0xa66c44,
-  hair: 0x3d332a, hairTip: 0x5d5042, steel: 0xd0c9ba, core: 0xff9440,
-  capeTex: 'clothRed', rimW: 0xffc078, rimC: 0x8fb6d8,
-  scale: 1.30, bulk: 1.32, headR: 0.225, hipY: 0.95, shX: 0.315, shY: 0.43,
+  plate: 0xa08d78, plateShade: 0x5c4d40, plate2: 0xc0512c, trim: 0xc98531, trimDeep: 0x7d4c18,
+  cloth: 0x7d3020, clothDark: 0x3a1611, skin: 0xc98a5e, skinShade: 0x94603c,
+  hair: 0x3b3028, hairMid: 0x4f4235, hairTip: 0x635444, steel: 0xc9c2b2, core: 0xff8a30,
+  capeTex: 'clothRed', faceTex: 'faceKargath', rimW: 0xffc078, rimC: 0x8fb6d8,
+  scale: 1.22, bulk: 1.40, headR: 0.205, hipY: 1.06, shX: 0.335, shY: 0.455,
+  thigh: 0.445, shin: 0.415, armU: 0.365, armF: 0.325, neck: 0.640,
+  hpY: 2.95,
+  // Kargath is permanently hunched forward — baked as a pose bias so every
+  // animation inherits the stance instead of only the idle.
+  bias: { torso: [0.16, 0, 0], head: [-0.13, 0, 0], hips: [0.05, 0, 0] },
 };
 
 // ------------------------------------------------------------- rig builder --
 function buildRig(spec) {
-  const rig = { joints: {}, mats: [], spec };
+  const rig = { joints: {}, mats: [], spec, bias: spec.bias || {} };
   const root = new THREE.Group();
   rig.root = root;
   root.scale.setScalar(spec.scale);
@@ -244,23 +403,34 @@ function buildRig(spec) {
 
   // No env map in the scene: metalness above ~0.3 reads as black, so the
   // "metal" look comes from a tight roughness + the fresnel rim instead.
-  const mBody = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.03 });
-  const mPlate = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.44, metalness: 0.22 });
+  const mBody = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.74, metalness: 0.03 });
+  const mPlate = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.20 });
   const mGlow = new THREE.MeshStandardMaterial({
-    vertexColors: true, color: 0x0a1218, emissive: 0xffffff, emissiveIntensity: 1.05,
+    vertexColors: true, color: 0x0a1218, emissive: 0xffffff, emissiveIntensity: 1.0,
     roughness: 0.22, metalness: 0,
   });
   const mCape = new THREE.MeshStandardMaterial({
-    map: tex[spec.capeTex], vertexColors: true, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+    map: tex[spec.capeTex], vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide,
   });
-  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 2.9, strength: 0.32 });
-  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.1, strength: 0.5 });
-  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.4, strength: 0.32 });
+  const mFace = new THREE.MeshStandardMaterial({
+    map: tex[spec.faceTex], transparent: true, depthWrite: false, roughness: 0.86, metalness: 0,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  if (!S) {
+    // Kargath's painted eyes are ember-bright: drive emissive from the same
+    // decal so they actually glow under the helm brow instead of reading flat.
+    mFace.emissiveMap = tex[spec.faceTex];
+    mFace.emissive = new THREE.Color(0xff6a22);
+    mFace.emissiveIntensity = 0.16;
+  }
+  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 3.0, strength: 0.28 });
+  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.5, strength: 0.36 });
+  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.3, strength: 0.30 });
   addVertexGlow(mGlow);
-  rig.mats.push(mBody, mPlate, mGlow, mCape);
+  rig.mats.push(mBody, mPlate, mGlow, mCape, mFace);
   for (const mm of rig.mats) mm.userData.baseEmissive = mm.emissive.clone();
 
-  const P = spec.plate, PS = spec.plateShade, P2 = spec.plate2, TR = spec.trim;
+  const P = spec.plate, PS = spec.plateShade, P2 = spec.plate2, TR = spec.trim, TD = spec.trimDeep;
   const CL = spec.cloth, CD = spec.clothDark, SK = spec.skin, SS = spec.skinShade;
 
   // ================================================================= hips ==
@@ -268,68 +438,78 @@ function buildRig(spec) {
   {
     const bodyP = [
       [ell(0.19 * B, 0.16, 0.16 * B, 10, 8).translate(0, -0.03, 0), CD, { ao: 0.3, aoY0: -0.2, aoY1: 0.1 }],
-      [lathe([[0.155 * B, 0.10], [0.20 * B, 0.0], [0.215 * B, -0.14], [0.19 * B, -0.26]], 11), CL,
-        { ao: 0.34, aoY0: -0.28, aoY1: 0.1, top: 0.1, to: spec.plate2, y0: -0.26, y1: 0.0 }],
+      [lathe([[0.152 * B, 0.10], [0.198 * B, 0.0], [0.213 * B, -0.14], [0.188 * B, -0.26]], 11), CL,
+        { ao: 0.34, aoY0: -0.28, aoY1: 0.1, top: 0.1, to: spec.plate2, y0: -0.26, y1: 0.0, jitter: 0.05 }],
     ];
     hips.add(mesh(assemble(bodyP), mBody));
     const plateP = [];
-    // belt + buckle
-    plateP.push([new THREE.TorusGeometry(0.20 * B, 0.042, 6, 16).rotateX(Math.PI / 2).scale(1, 1, 0.92).translate(0, 0.03, 0),
-      TR, { ao: 0, top: 0.15 }]);
-    plateP.push([new THREE.OctahedronGeometry(0.062, 0).scale(1, 1.2, 0.5).translate(0, 0.03, 0.20 * B), TR, { ao: 0 }]);
+    // belt: a real band, not a torus hoop, with a faceted buckle
+    plateP.push([band(0.176 * B, 0.214 * B, -0.03, 0.072, 16), TR,
+      { ao: 0.30, aoY0: -0.03, aoY1: 0.07, top: 0.02, to: TD, y0: 0.072, y1: -0.03 }]);
+    plateP.push([new THREE.OctahedronGeometry(0.068, 0).scale(1, 1.25, 0.5).translate(0, 0.022, 0.205 * B), TR, { ao: 0.1, aoY0: -0.02, aoY1: 0.05 }]);
     if (S) {
       // ivory faulds over a blue under-skirt: longest at the front, shorter at
       // the sides, gold hem, with a half-step inner row showing in the gaps
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
         const fr = Math.cos(a);
-        const h = 0.20 + 0.11 * Math.max(0, fr) + 0.07 * Math.max(0, -fr);
-        plateP.push([chamferBox(0.16, h, 0.055, 0.022).translate(0, -h, 0).rotateX(-0.21).translate(0, 0.02, 0.198 * B).rotateY(a),
-          P, { ao: 0.26, aoY0: -0.30, aoY1: 0.02, top: 0.18 }]);
-        plateP.push([chamferBox(0.145, 0.05, 0.05, 0.016).translate(0, -h + 0.012, 0).rotateX(-0.21).translate(0, 0.02, 0.206 * B).rotateY(a),
-          TR, { ao: 0 }]);
+        const h = 0.22 + 0.12 * Math.max(0, fr) + 0.07 * Math.max(0, -fr);
+        plateP.push([chamferBox(0.158, h, 0.055, 0.024).translate(0, -h, 0).rotateX(-0.21).translate(0, 0.015, 0.196 * B).rotateY(a),
+          P, { ao: 0.30, aoY0: -0.32, aoY1: 0.02, top: 0.20, to: PS, y0: 0.02, y1: -0.30, jitter: 0.04 }]);
+        plateP.push([chamferBox(0.142, 0.046, 0.05, 0.016).translate(0, -h + 0.012, 0).rotateX(-0.21).translate(0, 0.015, 0.204 * B).rotateY(a),
+          TR, { ao: 0, to: TD, y0: -0.1, y1: -0.3 }]);
       }
-      for (const g of ringPlates(8, { r: 0.176 * B, y: -0.015, w: 0.12, h: 0.19, d: 0.045, tilt: -0.13, phase: 0 }))
-        plateP.push([g, PS, { ao: 0.34, aoY0: -0.24, aoY1: -0.01 }]);
+      for (const g of ringPlates(8, { r: 0.174 * B, y: -0.02, w: 0.115, h: 0.20, d: 0.045, tilt: -0.13, phase: 0 }))
+        plateP.push([g, PS, { ao: 0.38, aoY0: -0.26, aoY1: -0.01 }]);
     } else {
       // Kargath: four heavy slab tassets, front pair huge
-      const slabs = [[0, 0.24, 0.36], [Math.PI, 0.20, 0.28], [Math.PI * 0.5, 0.19, 0.30], [-Math.PI * 0.5, 0.19, 0.30]];
+      const slabs = [[0, 0.26, 0.40], [Math.PI, 0.21, 0.30], [Math.PI * 0.5, 0.20, 0.32], [-Math.PI * 0.5, 0.20, 0.32]];
       for (const [a, w, h] of slabs) {
-        plateP.push([chamferBox(w, h, 0.07, 0.03).translate(0, -h, 0).rotateX(-0.14).translate(0, 0.0, 0.185 * B).rotateY(a),
-          P, { ao: 0.34, aoY0: -0.34, aoY1: 0.0, top: 0.12 }]);
-        plateP.push([chamferBox(w * 0.9, 0.05, 0.055, 0.016).translate(0, -h + 0.02, 0).rotateX(-0.14).translate(0, 0, 0.21 * B).rotateY(a),
-          TR, { ao: 0 }]);
+        plateP.push([chamferBox(w, h, 0.075, 0.03).translate(0, -h, 0).rotateX(-0.14).translate(0, 0.0, 0.185 * B).rotateY(a),
+          P, { ao: 0.36, aoY0: -0.36, aoY1: 0.0, top: 0.14, to: PS, y0: -0.34, y1: 0.0, jitter: 0.05 }]);
+        plateP.push([chamferBox(w * 0.9, 0.05, 0.058, 0.016).translate(0, -h + 0.02, 0).rotateX(-0.14).translate(0, 0, 0.212 * B).rotateY(a),
+          TD, { ao: 0 }]);
+        plateP.push([new THREE.ConeGeometry(0.032, 0.09, 5).rotateX(-1.45).translate(0, -h * 0.55, 0.235 * B).rotateY(a), spec.steel, { ao: 0 }]);
       }
       for (const g of ringPlates(6, { r: 0.20 * B, y: -0.05, w: 0.10, h: 0.20, d: 0.045, tilt: -0.24, phase: Math.PI / 6 }))
-        plateP.push([g, PS, { ao: 0.36, aoY0: -0.3, aoY1: -0.05 }]);
+        plateP.push([g, PS, { ao: 0.4, aoY0: -0.3, aoY1: -0.05 }]);
     }
     hips.add(mesh(assemble(plateP), mPlate, true));
   }
 
   // ================================================================= legs ==
-  const legLen = S ? 0.44 : 0.40;
-  const shinLen = S ? 0.40 : 0.37;
+  const legLen = spec.thigh, shinLen = spec.shin;
   for (const side of ['L', 'R']) {
     const sx = side === 'L' ? -1 : 1;
-    const hip = joint(hips, sx * 0.135 * B, -0.05, 0, 'hip' + side, rig);
+    const hip = joint(hips, sx * 0.135 * B, -0.055, 0, 'hip' + side, rig);
+    // thigh: dark legging + an ivory cuisse over the top so the leg reads as
+    // armoured mass instead of a bare tube between skirt and greave
     hip.add(mesh(assemble([
-      [limb(0.138 * B, 0.10 * B, legLen, 9), CD, { ao: 0.38, aoY0: -legLen, aoY1: -0.02, to: CL, y0: -legLen, y1: 0 }],
+      [limb(0.140 * B, 0.098 * B, legLen, 9), CD, { ao: 0.40, aoY0: -legLen, aoY1: -0.02, to: CL, y0: -legLen, y1: 0 }],
+      [lathe([[0.104 * B, -0.05], [0.146 * B, -0.10], [0.140 * B, -legLen * 0.55], [0.108 * B, -legLen * 0.80]], 9, true)
+        .translate(0, 0, 0.014), P,
+      { ao: 0.34, aoY0: -legLen * 0.85, aoY1: -0.08, top: 0.22, to: PS, y0: -0.08, y1: -legLen * 0.8, jitter: 0.04 }],
+      [cbox(0.030, legLen * 0.44, 0.032, 0.010).translate(0, -0.17, 0.128 * B), TR, { ao: 0.2, aoY0: -legLen * 0.6, aoY1: -0.15 }],
     ]), mBody, true));
     const knee = joint(hip, 0, -legLen, 0, 'knee' + side, rig);
     const gp = [];
     // knee cop + greave + boot, all one plate mesh
-    gp.push([ell(0.112 * B, 0.105, 0.118 * B, 9, 7).translate(0, 0.005, 0.022), P, { ao: 0.18, aoY0: -0.08, aoY1: 0.06, top: 0.16 }]);
-    gp.push([ell(0.062 * B, 0.085, 0.075, 7, 5).translate(0, -0.035, 0.095 * B), P, { ao: 0.15, aoY0: -0.1, aoY1: 0.02, top: 0.18 }]);
-    gp.push([limb(0.118 * B, 0.106 * B, shinLen, 9).translate(0, -0.05, 0.005), P,
-      { ao: 0.28, aoY0: -shinLen, aoY1: -0.1, to: PS, y0: -shinLen, y1: -0.1 }]);
-    gp.push([cbox(0.034, shinLen * 0.62, 0.05, 0.012).translate(0, -shinLen * 0.48, 0.108 * B), TR, { ao: 0 }]);
-    gp.push([new THREE.TorusGeometry(0.112 * B, 0.024, 5, 12).rotateX(Math.PI / 2).translate(0, -shinLen + 0.03, 0), TR, { ao: 0 }]);
+    // knee cop: a faceted plate with a forward point, not a billiard ball
+    gp.push([lathe([[0.062 * B, 0.086], [0.110 * B, 0.034], [0.118 * B, -0.026], [0.098 * B, -0.080], [0.070 * B, -0.104]], 9, true)
+      .scale(1, 1, 1.12).translate(0, 0.005, 0.016), P,
+    { ao: 0.22, aoY0: -0.10, aoY1: 0.06, top: 0.22, to: PS, y0: 0.06, y1: -0.10 }]);
+    gp.push([strand(0.062 * B, 0.11, 0.048, 0.12).rotateX(1.45).translate(0, -0.006, 0.086 * B), P,
+      { ao: 0.10, aoY0: -0.1, aoY1: 0.02, top: 0.24 }]);
+    gp.push([limb(0.116 * B, 0.102 * B, shinLen, 9).translate(0, -0.05, 0.005), P,
+      { ao: 0.30, aoY0: -shinLen, aoY1: -0.1, to: PS, y0: -0.10, y1: -shinLen, jitter: 0.04 }]);
+    gp.push([cbox(0.032, shinLen * 0.60, 0.05, 0.012).translate(0, -shinLen * 0.46, 0.106 * B), TR, { ao: 0, to: TD, y0: -0.1, y1: -shinLen }]);
+    gp.push([band(0.096 * B, 0.122 * B, -shinLen + 0.01, -shinLen + 0.075, 12), TR, { ao: 0.1, aoY0: -shinLen, aoY1: -shinLen + 0.08, top: 0.16 }]);
     // foot: sole slab + toe cap + heel
-    gp.push([chamferBox(0.165 * B, 0.11, 0.26, 0.035).translate(0, -shinLen - 0.11, 0.05), PS, { ao: 0.3, aoY0: -shinLen - 0.13, aoY1: -shinLen }]);
-    gp.push([ell(0.088 * B, 0.072, 0.115, 8, 6).translate(0, -shinLen - 0.045, 0.15), P, { ao: 0.18, aoY0: -shinLen - 0.1, aoY1: -shinLen, top: 0.14 }]);
-    gp.push([ell(0.072 * B, 0.068, 0.07, 7, 5).translate(0, -shinLen - 0.055, -0.08), PS, { ao: 0.26, aoY0: -shinLen - 0.1, aoY1: -shinLen }]);
+    gp.push([chamferBox(0.160 * B, 0.100, 0.255, 0.032).translate(0, -shinLen - 0.10, 0.05), PS, { ao: 0.32, aoY0: -shinLen - 0.12, aoY1: -shinLen }]);
+    gp.push([ell(0.086 * B, 0.070, 0.112, 8, 6).translate(0, -shinLen - 0.038, 0.148), P, { ao: 0.18, aoY0: -shinLen - 0.1, aoY1: -shinLen, top: 0.16 }]);
+    gp.push([ell(0.070 * B, 0.064, 0.068, 7, 5).translate(0, -shinLen - 0.048, -0.078), PS, { ao: 0.28, aoY0: -shinLen - 0.1, aoY1: -shinLen }]);
     if (!S) for (const zz of [0.02, 0.14]) // Kargath: spiked boot studs
-      gp.push([new THREE.ConeGeometry(0.028, 0.09, 5).rotateX(-Math.PI / 2).translate(0, -shinLen - 0.03, zz + 0.14), TR, { ao: 0 }]);
+      gp.push([new THREE.ConeGeometry(0.028, 0.09, 5).rotateX(-Math.PI / 2).translate(0, -shinLen - 0.02, zz + 0.14), spec.steel, { ao: 0 }]);
     knee.add(mesh(assemble(gp), mPlate, true));
   }
 
@@ -338,17 +518,17 @@ function buildRig(spec) {
   {
     // matte underlayer: tapered, real waist, neck
     const bp = [
-      [lathe([[0.150 * B, -0.04], [0.154 * B, 0.05], [0.186 * B, 0.22], [0.208 * B, 0.38], [0.192 * B, 0.50], [0.145 * B, 0.58]], 11),
+      [lathe([[0.150 * B, -0.06], [0.148 * B, 0.06], [0.174 * B, 0.23], [0.200 * B, 0.40], [0.186 * B, 0.53], [0.140 * B, 0.60]], 12),
         CD, { ao: 0.36, aoY0: -0.05, aoY1: 0.35, to: CL, y0: 0.0, y1: 0.5 }],
-      [lathe([[0.072 * B, 0.48], [0.080 * B, 0.56], [0.076 * B, 0.66]], 8).translate(0, 0, 0.012), SK,
-        { ao: 0.42, aoY0: 0.46, aoY1: 0.64 }],
+      [lathe([[0.070 * B, 0.52], [0.079 * B, 0.60], [0.075 * B, spec.neck]], 9).translate(0, 0, 0.010), SK,
+        { ao: 0.44, aoY0: 0.50, aoY1: spec.neck }],
       // shoulder mantle: soft cloth over the cape anchor, no visible seam
-      [lathe([[0.125 * B, 0.585], [0.215 * B, 0.50], [0.255 * B, 0.415], [0.235 * B, 0.375]], 13).translate(0, 0, -0.012),
-        S ? spec.plate2 : spec.cloth, { ao: 0.22, aoY0: 0.36, aoY1: 0.58, top: 0.18 }],
+      [lathe([[0.126 * B, 0.615], [0.222 * B, 0.525], [0.262 * B, 0.435], [0.240 * B, 0.395]], 14).translate(0, 0, -0.012),
+        S ? spec.plate2 : spec.cloth, { ao: 0.24, aoY0: 0.38, aoY1: 0.61, top: 0.20, jitter: 0.05 }],
     ];
     if (!S) { // fur ruff over the gorget
-      bp.push([new THREE.TorusGeometry(0.21 * B, 0.09, 6, 14).rotateX(Math.PI / 2).translate(0, 0.53, 0.01), spec.hair,
-        { ao: 0.22, aoY0: 0.43, aoY1: 0.58, jitter: 0.12 }]);
+      bp.push([new THREE.TorusGeometry(0.215 * B, 0.098, 6, 14).rotateX(Math.PI / 2).translate(0, 0.545, 0.01), spec.hair,
+        { ao: 0.24, aoY0: 0.44, aoY1: 0.60, jitter: 0.16, top: 0.2 }]);
     }
     torso.add(mesh(assemble(bp), mBody));
 
@@ -357,269 +537,341 @@ function buildRig(spec) {
     // ribbed abdomen: one watertight lathe whose profile steps out/in three
     // times — reads as overlapping lames with no gaps or sawtooth seams
     const rib = S
-      ? [[0.150, 0.00], [0.178, 0.035], [0.168, 0.080], [0.192, 0.115], [0.182, 0.160], [0.206, 0.195], [0.198, 0.240]]
-      : [[0.186, 0.00], [0.218, 0.04], [0.206, 0.090], [0.234, 0.130], [0.222, 0.180], [0.252, 0.215], [0.240, 0.255]];
-    pp.push([lathe(rib.map(([r, y]) => [r * B, y]), 15), P,
-      { ao: 0.26, aoY0: 0.0, aoY1: 0.26, top: 0.14, to: PS, y0: 0.24, y1: 0.0 }]);
+      ? [[0.146, 0.00], [0.184, 0.030], [0.166, 0.078], [0.200, 0.108], [0.180, 0.156], [0.212, 0.188], [0.196, 0.245]]
+      : [[0.182, 0.00], [0.226, 0.036], [0.204, 0.086], [0.244, 0.124], [0.220, 0.176], [0.260, 0.210], [0.240, 0.260]];
+    pp.push([lathe(rib.map(([r, y]) => [r * B, y]), 16), P,
+      { ao: 0.30, aoY0: 0.0, aoY1: 0.26, top: 0.16, to: PS, y0: 0.24, y1: 0.0, jitter: 0.045 }]);
     const chest = S
-      ? [[0.198 * B, 0.24], [0.234 * B, 0.34], [0.250 * B, 0.43], [0.238 * B, 0.505], [0.176 * B, 0.575]]
-      : [[0.228 * B, 0.22], [0.272 * B, 0.32], [0.288 * B, 0.42], [0.268 * B, 0.50], [0.196 * B, 0.565]];
-    pp.push([lathe(chest, 13), P, { ao: 0.26, aoY0: 0.2, aoY1: 0.5, top: 0.16, to: PS, y0: 0.5, y1: 0.2 }]);
+      ? [[0.196 * B, 0.245], [0.232 * B, 0.345], [0.248 * B, 0.44], [0.236 * B, 0.52], [0.172 * B, 0.60]]
+      : [[0.228 * B, 0.24], [0.272 * B, 0.33], [0.288 * B, 0.42], [0.268 * B, 0.51], [0.196 * B, 0.575]];
+    pp.push([lathe(chest, 14), P, { ao: 0.28, aoY0: 0.2, aoY1: 0.5, top: 0.20, to: PS, y0: 0.52, y1: 0.22, jitter: 0.045 }]);
     // sternum ridge + V trim (cbox is centred, so rotate-then-place is safe)
-    pp.push([cbox(0.05, 0.26, 0.05, 0.018).rotateX(-0.12).translate(0, 0.34, 0.232 * B), TR, { ao: 0 }]);
+    pp.push([cbox(0.046, 0.24, 0.048, 0.016).rotateX(-0.12).translate(0, 0.345, 0.230 * B), TR, { ao: 0, to: TD, y0: 0.36, y1: 0.16 }]);
     for (const sx of [-1, 1])
-      pp.push([cbox(0.036, 0.26, 0.04, 0.012).rotateZ(sx * 0.66).translate(sx * 0.098 * B, 0.395, 0.222 * B), TR, { ao: 0 }]);
-    // thin gold gorget ring at the base of the neck (must not swallow the head)
-    pp.push([new THREE.TorusGeometry(0.108 * B, 0.024, 5, 14).rotateX(Math.PI / 2).translate(0, 0.535, 0.005),
-      TR, { ao: 0, top: 0.2 }]);
+      pp.push([cbox(0.034, 0.25, 0.038, 0.012).rotateZ(sx * 0.66).translate(sx * 0.096 * B, 0.40, 0.220 * B), TR,
+        { ao: 0, to: TD, y0: 0.42, y1: 0.20 }]);
+    // gorget band at the base of the neck (sunk into the mantle, never a hoop)
+    pp.push([band(0.092 * B, 0.124 * B, 0.515, 0.575, 14), TR, { ao: 0.16, aoY0: 0.51, aoY1: 0.58, top: 0.22, to: TD, y0: 0.51, y1: 0.58 }]);
+    // gold setting around the chest gem — the frame is what makes it a jewel
+    {
+      const gy = S ? 0.405 : 0.40;
+      for (let i = 0; i < 4; i++) {
+        const a = Math.PI / 4 + i * Math.PI / 2;
+        pp.push([chamferBox(0.026, 0.064, 0.022, 0.008).translate(0, -0.032, 0).rotateZ(a)
+          .translate(Math.sin(a) * 0.085, gy + Math.cos(a) * 0.085, 0.236 * B), TR, { ao: 0, top: 0.2 }]);
+      }
+    }
     // mantle clasp brooches over the shoulder line
     for (const sx of [-1, 1])
-      pp.push([new THREE.OctahedronGeometry(0.045, 0).scale(1, 1.3, 0.6).translate(sx * 0.115 * B, 0.505, 0.135 * B), TR, { ao: 0 }]);
+      pp.push([new THREE.OctahedronGeometry(0.048, 0).scale(1, 1.3, 0.6).translate(sx * 0.122 * B, 0.505, 0.128 * B), TR, { ao: 0, top: 0.2 }]);
     if (!S) { // Kargath: bolted straps across the chest
       for (const sx of [-1, 1])
         pp.push([cbox(0.07, 0.46, 0.045, 0.016).rotateZ(sx * 0.42).translate(sx * 0.075 * B, 0.34, 0.245 * B),
           spec.clothDark, { ao: 0.2, aoY0: 0.1, aoY1: 0.4 }]);
-      pp.push([new THREE.ConeGeometry(0.05, 0.16, 6).rotateX(-1.4).translate(0, 0.50, 0.24 * B), TR, { ao: 0 }]);
+      pp.push([new THREE.ConeGeometry(0.05, 0.16, 6).rotateX(-1.4).translate(0, 0.50, 0.24 * B), spec.steel, { ao: 0 }]);
+      // shoulder-to-hip chain of rivets: reads as heavy industrial armour
+      for (let i = 0; i < 4; i++)
+        pp.push([ell(0.022, 0.022, 0.018, 5, 4).translate(-0.14 * B + i * 0.093 * B, 0.075, 0.238 * B), TD, { ao: 0 }]);
     }
     torso.add(mesh(assemble(pp), mPlate, true));
 
-    // emissive: chest core + rune trim
+    // emissive: chest core (the single focal point) + rune trim
     const gp = [];
-    gp.push([new THREE.OctahedronGeometry(0.062, 0).scale(1, 1.55, 0.6).translate(0, 0.395, 0.242 * B), spec.core, { ao: 0 }]);
+    const gemY = S ? 0.405 : 0.40;
+    gp.push([new THREE.OctahedronGeometry(0.075, 0).scale(1, 1.5, 0.62).translate(0, gemY, 0.244 * B), spec.core, { ao: 0 }]);
+    gp.push([new THREE.OctahedronGeometry(0.038, 0).scale(1, 1.5, 0.5).translate(0, gemY, 0.256 * B), 0xffffff, { ao: 0 }]);
     for (const sx of [-1, 1])
-      gp.push([chamferBox(0.016, 0.19, 0.02, 0.005).translate(0, 0.26, 0).rotateZ(sx * 0.5).translate(sx * 0.13 * B, 0.20, 0.222 * B),
-        spec.core, { ao: 0, to: 0x0a1418, y0: 0.16, y1: 0.06 }]);
-    gp.push([new THREE.TorusGeometry(0.145 * B, 0.011, 4, 14).rotateX(Math.PI / 2).translate(0, 0.10, 0), spec.core, { ao: 0 }]);
+      gp.push([chamferBox(0.015, 0.18, 0.018, 0.005).translate(0, 0.25, 0).rotateZ(sx * 0.5).translate(sx * 0.128 * B, 0.195, 0.220 * B),
+        spec.core, { ao: 0, to: 0x0a1418, y0: 0.16, y1: 0.05 }]);
+    gp.push([new THREE.TorusGeometry(0.142 * B, 0.010, 4, 14).rotateX(Math.PI / 2).translate(0, 0.095, 0), spec.core, { ao: 0 }]);
     torso.add(mesh(assemble(gp), mGlow));
   }
 
   // ============================================================ shoulders ==
   for (const side of ['L', 'R']) {
     const sx = side === 'L' ? -1 : 1;
-    const big = !S && side === 'L' ? 1.28 : 1.0; // Kargath is asymmetric
+    const big = !S && side === 'L' ? 1.30 : 1.0; // Kargath is asymmetric
     const sh = joint(torso, sx * spec.shX * B, spec.shY, 0, 'sh' + side, rig);
-    // deltoid ball fills the pauldron so it can never read as floating
+    const armU = spec.armU;
+    // deltoid ball fills the pauldron so it can never read as floating; the arm
+    // is sleeved, not bare — a bare tube with rings on it reads as a broomstick
     const ap = [
-      [ell(0.118 * B, 0.115 * B, 0.118 * B, 9, 7), S ? SK : CD, { ao: 0.18, aoY0: -0.1, aoY1: 0.06 }],
-      [limb(0.100 * B, 0.084 * B, 0.37, 9).translate(0, -0.02, 0), S ? SK : CD,
-        { ao: 0.3, aoY0: -0.34, aoY1: -0.02, to: SS, y0: -0.3, y1: 0 }],
+      [ell(0.118 * B, 0.115 * B, 0.118 * B, 9, 7), S ? CL : CD, { ao: 0.20, aoY0: -0.1, aoY1: 0.06, top: 0.16 }],
+      [limb(0.100 * B, 0.082 * B, armU, 9).translate(0, -0.02, 0), S ? CL : CD,
+        { ao: 0.32, aoY0: -armU, aoY1: -0.02, to: S ? CD : 0x2c1a14, y0: -armU, y1: 0 }],
+      [ell(0.086 * B, 0.072 * B, 0.088 * B, 8, 6).translate(0, -armU + 0.01, 0), S ? SK : SS, { ao: 0.2, aoY0: -armU, aoY1: -armU + 0.06 }],
     ];
-    if (S) ap.push([new THREE.TorusGeometry(0.098 * B, 0.021, 5, 10).rotateX(Math.PI / 2).translate(0, -0.14, 0), CD, { ao: 0 }]);
     sh.add(mesh(assemble(ap), mBody));
 
     const pp = [];
-    const R0 = 0.142 * B * big;
-    // main dome, pushed inboard so it sinks into the chest
-    pp.push([new THREE.SphereGeometry(R0, 11, 7, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1.22, 1.0, 1.16)
-      .translate(-sx * 0.035 * B, 0.03, 0), P, { ao: 0.22, aoY0: -0.14, aoY1: 0.12, top: 0.2, to: PS, y0: 0.12, y1: -0.12 }]);
+    const R0 = 0.152 * B * big;
+    // Main dome: a faceted lathe, not a smooth sphere — the hard plane changes
+    // are what make armour read as forged metal at MOBA distance.
+    pp.push([lathe([[0.001, R0 * 0.86], [R0 * 0.44, R0 * 0.74], [R0 * 0.80, R0 * 0.40],
+      [R0 * 0.98, R0 * -0.10], [R0 * 0.94, R0 * -0.46]], 9, true)
+      .scale(1.26, 1.0, 1.18).translate(-sx * 0.040 * B, 0.030, 0), P,
+    { ao: 0.24, aoY0: -0.14, aoY1: 0.12, top: 0.26, to: PS, y0: 0.12, y1: -0.12, jitter: 0.05 }]);
+    // rim band welded to the dome's own edge (matched radii = no floating hoop)
+    pp.push([lathe([[R0 * 0.86, R0 * -0.62], [R0 * 1.04, R0 * -0.44], [R0 * 1.02, R0 * -0.10], [R0 * 0.82, R0 * 0.04]], 9, true)
+      .scale(1.26, 1.0, 1.18).translate(-sx * 0.040 * B, 0.030, 0), TR,
+    { ao: 0.16, aoY0: -0.10, aoY1: 0.02, top: 0.18, to: TD, y0: 0.02, y1: -0.10 }]);
     // second lame wrapping the upper arm — the overlap kills the shoulder gap
-    pp.push([new THREE.SphereGeometry(R0 * 0.94, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.52).scale(1.14, 0.72, 1.08)
-      .translate(-sx * 0.02 * B, -0.085, 0), S ? P2 : PS, { ao: 0.3, aoY0: -0.2, aoY1: -0.02 }]);
-    pp.push([new THREE.TorusGeometry(R0 * 1.08, 0.019, 5, 14).rotateX(Math.PI / 2).scale(1.16, 1, 1.1)
-      .translate(-sx * 0.035 * B, 0.015, 0), TR, { ao: 0 }]);
+    pp.push([lathe([[R0 * 0.70, -0.012], [R0 * 0.92, -0.048], [R0 * 0.88, -0.115], [R0 * 0.60, -0.148]], 9, true)
+      .scale(1.16, 1.0, 1.10).translate(-sx * 0.024 * B, -0.020, 0), S ? P2 : PS,
+    { ao: 0.32, aoY0: -0.20, aoY1: -0.02, top: 0.22 }]);
     if (S) {
       // swept dawn-wing fin, laid back along the pauldron
-      pp.push([strand(0.052, 0.26, 0.03, 0.2).rotateX(-1.25).rotateZ(sx * -0.30).translate(sx * 0.075, 0.075, -0.05), TR, { ao: 0 }]);
+      pp.push([strand(0.050, 0.27, 0.028, 0.18).rotateX(-1.22).rotateZ(sx * -0.30).translate(sx * 0.078, 0.082, -0.05), TR,
+        { ao: 0, to: 0xfbe6a8, y0: 0, y1: 0.1 }]);
+      pp.push([strand(0.034, 0.17, 0.022, 0.15).rotateX(-1.05).rotateZ(sx * -0.60).translate(sx * 0.108, 0.045, -0.03), TD, { ao: 0 }]);
     } else {
       for (let i = 0; i < 3; i++)
-        pp.push([new THREE.ConeGeometry(0.042 * big, 0.20 * big, 5).rotateZ(sx * -(0.45 + i * 0.35))
-          .translate(sx * (0.06 + i * 0.055) * B, 0.11 - i * 0.045, -0.02 + i * 0.02), spec.steel, { ao: 0 }]);
+        pp.push([new THREE.ConeGeometry(0.045 * big, 0.23 * big, 5).rotateZ(sx * -(0.45 + i * 0.35))
+          .translate(sx * (0.06 + i * 0.058) * B, 0.12 - i * 0.048, -0.02 + i * 0.02), spec.steel,
+        { ao: 0, to: 0xf0ead8, y0: 0, y1: 0.15 }]);
     }
     sh.add(mesh(assemble(pp), mPlate, true));
 
     // ------------------------------------------------------------ forearm --
-    const elbow = joint(sh, 0, -0.34, 0, 'el' + side, rig);
+    const armF = spec.armF;
+    const elbow = joint(sh, 0, -armU, 0, 'el' + side, rig);
     const fp = [];
-    fp.push([lathe([[0.112 * B, 0.03], [0.098 * B, -0.05], [0.078 * B, -0.16], [0.074 * B, -0.26]], 9), P,
-      { ao: 0.3, aoY0: -0.28, aoY1: 0.02, top: 0.12, to: PS, y0: 0.02, y1: -0.26 }]);
-    fp.push([new THREE.TorusGeometry(0.104 * B, 0.02, 5, 12).rotateX(Math.PI / 2).translate(0, 0.0, 0), TR, { ao: 0 }]);
-    fp.push([new THREE.TorusGeometry(0.076 * B, 0.016, 5, 10).rotateX(Math.PI / 2).translate(0, -0.27, 0), TR, { ao: 0 }]);
-    // fist + thumb
-    fp.push([ell(0.062 * B, 0.076, 0.078 * B, 8, 6).translate(0, -0.325, 0.012), S ? SK : CD, { ao: 0.25, aoY0: -0.4, aoY1: -0.28 }]);
-    fp.push([ell(0.03 * B, 0.045, 0.035, 6, 5).rotateZ(sx * 0.4).translate(-sx * 0.045, -0.30, 0.05), S ? SK : CD, { ao: 0 }]);
+    // The bracer IS the forearm. Every gold edge is cut from a profile that
+    // starts *inside* the piece it wraps — a trim ring whose inner radius is
+    // larger than the arm underneath is what made the old rig look like it was
+    // wearing hula hoops.
+    fp.push([lathe([[0.062 * B, 0.098], [0.104 * B, 0.052], [0.118 * B, 0.014], [0.100 * B, -0.010]], 12), TR,
+      { ao: 0.12, aoY0: -0.01, aoY1: 0.10, top: 0.18, to: TD, y0: 0.10, y1: -0.01 }]);
+    fp.push([lathe([[0.108 * B, 0.006], [0.100 * B, -0.07], [0.084 * B, -0.20], [0.078 * B, -armF + 0.06], [0.072 * B, -armF + 0.02]], 11), P,
+      { ao: 0.34, aoY0: -armF, aoY1: 0.02, top: 0.20, to: PS, y0: 0.0, y1: -armF, jitter: 0.04 }]);
+    fp.push([lathe([[0.058 * B, -armF - 0.006], [0.082 * B, -armF + 0.014], [0.080 * B, -armF + 0.044], [0.064 * B, -armF + 0.062]], 12), TR,
+      { ao: 0, to: TD, y0: -armF + 0.07, y1: -armF }]);
+    // knuckle-guard ridge running down the outside of the bracer
+    fp.push([cbox(0.028, armF * 0.58, 0.030, 0.010).translate(sx * 0.082 * B, -0.055, 0.030), TD, { ao: 0 }]);
+    if (side === 'L' || !S) for (const q of openHand(sx, S ? SK : SS, S ? SS : spec.skinShade))
+      fp.push([q[0].translate(0, -armF - 0.005, 0.008), q[1], q[2]]);
     elbow.add(mesh(assemble(fp), mPlate));
   }
 
   // ================================================================= head ==
-  const neck = joint(torso, 0, 0.615, 0.012, 'head', rig);
+  const neck = joint(torso, 0, spec.neck, 0.012, 'head', rig);
   {
     const R = spec.headR;
-    const hy = R * 0.70;   // skull centre above the neck joint
+    const hy = R * 0.76;   // skull centre above the neck joint
+    const skR = S ? [R * 0.93, R * 0.99, R * 0.96] : [R * 1.00, R * 1.00, R * 0.98];
     const bp = [];
-    // skull + jaw + chin give an actual face taper instead of a box
-    bp.push([ell(R * 0.97, R * 1.03, R * 1.00, 14, 11).translate(0, hy, 0), SK, { ao: 0.2, aoY0: hy - R, aoY1: hy + R * 0.5, top: 0.1 }]);
-    bp.push([ell(R * 0.78, R * 0.68, R * 0.84, 10, 8).translate(0, hy - R * 0.40, R * 0.09), SK, { ao: 0.24, aoY0: hy - R, aoY1: hy }]);
-    bp.push([ell(R * 0.42, R * 0.30, R * 0.34, 8, 6).translate(0, hy - R * 0.70, R * 0.28), SK, { ao: 0.2, aoY0: hy - R, aoY1: hy - R * 0.4 }]);
+    // skull -> cheek -> chin: three overlapping volumes that taper, so the head
+    // has a jaw line instead of being a ball with a face painted on it
+    bp.push([ell(skR[0], skR[1], skR[2], 15, 11).translate(0, hy, 0), SK,
+      { ao: 0.16, aoY0: hy - R, aoY1: hy + R * 0.5, top: 0.14 }]);
+    bp.push([ell(R * 0.80, R * 0.56, R * 0.86, 11, 8).translate(0, hy - R * 0.30, R * 0.05), SK,
+      { ao: 0.24, aoY0: hy - R * 0.9, aoY1: hy }]);
+    bp.push([ell(R * 0.46, R * 0.28, R * 0.44, 9, 6).translate(0, hy - R * 0.60, R * 0.22), SK,
+      { ao: 0.22, aoY0: hy - R * 0.9, aoY1: hy - R * 0.3 }]);
+    // nose: tiny, just enough to break the profile
+    bp.push([new THREE.ConeGeometry(R * 0.075, R * 0.14, 4).rotateY(Math.PI / 4).rotateX(-1.86)
+      .translate(0, hy - R * 0.13, R * 0.88), SK, { ao: 0 }]);
+    // elven ears, swept back — cheap, and instantly says "elven sanctum"
+    for (const sx of [-1, 1]) {
+      const ear = strand(R * 0.15, R * 0.46, R * 0.07, 0.10).rotateX(0.9).rotateZ(sx * -1.05)
+        .translate(sx * R * 0.84, hy - R * 0.05, -R * 0.04);
+      bp.push([ear, SK, { ao: 0.24, aoY0: hy - R * 0.3, aoY1: hy + R * 0.3, to: SS, y0: hy + R * 0.35, y1: hy - R * 0.1 }]);
+    }
+
     if (S) {
-      // --- eyes: lidded almond, iris, pupil, catchlight, brow ---
-      for (const sx of [-1, 1]) {
-        const ex = sx * R * 0.335, ey = hy + R * 0.11, ez = R * 0.80;
-        const eye = ell(R * 0.235, R * 0.185, R * 0.13, 9, 7).rotateZ(sx * 0.18).rotateY(sx * 0.26).translate(ex, ey, ez);
-        bp.push([eye, 0xfdf8f0, { ao: 0.3, aoY0: ey - R * 0.16, aoY1: ey + R * 0.06 }]);
-        bp.push([ell(R * 0.135, R * 0.158, R * 0.088, 8, 6).translate(ex + sx * 0.004, ey - R * 0.01, ez + R * 0.075), 0x1d6bb4,
-          { ao: 0, to: 0x74d6f5, y0: ey - R * 0.14, y1: ey + R * 0.12 }]);
-        bp.push([ell(R * 0.062, R * 0.078, R * 0.055, 7, 5).translate(ex + sx * 0.004, ey - R * 0.02, ez + R * 0.10), 0x0d1522, { ao: 0 }]);
-        bp.push([ell(R * 0.042, R * 0.042, R * 0.034, 6, 5).translate(ex - sx * 0.022, ey + R * 0.085, ez + R * 0.108), 0xffffff, { ao: 0 }]);
-        // upper lid rolls over the eye — removes the dead stare
-        bp.push([ell(R * 0.255, R * 0.125, R * 0.155, 9, 6).rotateZ(sx * 0.20).translate(ex, ey + R * 0.165, ez - R * 0.03), SK,
-          { ao: 0.18, aoY0: ey, aoY1: ey + R * 0.2 }]);
-        // brow
-        bp.push([cbox(R * 0.32, R * 0.055, R * 0.07, R * 0.02).rotateZ(sx * 0.26).rotateX(-0.28)
-          .translate(ex, ey + R * 0.36, ez - R * 0.04), 0xc79a4e, { ao: 0 }]);
+      // --- hair: one carved shell + real locks laid tangent to the skull ---
+      // A lock is born at (az, el) on a sphere of radius d and falls from there,
+      // so nothing ever sprouts out of the crown like a leaf.
+      const lock = (w, len, th, taper, az, el, d, swing, roll) => strand(w, len, th, taper)
+        .rotateX(Math.PI - swing).rotateZ(roll).translate(0, 0, d).rotateX(-el).rotateY(az).translate(0, hy, 0);
+      const HA = { ao: 0.20, aoY0: hy - R * 0.9, aoY1: hy + R * 0.9, top: 0.26, to: spec.hairMid, y0: hy - R, y1: hy + R };
+      // crown shell: front edge lands right at the top of the face decal
+      bp.push([ell(R * 1.06, R * 1.05, R * 1.05, 15, 11).translate(0, hy + R * 0.12, -R * 0.08), spec.hair, HA]);
+      // occipital mass — gives the profile a real back-of-head silhouette
+      bp.push([ell(R * 0.96, R * 0.90, R * 0.86, 12, 9).translate(0, hy - R * 0.10, -R * 0.50), spec.hair,
+        { ao: 0.36, aoY0: hy - R, aoY1: hy + R * 0.5, to: spec.hairMid, y0: hy - R, y1: hy + R * 0.6 }]);
+      // swept fringe: a deep side part on her right, locks fanning left,
+      // tips stopping just above the brows
+      // Locks are wide and blunt-tipped (taper 0.5) and overlap each other:
+      // needle-thin strands read as a crown of leaves, not as hair.
+      const fringe = [
+        [-0.98, 0.62, 0.44, -0.30], [-0.60, 0.72, 0.56, -0.20], [-0.22, 0.76, 0.62, -0.06],
+        [0.20, 0.68, 0.60, 0.10], [0.60, 0.60, 0.52, 0.24], [0.98, 0.52, 0.42, 0.36],
+      ];
+      for (const [az, len, el, roll] of fringe) {
+        bp.push([lock(R * 0.40, R * len, R * 0.15, 0.52, az, el, R * 0.90, 0.10, roll), spec.hair,
+          { ao: 0.14, aoY0: hy - R * 0.5, aoY1: hy + R * 0.9, top: 0.16, to: spec.hairMid, y0: hy + R * 0.9, y1: hy - R * 0.2 }]);
       }
-      // nose + mouth, deliberately tiny
-      bp.push([new THREE.ConeGeometry(R * 0.07, R * 0.13, 4).rotateY(Math.PI / 4).rotateX(-1.9)
-        .translate(0, hy - R * 0.20, R * 0.85), SS, { ao: 0 }]);
-      bp.push([ell(R * 0.105, R * 0.04, R * 0.05, 7, 5).translate(0, hy - R * 0.54, R * 0.76), 0xc4736a, { ao: 0 }]);
-      // --- hair: layered swept volumes with strand tips, not a solid blob ---
-      const hp = [];
-      const HA = { ao: 0.16, aoY0: hy - R * 0.8, aoY1: hy + R, top: 0.18 };
-      hp.push([new THREE.SphereGeometry(R * 1.09, 13, 9, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1.07, 1.07, 1.10)
-        .translate(0, hy + R * 0.04, -R * 0.06), spec.hair, HA]);
-      // forehead mass, swept up and to one side
-      hp.push([ell(R * 1.00, R * 0.46, R * 0.66, 12, 8).rotateZ(0.16).translate(-R * 0.06, hy + R * 0.70, R * 0.32), spec.hair, HA]);
-      hp.push([ell(R * 0.56, R * 0.52, R * 0.52, 9, 7).translate(-R * 0.64, hy + R * 0.56, R * 0.42), spec.hair, HA]);
-      // back volume
-      hp.push([ell(R * 1.00, R * 0.94, R * 0.86, 12, 9).translate(0, hy + R * 0.08, -R * 0.46), spec.hair,
-        { ao: 0.3, aoY0: hy - R * 0.8, aoY1: hy + R * 0.6 }]);
-      // fringe tips sweeping across the temples (never over the eyes)
-      const fr = [[-1.10, 1.00, 0.95], [-0.80, 0.80, 0.80], [-0.42, 0.52, 0.62], [0.72, 0.62, -0.70], [1.02, 0.86, -0.85]];
-      for (const [a, len, roll] of fr) {
-        const g = strand(R * 0.21, R * len, R * 0.13, 0.10)
-          .rotateX(Math.PI - 0.20).rotateZ(roll)
-          .translate(Math.sin(a) * R * 0.88, hy + R * 0.62, Math.cos(a) * R * 0.80);
-        hp.push([g, spec.hair, { ao: 0.1, aoY0: hy - R * 0.6, aoY1: hy + R * 0.8, to: spec.hairTip, y0: hy + R * 0.7, y1: hy - R * 0.3 }]);
+      // face-framing side locks (asymmetric — the long one on her right)
+      for (const [az, len, roll] of [[-1.34, 1.55, -0.08], [1.32, 1.05, 0.10]]) {
+        bp.push([lock(R * 0.36, R * len, R * 0.18, 0.42, az, 0.16, R * 0.90, -0.10, roll), spec.hair,
+          { ao: 0.20, aoY0: hy - R * 1.3, aoY1: hy + R * 0.5, to: spec.hairTip, y0: hy + R * 0.4, y1: hy - R * 1.2 }]);
       }
-      // face-framing side locks (asymmetric)
-      for (const [sx, len, tilt] of [[-1, 1.75, -0.10], [1, 1.15, 0.14]]) {
-        const g = strand(R * 0.30, R * len, R * 0.20, 0.22).rotateX(Math.PI + 0.10).rotateZ(sx * tilt)
-          .translate(sx * R * 0.94, hy + R * 0.52, R * 0.26);
-        hp.push([g, spec.hair, { ao: 0.16, aoY0: hy - R, aoY1: hy + R * 0.6, to: spec.hairTip, y0: hy + R * 0.5, y1: hy - R }]);
+      // two short locks breaking the back silhouette
+      for (const [az, len, roll] of [[2.5, 0.80, -0.2], [-2.5, 0.68, 0.2]]) {
+        bp.push([lock(R * 0.34, R * len, R * 0.16, 0.45, az, 0.34, R * 0.92, -0.25, roll), spec.hair,
+          { ao: 0.26, aoY0: hy - R, aoY1: hy + R * 0.5, to: spec.hairMid, y0: hy + R * 0.3, y1: hy - R }]);
       }
-      bp.push(...hp);
     } else {
-      // Kargath: full horned helm, glowing visor slit, no visible face
-      bp.push([ell(R * 0.62, R * 0.42, R * 0.44, 9, 7).translate(0, hy - R * 0.55, R * 0.42), spec.hair,
-        { ao: 0.3, aoY0: hy - R, aoY1: hy, jitter: 0.1 }]); // beard
+      // Kargath: braided beard + heavy jaw under an open-faced horned helm
+      bp.push([ell(R * 0.66, R * 0.46, R * 0.46, 10, 7).translate(0, hy - R * 0.60, R * 0.40), spec.hair,
+        { ao: 0.32, aoY0: hy - R, aoY1: hy, jitter: 0.14 }]);
+      for (const sx of [-1, 1])
+        bp.push([strand(R * 0.16, R * 0.62, R * 0.14, 0.35).rotateX(Math.PI - 0.30).rotateZ(sx * 0.18)
+          .translate(sx * R * 0.26, hy - R * 0.78, R * 0.42), spec.hair,
+        { ao: 0.2, aoY0: hy - R * 1.4, aoY1: hy - R * 0.5, to: spec.hairTip, y0: hy - R * 1.3, y1: hy - R * 0.6 }]);
     }
     neck.add(mesh(assemble(bp), mBody, true));
+
+    // painted face decal on a patch that hugs the skull
+    const face = mesh(facePatch(skR[0], skR[1], skR[2], hy, S
+      ? { az: 0.70, el1: 0.52, el0: -0.80 }
+      : { az: 0.66, el1: 0.44, el0: -0.72, u0: 0.16, u1: 0.84 }), mFace);
+    face.renderOrder = 2;
+    neck.add(face);
 
     const hp = [];
     if (S) {
       // circlet with an upswept dawn ornament
-      hp.push([new THREE.TorusGeometry(R * 1.06, 0.019, 5, 16, Math.PI * 1.25).rotateZ(Math.PI * -0.12)
-        .rotateX(Math.PI / 2 - 0.20).rotateY(Math.PI).translate(0, hy + R * 0.36, 0), TR, { ao: 0 }]);
-      hp.push([strand(0.036, 0.12, 0.02, 0.0).rotateX(-0.5).translate(0, hy + R * 0.52, R * 0.88), TR, { ao: 0 }]);
+      hp.push([new THREE.TorusGeometry(R * 1.09, 0.014, 5, 20, Math.PI * 1.34).rotateZ(Math.PI * -0.10)
+        .rotateX(Math.PI / 2 - 0.13).rotateY(Math.PI).translate(0, hy + R * 0.26, 0), TR, { ao: 0, to: TD, y0: hy + R, y1: hy }]);
+      hp.push([onHead(strand(0.036, 0.13, 0.02, 0.0).rotateX(-Math.PI / 2), 0, 0.40, R * 0.92, hy), TR, { ao: 0 }]);
       for (const sx of [-1, 1])
-        hp.push([strand(0.026, 0.085, 0.016, 0.0).rotateX(-0.4).rotateZ(sx * 0.5)
-          .translate(sx * R * 0.42, hy + R * 0.48, R * 0.80), TR, { ao: 0 }]);
+        hp.push([onHead(strand(0.024, 0.085, 0.016, 0.0).rotateX(-Math.PI / 2).rotateZ(sx * 0.55), sx * 0.44, 0.34, R * 0.92, hy), TD, { ao: 0 }]);
     } else {
-      hp.push([new THREE.SphereGeometry(R * 1.10, 12, 9, 0, Math.PI * 2, 0, Math.PI * 0.66).scale(1.04, 1.08, 1.06)
-        .translate(0, hy + R * 0.02, 0), P, { ao: 0.2, aoY0: hy - R * 0.5, aoY1: hy + R, top: 0.2 }]);
-      hp.push([cbox(R * 1.5, R * 0.55, R * 0.9, R * 0.12).translate(0, hy + R * 0.18, R * 0.30), PS, { ao: 0.25, aoY0: hy - R * 0.3, aoY1: hy + R * 0.4 }]);
-      hp.push([ell(R * 0.62, R * 0.40, R * 0.40, 8, 6).translate(0, hy - R * 0.30, R * 0.62), PS, { ao: 0.3, aoY0: hy - R, aoY1: hy }]);
+      // open-faced horned helm: a deep skull cap tipped forward so its rim
+      // clears the eyes at the front while still swallowing the whole occiput
+      hp.push([new THREE.SphereGeometry(R * 1.06, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.62)
+        .scale(1.05, 1.05, 1.08).rotateX(-0.55).translate(0, hy + R * 0.02, R * 0.02), P,
+      { ao: 0.24, aoY0: hy - R * 0.4, aoY1: hy + R, top: 0.26, to: PS, y0: hy + R, y1: hy - R * 0.4, jitter: 0.05 }]);
+      // brow bar with a nasal, right on the helm's front rim
+      hp.push([cbox(R * 1.30, R * 0.24, R * 0.42, R * 0.07).rotateX(0.22).translate(0, hy + R * 0.44, R * 0.70), PS,
+        { ao: 0.25, aoY0: hy + R * 0.1, aoY1: hy + R * 0.45, top: 0.2 }]);
+      hp.push([cbox(R * 0.16, R * 0.42, R * 0.20, R * 0.05).translate(0, hy + R * 0.30, R * 0.86), PS, { ao: 0.2, aoY0: hy - R * 0.1, aoY1: hy + R * 0.3 }]);
       for (const sx of [-1, 1]) {
-        hp.push([new THREE.TorusGeometry(R * 0.85, 0.055, 6, 10, Math.PI * 0.72).rotateY(sx > 0 ? 0.25 : Math.PI - 0.25)
-          .rotateZ(sx * -0.55).translate(sx * R * 0.90, hy + R * 0.42, -R * 0.05), spec.steel, { ao: 0, to: 0xe4dcc8, y0: hy, y1: hy + R }]);
-        hp.push([new THREE.ConeGeometry(0.032, 0.10, 5).rotateZ(sx * 0.6).translate(sx * R * 0.62, hy + R * 0.95, 0), TR, { ao: 0 }]);
+        hp.push([chamferBox(R * 0.26, R * 0.80, R * 0.52, R * 0.08).translate(0, -R * 0.8, 0).rotateZ(sx * 0.10)
+          .translate(sx * R * 0.84, hy + R * 0.20, R * 0.26), PS, { ao: 0.3, aoY0: hy - R * 0.7, aoY1: hy + R * 0.2 }]);
+        // big curled horns
+        hp.push([new THREE.TorusGeometry(R * 0.92, 0.060, 6, 11, Math.PI * 0.80).rotateY(sx > 0 ? 0.22 : Math.PI - 0.22)
+          .rotateZ(sx * -0.52).translate(sx * R * 0.94, hy + R * 0.46, -R * 0.06), spec.steel,
+        { ao: 0, to: 0xefe6cf, y0: hy, y1: hy + R * 1.2 }]);
+        hp.push([new THREE.ConeGeometry(0.030, 0.11, 5).rotateZ(sx * 0.55).translate(sx * R * 0.58, hy + R * 1.02, -R * 0.02), TR, { ao: 0 }]);
       }
+      // central crest spike
+      hp.push([strand(0.034, 0.20, 0.020, 0.0).rotateX(-0.30).translate(0, hy + R * 0.90, -R * 0.18), TR,
+        { ao: 0, to: TD, y0: hy + R * 1.4, y1: hy + R * 0.8 }]);
     }
-    neck.add(mesh(assemble(hp), mPlate, S));
-
-    if (!S) {
-      neck.add(mesh(assemble([
-        [cbox(R * 0.92, R * 0.10, R * 0.06, R * 0.02).translate(0, hy + R * 0.12, R * 0.80), spec.core, { ao: 0 }],
-        [ell(R * 0.09, R * 0.07, R * 0.05, 6, 5).translate(0, hy + R * 0.62, R * 0.62), spec.core, { ao: 0 }],
-      ]), mGlow));
-    }
+    neck.add(mesh(assemble(hp), mPlate, true));
 
     // ---------------------------------------------------------- ponytail --
     if (S) {
-      const t0 = joint(neck, 0, hy + R * 0.42, -R * 0.92, null, rig);
-      const t1 = joint(t0, 0, -0.24, -0.18, null, rig);
-      const segA = strand(0.085, 0.30, 0.062, 0.62).rotateX(-2.50);
-      const segB = strand(0.055, 0.26, 0.042, 0.12).rotateX(-2.85);
-      t0.add(mesh(assemble([[segA, spec.hair, { ao: 0.12, aoY0: -0.3, aoY1: 0.05, to: spec.hairTip, y0: 0.05, y1: -0.3 }]]), mBody));
-      t1.add(mesh(assemble([[segB, spec.hairTip, { ao: 0.1, aoY0: -0.3, aoY1: 0.0 }]]), mBody));
-      // gold hair tie
-      t0.add(mesh(assemble([[new THREE.TorusGeometry(0.062, 0.016, 5, 10).rotateX(1.1).translate(0, -0.03, -0.06), TR, { ao: 0 }]]), mPlate));
+      const t0 = joint(neck, 0, hy + R * 0.20, -R * 0.95, null, rig);
+      const t1 = joint(t0, 0, -0.30, -0.10, null, rig);
+      const a0 = [];
+      // gold tie wrapping the base, then three tapered strands falling back
+      a0.push([lathe([[0.022, 0.018], [0.048, 0.002], [0.050, -0.036], [0.024, -0.050]], 10).rotateX(-0.42), TR,
+        { ao: 0, to: TD, y0: 0.02, y1: -0.06 }]);
+      a0.push([ell(0.066, 0.060, 0.070, 9, 7).translate(0, -0.02, -0.030), spec.hair,
+        { ao: 0.18, aoY0: -0.08, aoY1: 0.02 }]);
+      for (const [sx, len, w, roll] of [[0, 0.40, 0.080, 0], [-1, 0.33, 0.060, -0.20], [1, 0.31, 0.056, 0.18]]) {
+        a0.push([strand(w, len, w * 0.66, 0.46).rotateX(Math.PI + 0.55).rotateZ(roll)
+          .translate(sx * 0.048, -0.030, -0.045), spec.hair,
+        { ao: 0.16, aoY0: -0.36, aoY1: 0.02, to: spec.hairMid, y0: 0.02, y1: -0.34 }]);
+      }
+      t0.add(mesh(assemble(a0), mBody));
+      const a1 = [];
+      for (const [sx, len, w, roll] of [[0, 0.36, 0.058, 0], [-0.9, 0.28, 0.044, -0.18], [0.9, 0.26, 0.042, 0.16]]) {
+        a1.push([strand(w, len, w * 0.66, 0.16).rotateX(Math.PI + 0.30).rotateZ(roll)
+          .translate(sx * 0.030, 0.015, -0.012), spec.hairMid,
+        { ao: 0.14, aoY0: -0.34, aoY1: 0.02, to: spec.hairTip, y0: 0.0, y1: -0.32 }]);
+      }
+      t1.add(mesh(assemble(a1), mBody));
       rig.tail = [t0, t1];
     }
   }
 
   // ================================================================= cape ==
   {
-    const capeRoot = joint(torso, 0, 0.485, -0.175 * B, null, rig);
+    const capeRoot = joint(torso, 0, 0.525, -0.180 * B, null, rig);
     rig.capeRoot = capeRoot;
     const cape = S
-      ? new Cape(mCape, { rows: 7, cols: 6, seg: 0.165, w0: 0.28, w1: 0.50, thick: 0.022, curl: 0.11, fold: 0.05, folds: 3 })
-      : new Cape(mCape, { rows: 6, cols: 6, seg: 0.185, w0: 0.34, w1: 0.64, thick: 0.028, curl: 0.13, ragged: 0.16, fold: 0.06, folds: 4 });
+      ? new Cape(mCape, {
+        rows: 8, cols: 7, seg: 0.160, w0: 0.25, w1: 0.44, thick: 0.020, curl: 0.20,
+        fold: 0.05, folds: 3, vhem: 0.13, lining: [2.45, 2.05, 1.20], uIn: 0.13, vIn: 0.07,
+      })
+      : new Cape(mCape, {
+        rows: 6, cols: 7, seg: 0.160, w0: 0.32, w1: 0.58, thick: 0.028, curl: 0.22,
+        ragged: 0.22, fold: 0.07, folds: 4, lining: [1.55, 1.30, 1.0], uIn: 0.16, vIn: 0.10,
+      });
     capeRoot.add(cape.mesh);
     rig.cape = cape;
   }
 
   // =============================================================== weapon ==
-  const grip = joint(rig.joints.elR, 0, -0.345, 0.055, 'grip', rig);
+  const grip = joint(rig.joints.elR, 0, -spec.armF - 0.02, 0.05, 'grip', rig);
   const wG = new THREE.Group();
   if (S) {
     const pp = [];
-    pp.push([bladeGeo({ len: 1.06, w: 0.058, th: 0.023, steps: 8 }).translate(0, 0.20, 0), spec.steel,
+    pp.push([bladeGeo({ len: 1.10, w: 0.060, th: 0.023, steps: 8 }).translate(0, 0.20, 0), spec.steel,
       { ao: 0, to: 0xffffff, y0: 0.2, y1: 1.2, top: 0.1 }]);
     // crossguard: swept wings + collar
     for (const sx of [-1, 1]) {
-      pp.push([new THREE.TorusGeometry(0.085, 0.024, 5, 9, Math.PI * 0.66).rotateY(sx > 0 ? 0 : Math.PI)
-        .rotateZ(sx * -0.35).translate(sx * 0.055, 0.175, 0), TR, { ao: 0 }]);
-      pp.push([new THREE.ConeGeometry(0.026, 0.08, 5).rotateZ(sx * -1.35).translate(sx * 0.175, 0.22, 0), TR, { ao: 0 }]);
+      pp.push([new THREE.TorusGeometry(0.088, 0.024, 5, 9, Math.PI * 0.66).rotateY(sx > 0 ? 0 : Math.PI)
+        .rotateZ(sx * -0.35).translate(sx * 0.055, 0.175, 0), TR, { ao: 0, to: TD, y0: 0.24, y1: 0.12 }]);
+      pp.push([new THREE.ConeGeometry(0.026, 0.085, 5).rotateZ(sx * -1.35).translate(sx * 0.182, 0.222, 0), TR, { ao: 0 }]);
     }
-    pp.push([lathe([[0.042, 0.11], [0.055, 0.16], [0.05, 0.215], [0.032, 0.24]], 9), TR, { ao: 0 }]);
+    pp.push([lathe([[0.042, 0.11], [0.056, 0.16], [0.05, 0.215], [0.032, 0.24]], 10), TR, { ao: 0, to: TD, y0: 0.24, y1: 0.11 }]);
     // wrapped grip
-    pp.push([new THREE.CylinderGeometry(0.026, 0.030, 0.17, 8).translate(0, 0.025, 0), 0x2a2438, { ao: 0 }]);
+    pp.push([new THREE.CylinderGeometry(0.026, 0.030, 0.19, 8).translate(0, 0.015, 0), 0x2a2438, { ao: 0 }]);
     for (let i = 0; i < 4; i++)
-      pp.push([new THREE.TorusGeometry(0.029, 0.007, 4, 8).rotateX(Math.PI / 2).translate(0, -0.03 + i * 0.042, 0), 0x453a52, { ao: 0 }]);
-    pp.push([new THREE.OctahedronGeometry(0.05, 0).scale(1, 0.85, 0.85).translate(0, -0.075, 0), TR, { ao: 0 }]);
+      pp.push([new THREE.TorusGeometry(0.029, 0.007, 4, 8).rotateX(Math.PI / 2).translate(0, -0.045 + i * 0.042, 0), 0x453a52, { ao: 0 }]);
+    pp.push([new THREE.OctahedronGeometry(0.052, 0).scale(1, 0.85, 0.85).translate(0, -0.095, 0), TR, { ao: 0 }]);
+    // right hand, welded to the hilt so the grip is never a floating ball
+    for (const q of gripFist(1, SK, SS)) pp.push(q);
     wG.add(mesh(assemble(pp), mPlate, true));
     const gp = [];
     // fuller glow, bright at the guard fading up the blade + hot tip
     for (const zz of [0.0125, -0.0125])
-      gp.push([cbox(0.021, 0.86, 0.008, 0.003).translate(0, 1.10, zz), spec.core,
+      gp.push([cbox(0.021, 0.88, 0.008, 0.003).translate(0, 1.12, zz), spec.core,
         { ao: 0, to: 0x18424f, y0: 0.26, y1: 1.10 }]);
-    gp.push([ell(0.022, 0.075, 0.012, 6, 5).translate(0, 1.20, 0), 0xffffff, { ao: 0 }]);
-    gp.push([new THREE.OctahedronGeometry(0.024, 0).translate(0, -0.075, 0), spec.core, { ao: 0 }]);
+    gp.push([ell(0.022, 0.078, 0.012, 6, 5).translate(0, 1.22, 0), 0xffffff, { ao: 0 }]);
+    gp.push([new THREE.OctahedronGeometry(0.024, 0).translate(0, -0.095, 0), spec.core, { ao: 0 }]);
     wG.add(mesh(assemble(gp), mGlow));
     rig.bladeBase = new THREE.Vector3(0, 0.24, 0);
-    rig.bladeTip = new THREE.Vector3(0, 1.26, 0);
+    rig.bladeTip = new THREE.Vector3(0, 1.30, 0);
   } else {
     // Kargath: two-handed ember greataxe
     const pp = [];
-    pp.push([new THREE.CylinderGeometry(0.036, 0.046, 1.34, 8).translate(0, 0.44, 0), 0x2f2620, { ao: 0 }]);
+    pp.push([new THREE.CylinderGeometry(0.038, 0.050, 1.40, 8).translate(0, 0.46, 0), 0x2f2620, { ao: 0 }]);
     for (let i = 0; i < 5; i++)
-      pp.push([new THREE.TorusGeometry(0.041, 0.009, 4, 8).rotateX(Math.PI / 2).translate(0, -0.10 + i * 0.10, 0), 0x50412f, { ao: 0 }]);
-    pp.push([lathe([[0.05, 0.98], [0.075, 1.04], [0.06, 1.12]], 8), TR, { ao: 0 }]);
+      pp.push([new THREE.TorusGeometry(0.044, 0.010, 4, 8).rotateX(Math.PI / 2).translate(0, -0.10 + i * 0.10, 0), 0x50412f, { ao: 0 }]);
+    pp.push([lathe([[0.052, 0.98], [0.082, 1.04], [0.064, 1.13]], 8), TR, { ao: 0, to: TD, y0: 1.13, y1: 0.98 }]);
     {
       const s = new THREE.Shape();
-      s.moveTo(0.03, -0.30);
-      s.quadraticCurveTo(0.44, -0.34, 0.52, 0.02);
-      s.quadraticCurveTo(0.44, 0.36, 0.03, 0.32);
-      s.quadraticCurveTo(0.14, 0.02, 0.03, -0.30);
+      s.moveTo(0.03, -0.34);
+      s.quadraticCurveTo(0.50, -0.38, 0.60, 0.02);
+      s.quadraticCurveTo(0.50, 0.42, 0.03, 0.36);
+      s.quadraticCurveTo(0.15, 0.02, 0.03, -0.34);
       s.closePath();
       for (const sx of [1, -1]) {
-        const g = new THREE.ExtrudeGeometry(s, { depth: 0.06, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 1 });
+        const g = new THREE.ExtrudeGeometry(s, { depth: 0.07, bevelEnabled: true, bevelThickness: 0.022, bevelSize: 0.022, bevelSegments: 1 });
         g.scale(sx, 1, 1);
-        g.translate(0, 1.02, -0.03);
-        pp.push([g, spec.steel, { ao: 0, to: 0xf0eadd, y0: 1.0, y1: 1.3 }]);
+        g.translate(0, 1.04, -0.035);
+        pp.push([g, spec.steel, { ao: 0, to: 0xf0eadd, y0: 1.0, y1: 1.35, jitter: 0.05 }]);
       }
     }
-    pp.push([new THREE.ConeGeometry(0.05, 0.24, 6).translate(0, 1.44, 0), TR, { ao: 0 }]);
-    pp.push([new THREE.ConeGeometry(0.045, 0.16, 5).rotateX(Math.PI).translate(0, -0.12, 0), TR, { ao: 0 }]);
+    pp.push([new THREE.ConeGeometry(0.055, 0.26, 6).translate(0, 1.48, 0), TR, { ao: 0 }]);
+    pp.push([new THREE.ConeGeometry(0.048, 0.17, 5).rotateX(Math.PI).translate(0, -0.13, 0), TR, { ao: 0 }]);
+    for (const q of gripFist(1, SS, spec.skinShade)) pp.push(q);
     wG.add(mesh(assemble(pp), mPlate, true));
     const gp = [];
     for (const sx of [1, -1])
-      gp.push([cbox(0.03, 0.60, 0.045, 0.008).rotateZ(sx * -0.1).translate(sx * 0.50, 1.32, 0), spec.core,
-        { ao: 0, to: 0x3a1806, y0: 1.32, y1: 1.02 }]);
-    gp.push([ell(0.075, 0.085, 0.05, 8, 6).translate(0, 1.02, 0), spec.core, { ao: 0 }]);
+      gp.push([cbox(0.03, 0.66, 0.05, 0.008).rotateZ(sx * -0.1).translate(sx * 0.57, 1.36, 0), spec.core,
+        { ao: 0, to: 0x3a1806, y0: 1.36, y1: 1.02 }]);
+    gp.push([ell(0.078, 0.09, 0.05, 8, 6).translate(0, 1.04, 0), spec.core, { ao: 0 }]);
     wG.add(mesh(assemble(gp), mGlow));
-    rig.bladeBase = new THREE.Vector3(0, 0.70, 0);
-    rig.bladeTip = new THREE.Vector3(0.48, 1.05, 0);
+    rig.bladeBase = new THREE.Vector3(0, 0.72, 0);
+    rig.bladeTip = new THREE.Vector3(0.54, 1.08, 0);
   }
   grip.add(wG);
   rig.weapon = wG;
@@ -634,84 +886,86 @@ const POSES = {
     const br = Math.sin(t * 1.55);              // breath
     const ws = Math.sin(t * 0.42);              // slow weight shift
     const ws2 = Math.sin(t * 0.42 + 1.1);
-    o.hips = [0.02, ws * 0.09, -ws * 0.05, ws * 0.035, br * 0.014 - Math.abs(ws) * 0.012, 0];
-    o.torso = [0.035 + br * 0.03, -ws * 0.05, ws * 0.06];
-    o.head = [-0.05 + br * 0.022, Math.sin(t * 0.31 + 0.7) * 0.20 - ws * 0.06, -ws * 0.03];
-    o.shL = [0.14 + br * 0.035, 0.05, -0.155 - ws * 0.03];
-    o.elL = [0.30 + br * 0.03, 0, -0.08];
-    o.shR = [0.10 + br * 0.035, -0.06, 0.225 + ws * 0.03];
-    o.elR = [0.46, 0.05, 0.13];
-    o.grip = [-0.62, 0.1, -0.05];
-    o.hipL = [0.03 - ws * 0.06, 0, -0.035]; o.kneeL = [0.06 + Math.max(0, ws) * 0.12, 0, 0];
-    o.hipR = [-0.05 + ws * 0.06, 0.06, 0.035]; o.kneeR = [0.10 + Math.max(0, -ws) * 0.12, 0, 0];
-    o.capeLean = 0.04 + Math.abs(ws2) * 0.03;
+    o.hips = [0.02, ws * 0.10, -ws * 0.055, ws * 0.04, br * 0.016 - Math.abs(ws) * 0.014, 0];
+    o.torso = [0.035 + br * 0.032, -ws * 0.055, ws * 0.065];
+    o.head = [-0.05 + br * 0.024, Math.sin(t * 0.31 + 0.7) * 0.22 - ws * 0.07, -ws * 0.035];
+    o.shL = [0.14 + br * 0.035, 0.05, -0.175 - ws * 0.03];
+    o.elL = [0.34 + br * 0.03, 0, -0.10];
+    o.shR = [0.10 + br * 0.035, -0.06, 0.235 + ws * 0.03];
+    o.elR = [0.48, 0.05, 0.13];
+    o.grip = [-0.58, 0.1, -0.05];
+    o.hipL = [0.03 - ws * 0.06, 0, -0.035]; o.kneeL = [0.06 + Math.max(0, ws) * 0.13, 0, 0];
+    o.hipR = [-0.05 + ws * 0.06, 0.06, 0.035]; o.kneeR = [0.10 + Math.max(0, -ws) * 0.13, 0, 0];
+    o.capeLean = 0.05 + Math.abs(ws2) * 0.035;
+    o.capeSide = ws2 * 0.05;
   },
   run(t, p, o) {
     const rate = p.rate || 1;
     const f = t * 10.5 * rate;
     const s = Math.sin(f), c = Math.cos(f);
-    const lean = 0.34 * rate;
+    const lean = 0.36 * rate;
     // foot plant: the support knee snaps straight as the heel lands
     const plantL = Math.max(0, -c), plantR = Math.max(0, c);
-    o.torso = [lean, s * 0.10, -s * 0.05];
-    o.hips = [0.09, -s * 0.16, c * 0.03, 0, Math.abs(c) * 0.055 - 0.03, 0];
-    o.head = [-lean * 0.72 - 0.04, s * 0.06, 0];
-    o.hipL = [s * 0.88 - 0.12, 0, -0.03];
-    o.kneeL = [Math.max(0.06, -s * 1.25 + 0.30) * (1 - plantL * 0.55), 0, 0];
-    o.hipR = [-s * 0.88 - 0.12, 0, 0.03];
-    o.kneeR = [Math.max(0.06, s * 1.25 + 0.30) * (1 - plantR * 0.55), 0, 0];
+    o.torso = [lean, s * 0.11, -s * 0.055];
+    o.hips = [0.10, -s * 0.18, c * 0.035, 0, Math.abs(c) * 0.06 - 0.03, 0];
+    o.head = [-lean * 0.78 - 0.04, s * 0.07, 0];
+    o.hipL = [s * 0.92 - 0.14, 0, -0.03];
+    o.kneeL = [Math.max(0.06, -s * 1.30 + 0.30) * (1 - plantL * 0.60), 0, 0];
+    o.hipR = [-s * 0.92 - 0.14, 0, 0.03];
+    o.kneeR = [Math.max(0.06, s * 1.30 + 0.30) * (1 - plantR * 0.60), 0, 0];
     // arms counter-swing the legs
-    o.shL = [-s * 0.72 + 0.12, -s * 0.1, -0.20];
-    o.elL = [0.60 + Math.max(0, -s) * 0.55, 0, -0.05];
-    o.shR = [s * 0.58 + 0.20, s * 0.08, 0.26];
-    o.elR = [0.62 + Math.max(0, s) * 0.35, 0, 0.12];
-    o.grip = [-0.72, 0.15, -0.1];
+    o.shL = [-s * 0.76 + 0.12, -s * 0.1, -0.22];
+    o.elL = [0.62 + Math.max(0, -s) * 0.58, 0, -0.06];
+    o.shR = [s * 0.60 + 0.20, s * 0.08, 0.27];
+    o.elR = [0.64 + Math.max(0, s) * 0.36, 0, 0.12];
+    o.grip = [-0.70, 0.15, -0.1];
     o.capeLean = 0.55 + rate * 0.45;
+    o.capeSide = s * 0.10;
   },
   atk1(t, p, o) { // horizontal slash R -> L
     const w = inQuad(t / 0.30), st = outQuint((t - 0.30) / 0.13), rec = sm01((t - 0.52) / 0.42);
-    o.torso = [0.10 + 0.10 * w, -0.78 * w + 1.42 * st - 0.62 * rec, 0.10 * w - 0.08 * st];
-    o.head = [0.05 * w, 0.52 * w - 0.78 * st + 0.28 * rec, 0];
+    o.torso = [0.10 + 0.10 * w, -0.82 * w + 1.48 * st - 0.66 * rec, 0.10 * w - 0.08 * st];
+    o.head = [0.05 * w, 0.54 * w - 0.82 * st + 0.30 * rec, 0];
     o.shR = [-0.55 - 1.00 * w + 1.62 * st - 0.2 * rec, -0.30 - 0.55 * w + 1.10 * st, 1.05 * w - 0.75 * st];
     o.elR = [0.55 + 0.35 * w - 0.55 * st, 0, 0.15];
-    o.grip = [-1.45 + 0.55 * st, 0, 1.45 * w - 2.55 * st + 1.0 * rec];
-    o.shL = [0.45 * w - 0.25 * st, 0.3 * w, -0.42 - 0.42 * w + 0.25 * st];
-    o.elL = [0.75 + 0.4 * w, 0, -0.12];
-    o.hipL = [-0.22 * st, 0, 0]; o.hipR = [0.26 * st - 0.12 * w, 0, 0];
+    o.grip = [-1.35 + 0.50 * st, 0, 1.20 * w - 2.10 * st + 0.85 * rec];
+    o.shL = [0.45 * w - 0.25 * st, 0.3 * w, -0.44 - 0.42 * w + 0.25 * st];
+    o.elL = [0.78 + 0.4 * w, 0, -0.12];
+    o.hipL = [-0.24 * st, 0, 0]; o.hipR = [0.28 * st - 0.12 * w, 0, 0];
     o.kneeL = [0.22 + 0.2 * w, 0, 0]; o.kneeR = [0.30, 0, 0];
-    o.hips = [0.04, -0.42 * w + 0.92 * st - 0.4 * rec, 0, 0, -0.05 * w, 0.14 * st];
-    o.capeLean = 0.25 + st * 0.75 - rec * 0.5;
-    o.capeSide = -0.55 * st;
+    o.hips = [0.04, -0.44 * w + 0.96 * st - 0.42 * rec, 0, 0, -0.05 * w, 0.14 * st];
+    o.capeLean = 0.25 + st * 0.78 - rec * 0.5;
+    o.capeSide = -0.58 * st;
   },
   atk2(t, p, o) { // backhand L -> R
     const w = inQuad(t / 0.28), st = outQuint((t - 0.28) / 0.13), rec = sm01((t - 0.50) / 0.44);
-    o.torso = [0.13 + 0.08 * w, 0.85 * w - 1.55 * st + 0.70 * rec, -0.1 * w];
-    o.head = [0.04 * w, -0.55 * w + 0.82 * st - 0.3 * rec, 0];
+    o.torso = [0.13 + 0.08 * w, 0.90 * w - 1.60 * st + 0.74 * rec, -0.1 * w];
+    o.head = [0.04 * w, -0.58 * w + 0.86 * st - 0.32 * rec, 0];
     o.shR = [-0.35 - 0.55 * w + 1.05 * st, 0.60 * w - 1.30 * st + 0.45 * rec, 0.42 + 0.60 * w - 0.85 * st];
     o.elR = [0.40 + 0.5 * w - 0.3 * st, 0.5 * w - 0.85 * st, 0.2];
-    o.grip = [-1.30 + 0.35 * st, 0.55 * w - 1.0 * st, -1.20 * w + 2.20 * st - 1.0 * rec];
-    o.shL = [0.25 - 0.2 * st, -0.25 * w, -0.55 - 0.2 * w];
-    o.elL = [0.85, 0, 0];
-    o.hipL = [0.18 * st, 0, 0]; o.hipR = [-0.20 * st, 0, 0];
+    o.grip = [-1.20 + 0.32 * st, 0.45 * w - 0.85 * st, -1.00 * w + 1.85 * st - 0.85 * rec];
+    o.shL = [0.25 - 0.2 * st, -0.25 * w, -0.58 - 0.2 * w];
+    o.elL = [0.88, 0, 0];
+    o.hipL = [0.20 * st, 0, 0]; o.hipR = [-0.22 * st, 0, 0];
     o.kneeL = [0.28, 0, 0]; o.kneeR = [0.24 + 0.2 * w, 0, 0];
-    o.hips = [0.04, 0.48 * w - 0.98 * st, 0, 0, -0.04 * w, -0.10 * st];
-    o.capeLean = 0.25 + st * 0.7 - rec * 0.45;
-    o.capeSide = 0.55 * st;
+    o.hips = [0.04, 0.50 * w - 1.02 * st, 0, 0, -0.04 * w, -0.10 * st];
+    o.capeLean = 0.25 + st * 0.72 - rec * 0.45;
+    o.capeSide = 0.58 * st;
   },
   atk3(t, p, o) { // overhead heavy, big anticipation + hard stop
     const w = inQuad(t / 0.34), st = outQuint((t - 0.34) / 0.12), rec = sm01((t - 0.56) / 0.44);
-    o.torso = [-0.42 * w + 1.00 * st - 0.42 * rec, 0.18 * w - 0.14 * st, 0];
-    o.head = [0.35 * w - 0.48 * st + 0.1 * rec, 0, 0];
-    o.shR = [-2.75 * w + 3.75 * st - 0.95 * rec, 0.1 * w, 0.30 * w - 0.15 * st];
-    o.elR = [0.75 * w - 0.65 * st, 0, 0.1];
-    o.grip = [-0.85 - 1.05 * w + 1.90 * st - 0.55 * rec, 0, 0];
-    o.shL = [-2.15 * w + 2.95 * st - 0.80 * rec, 0, -0.40];
-    o.elL = [0.70 - 0.35 * st, 0, -0.1];
-    o.hips = [0.05, 0, 0, 0, -0.08 * w - 0.13 * st + 0.10 * rec, 0];
-    o.hipL = [0.18 * st - 0.1 * w, 0, 0]; o.hipR = [-0.16 * st, 0, 0];
-    o.kneeL = [0.20 + 0.45 * st, 0, 0]; o.kneeR = [0.22 + 0.45 * st, 0, 0];
+    o.torso = [-0.46 * w + 1.06 * st - 0.44 * rec, 0.20 * w - 0.16 * st, 0];
+    o.head = [0.38 * w - 0.52 * st + 0.1 * rec, 0, 0];
+    o.shR = [-2.80 * w + 3.82 * st - 0.98 * rec, 0.1 * w, 0.30 * w - 0.15 * st];
+    o.elR = [0.78 * w - 0.68 * st, 0, 0.1];
+    o.grip = [-0.80 - 0.95 * w + 1.72 * st - 0.50 * rec, 0, 0];
+    o.shL = [-2.20 * w + 3.00 * st - 0.82 * rec, 0, -0.42];
+    o.elL = [0.72 - 0.35 * st, 0, -0.1];
+    o.hips = [0.05, 0, 0, 0, -0.08 * w - 0.15 * st + 0.11 * rec, 0];
+    o.hipL = [0.20 * st - 0.1 * w, 0, 0]; o.hipR = [-0.18 * st, 0, 0];
+    o.kneeL = [0.20 + 0.50 * st, 0, 0]; o.kneeR = [0.22 + 0.50 * st, 0, 0];
     o.capeLean = 0.20 + w * 0.75 + st * 0.35 - rec * 0.6;
-    o.capeLift = w * 0.45 - st * 0.45;
+    o.capeLift = w * 0.50 - st * 0.50;
   },
   q(t, p, o) { // crescent wave: full-body roundhouse
     const w = inQuad(t / 0.26), st = outQuint((t - 0.26) / 0.15), rec = sm01((t - 0.52) / 0.44);
@@ -719,9 +973,9 @@ const POSES = {
     o.head = [0, 0.60 * w - 0.95 * st + 0.35 * rec, 0];
     o.shR = [-1.40 * w + 1.55 * st, -0.50 * w + 0.85 * st, 1.45 * w - 1.25 * st];
     o.elR = [0.50 + 0.3 * w - 0.55 * st, 0, 0.2];
-    o.grip = [-1.55 + 0.65 * st, 0, 1.75 * w - 3.10 * st + 1.35 * rec];
-    o.shL = [0.50 * w, 0.35 * w, -0.60];
-    o.elL = [0.90, 0, 0];
+    o.grip = [-1.42 + 0.55 * st, 0, 1.45 * w - 2.55 * st + 1.10 * rec];
+    o.shL = [0.50 * w, 0.35 * w, -0.62];
+    o.elL = [0.92, 0, 0];
     o.hips = [0, -0.58 * w + 1.20 * st - 0.62 * rec, 0, 0, -0.05 * st, 0.16 * st];
     o.hipL = [-0.18 * st, 0, 0]; o.hipR = [0.22 * st, 0, 0];
     o.kneeL = [0.28, 0, 0]; o.kneeR = [0.34, 0, 0];
@@ -733,7 +987,7 @@ const POSES = {
     o.head = [-0.42, 0, 0];
     o.shR = [0.95, 0, 0.88];
     o.elR = [0.50, 0, 0.30];
-    o.grip = [-2.15, 0, 0.40];
+    o.grip = [-1.95, 0, 0.35];
     o.shL = [-0.80, 0, -0.55];
     o.elL = [1.00, 0, 0];
     o.hipL = [1.00, 0, 0]; o.kneeL = [0.55, 0, 0];
@@ -747,7 +1001,7 @@ const POSES = {
     o.torso = [0.14, 0, b * 0.05];
     o.shR = [0.02, 0, 1.42];
     o.elR = [0.05, 0, 0.08];
-    o.grip = [-1.58, 0, 0];
+    o.grip = [-1.52, 0, 0];
     o.shL = [0.02, 0, -1.42];
     o.elL = [0.10, 0, 0];
     o.head = [0.06, 0, 0];
@@ -762,7 +1016,7 @@ const POSES = {
     o.head = [0.36, 0, 0];
     o.shR = [-3.00, 0, 0.32];
     o.elR = [0.42, 0, 0];
-    o.grip = [-1.45, 0, 0];
+    o.grip = [-1.35, 0, 0];
     o.shL = [-2.55, 0, -0.42];
     o.elL = [0.55, 0, 0];
     o.hipL = [0.62, 0, 0]; o.kneeL = [1.05, 0, 0];
@@ -776,7 +1030,7 @@ const POSES = {
     o.head = [-0.55 * k, 0, 0];
     o.shR = [1.70 * k, 0, 0.22];
     o.elR = [0.30, 0, 0];
-    o.grip = [-2.25, 0, 0];
+    o.grip = [-2.05, 0, 0];
     o.shL = [0.65 * k, 0, -0.95];
     o.elL = [0.85, 0, 0];
     o.hips = [0, 0, 0, 0, -0.34 * k, 0];
@@ -809,24 +1063,24 @@ const POSES = {
   },
   showcase(t, p, o) { // hero-shot: contrapposto, blade angled across the body
     const br = Math.sin(t * 1.5);
-    o.hips = [0.01, -0.30, -0.075, 0.03, br * 0.012 - 0.01, 0];
-    o.torso = [0.02 + br * 0.022, 0.12, 0.085];
-    o.head = [-0.10 + br * 0.02, 0.30, -0.04];
-    o.shR = [-0.62, -0.35, 0.62];
-    o.elR = [0.92, 0.1, 0.18];
-    o.grip = [-0.55, 0.35, -0.62];
-    o.shL = [0.20 + br * 0.03, 0.15, -0.40];
-    o.elL = [0.62, 0, -0.22];
+    o.hips = [0.01, -0.26, -0.080, 0.03, br * 0.014 - 0.01, 0];
+    o.torso = [0.02 + br * 0.024, 0.14, 0.090];
+    o.head = [-0.08 + br * 0.02, 0.20, -0.045];
+    o.shR = [-0.58, -0.32, 0.60];
+    o.elR = [0.95, 0.1, 0.20];
+    o.grip = [-0.48, 0.30, -0.55];
+    o.shL = [0.22 + br * 0.03, 0.16, -0.42];
+    o.elL = [0.66, 0, -0.24];
     o.hipL = [0.16, 0.06, -0.04]; o.kneeL = [0.30, 0, 0];
     o.hipR = [-0.10, 0.10, 0.055]; o.kneeR = [0.06, 0, 0];
-    o.capeLean = 0.20 + br * 0.04;
-    o.capeSide = 0.12 + Math.sin(t * 0.9) * 0.10;
+    o.capeLean = 0.22 + br * 0.04;
+    o.capeSide = 0.14 + Math.sin(t * 0.9) * 0.11;
   },
   channel(t, p, o) {
     POSES.idle(t, p, o);
     const k = Math.min(t / 0.5, 1);
     o.shR = [-2.6 * k, 0, 0.4];
-    o.grip = [-1.2, 0, 0];
+    o.grip = [-1.1, 0, 0];
     o.shL = [-2.2 * k, 0, -0.5];
     o.head = [0.35 * k, 0, 0];
     o.capeLean = 0.3 * k;
@@ -837,11 +1091,12 @@ const POSES = {
 // -------------------------------------------------------------------- Hero --
 export class Hero extends Unit {
   constructor({ name, team, build, x = 0, z = 0 }) {
-    super({ team, kind: 'hero', maxHp: 600, radius: 0.5, speed: 7.0, x, z, hpW: 1.35, hpY: 2.75 });
+    const spec = build === 'sera' ? SERA : KARGATH;
+    super({ team, kind: 'hero', maxHp: 600, radius: 0.5, speed: 7.0, x, z, hpW: 1.35, hpY: spec.hpY });
     this.isHero = true;
     this.name = name;
     this.isSera = build === 'sera';
-    this.rig = buildRig(this.isSera ? SERA : KARGATH);
+    this.rig = buildRig(spec);
     this.group.add(this.rig.root);
     this.anim = { name: 'idle', t: 0, dur: 1e9, lock: false, events: [], loop: true, poseParams: {} };
     this.tgt = {};
@@ -883,6 +1138,8 @@ export class Hero extends Unit {
   }
 
   update(dt) {
+    dt = fin(dt, 1 / 60);
+    if (dt <= 0) dt = 1 / 60;
     const a = this.anim;
     a.t += dt;
     for (const e of a.events) {
@@ -903,13 +1160,19 @@ export class Hero extends Unit {
     const pose = POSES[this.anim.name] || POSES.idle;
     this.anim.poseParams.rate = this.moveRate;
     pose(this.anim.t, this.anim.poseParams, out);
-    // blend joints toward targets
+    // blend joints toward targets (+ per-hero stance bias, e.g. Kargath's hunch)
+    const bias = this.rig.bias;
     const k = 1 - Math.exp(-this.blendK * dt);
     for (const name in this.rig.joints) {
       const j = this.rig.joints[name];
       const b = j.userData.bind;
       const d = out[name];
-      _e1.set(d ? d[0] : 0, d ? d[1] : 0, d ? d[2] : 0);
+      const bb = bias[name];
+      _e1.set(
+        (d ? d[0] : 0) + (bb ? bb[0] : 0),
+        (d ? d[1] : 0) + (bb ? bb[1] : 0),
+        (d ? d[2] : 0) + (bb ? bb[2] : 0),
+      );
       _q1.setFromEuler(_e1);
       j.quaternion.slerp(_q1, k);
       const px = b.px + (d && d[3] !== undefined ? d[3] : 0);
@@ -929,32 +1192,40 @@ export class Hero extends Unit {
       this.rig.root.rotation.y = this.extraYaw;
     }
     // leap height
-    this.rig.root.position.y = this.airY;
+    const airY = clamp(fin(this.airY), -2, 12);
+    this.airY = airY;
+    this.rig.root.position.y = airY;
 
     // ------------------------------------------------- secondary motion --
+    // Every quantity that reaches the cloth solver is sanitised here: a single
+    // NaN arriving from the sim used to latch into the chain and blow the cape
+    // up into a screen-filling sheet that never recovered.
     const idt = dt > 1e-5 ? 1 / dt : 0;
-    let df = this.facing - this._prevFacing;
+    const facing = fin(this.facing);
+    let df = facing - fin(this._prevFacing);
     while (df > Math.PI) df -= Math.PI * 2;
     while (df < -Math.PI) df += Math.PI * 2;
-    this._prevFacing = this.facing;
-    this._turn += (THREE.MathUtils.clamp(df * idt, -8, 8) - this._turn) * Math.min(1, dt * 12);
-    const vAir = THREE.MathUtils.clamp((this.airY - this._prevAirY) * idt, -14, 14);
-    this._prevAirY = this.airY;
+    this._prevFacing = facing;
+    this._turn += (clamp(fin(df * idt), -8, 8) - this._turn) * Math.min(1, dt * 12);
+    if (!Number.isFinite(this._turn)) this._turn = 0;
+    const vAir = clamp(fin((airY - this._prevAirY) * idt), -14, 14);
+    this._prevAirY = airY;
 
     const c = this._capeCtx;
-    const speedLean = this.moving ? 0.30 + 0.75 * this.moveRate : 0;
-    const wantLean = Math.max(speedLean, out.capeLean || 0) + (this.spinRate ? 0.9 : 0);
-    const wantSide = THREE.MathUtils.clamp(-this._turn * 0.11, -0.85, 0.85) + (out.capeSide || 0);
-    const wantLift = (out.capeLift || 0) + THREE.MathUtils.clamp(-vAir * 0.09, -0.5, 0.9);
+    const speedLean = this.moving ? 0.30 + 0.75 * clamp(fin(this.moveRate, 1), 0, 2) : 0;
+    const wantLean = Math.max(speedLean, fin(out.capeLean)) + (this.spinRate ? 0.9 : 0);
+    const wantSide = clamp(-this._turn * 0.11, -0.85, 0.85) + fin(out.capeSide);
+    const wantLift = fin(out.capeLift) + clamp(-vAir * 0.09, -0.5, 0.9);
     const ck = Math.min(1, dt * 11);
-    c.lean += (wantLean - c.lean) * ck;
-    c.side += (wantSide - c.side) * ck;
-    c.lift += (wantLift - c.lift) * ck;
+    c.lean += (clamp(wantLean, 0, 2.2) - c.lean) * ck;
+    c.side += (clamp(wantSide, -1.1, 1.1) - c.side) * ck;
+    c.lift += (clamp(wantLift, -0.8, 1.6) - c.lift) * ck;
+    if (!Number.isFinite(c.lean + c.side + c.lift)) { c.lean = 0.05; c.side = 0; c.lift = 0; }
     this.rig.cape.update(dt, c);
 
     // ponytail: two damped springs, the tip lagging the root
     if (this.rig.tail) {
-      const tgtX = [0.08 + c.lean * 0.50, 0.12 + c.lean * 0.72];
+      const tgtX = [0.10 + c.lean * 0.50, 0.14 + c.lean * 0.72];
       const tgtZ = [c.side * 0.55 + Math.sin(uTime.value * 1.9) * 0.06,
         c.side * 0.85 + Math.sin(uTime.value * 1.7 + 1.2) * 0.09];
       const stiff = [95, 62], damp = [13, 10];
@@ -963,6 +1234,11 @@ export class Hero extends Unit {
         this._tailAng[i] += this._tailVel[i] * dt;
         this._tailSideVel[i] += (tgtZ[i] - this._tailSide[i]) * stiff[i] * dt - this._tailSideVel[i] * damp[i] * dt;
         this._tailSide[i] += this._tailSideVel[i] * dt;
+        if (!Number.isFinite(this._tailAng[i] + this._tailSide[i])) {
+          this._tailAng[i] = 0; this._tailSide[i] = 0; this._tailVel[i] = 0; this._tailSideVel[i] = 0;
+        }
+        this._tailAng[i] = clamp(this._tailAng[i], -1.2, 1.6);
+        this._tailSide[i] = clamp(this._tailSide[i], -1.1, 1.1);
         const j = this.rig.tail[i];
         j.rotation.x = this._tailAng[i];
         j.rotation.z = this._tailSide[i];

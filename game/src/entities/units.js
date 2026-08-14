@@ -485,14 +485,22 @@ export class Unit {
     return dealt;
   }
   faceToward(x, z, dt = 1 / 60, rate = 14) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    if (!Number.isFinite(this.facing)) this.facing = 0;
     const want = Math.atan2(x - this.pos.x, z - this.pos.z);
     let d = want - this.facing;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;
     this.facing += d * Math.min(1, rate * dt);
   }
+  // Non-finite pos/facing must never reach a matrix: one NaN in a world matrix
+  // propagates into every child (cloth chains, instanced buffers, shadow maps)
+  // and shows up as screen-filling garbage geometry.
   syncTransform() {
-    this.group.position.copy(this.pos);
+    const p = this.pos;
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) p.copy(this.group.position);
+    if (!Number.isFinite(this.facing)) this.facing = this.group.rotation.y || 0;
+    this.group.position.copy(p);
     this.group.rotation.y = this.facing;
   }
   update(dt) { this.syncTransform(); }
