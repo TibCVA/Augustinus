@@ -201,6 +201,58 @@ export function buildArena(scene) {
     [A.NEXUS_X, 0, 0.62, 7.5],
   ]);
 
+  // cliff-lip dressing: overhanging slabs, draping vines and grass tufts that
+  // break the hard grass→rock transition. Merged into existing buckets, so the
+  // whole fringe costs zero extra draw calls.
+  {
+    const LIP = 96;
+    for (let i = 0; i < LIP; i++) {
+      const th = (i / LIP) * Math.PI * 2 + RNG.spread(0.02);
+      let dx = Math.cos(th) * (A.HALF_X + 1.5), dz = Math.sin(th) * (A.EDGE_Z + 0.5);
+      const b = boundaryScale(dx, dz);
+      dx /= b; dz /= b;
+      const nx = dx / (Math.hypot(dx, dz) || 1), nz = dz / (Math.hypot(dx, dz) || 1);
+      const lipY = terrainHeight(dx * 0.97, dz * 0.97) - 0.1;
+
+      // jutting ledge slab just under the lip
+      if (RNG.chance(0.42)) {
+        const w = RNG.f(1.5, 3.6), d = RNG.f(0.8, 1.8);
+        const slab = new THREE.BoxGeometry(w, RNG.f(0.35, 0.8), d);
+        slab.translate(0, 0, d * 0.18);
+        B.add(slab, 'stoneProp',
+          mat4(dx + nx * 0.5, lipY - RNG.f(0.5, 2.4), dz + nz * 0.5,
+            RNG.spread(0.16), Math.atan2(nx, nz), RNG.spread(0.2)),
+          { base: 0xc3b79f, jitter: 0.14, moss: 0.45, ao: 0.42, aoY0: -0.5, aoY1: 0.5 });
+      }
+
+      // drooping vine strands over the edge
+      if (RNG.chance(0.55)) {
+        const segs = 4, len = RNG.f(1.6, 4.2);
+        for (let s = 0; s < segs; s++) {
+          const t0 = s / segs, t1 = (s + 1) / segs;
+          const drop0 = len * t0 * t0, drop1 = len * t1 * t1;   // accelerating droop
+          const out = 0.34 * (1 - t0);
+          const seg = new THREE.BoxGeometry(RNG.f(0.1, 0.19), drop1 - drop0 + 0.06, 0.055);
+          B.add(seg, 'canopyGreen',
+            mat4(dx + nx * (0.25 + out) + RNG.spread(0.14),
+              lipY - (drop0 + drop1) / 2 + 0.1,
+              dz + nz * (0.25 + out) + RNG.spread(0.14),
+              0, th, RNG.spread(0.22)),
+            { base: 0x5f8a44, jitter: 0.18, ao: 0.3, aoY0: -1, aoY1: 0.6, topLight: 0.15 });
+        }
+      }
+
+      // grass tuft spilling over the rim
+      if (RNG.chance(0.7)) {
+        const tuft = new THREE.IcosahedronGeometry(RNG.f(0.4, 0.8), 0);
+        tuft.scale(1.5, 0.5, 1.1);
+        B.add(tuft, 'canopyGreen',
+          mat4(dx + nx * 0.22, lipY + 0.08, dz + nz * 0.22, RNG.spread(0.25), th, RNG.spread(0.25)),
+          { base: 0x76a34a, jitter: 0.16, ao: 0.44, aoY0: -0.6, aoY1: 0.35, topLight: 0.28 });
+      }
+    }
+  }
+
   const staticMeshes = B.build(group, { shadows: ['stoneProp', 'bark', 'canopyPink', 'trim'] });
 
   // =============================================================== TERRAIN ==
@@ -339,36 +391,68 @@ export function buildArena(scene) {
 
   // ================================================================ CLIFFS ==
   {
-    const N = 150;
+    const N = 176;
+    // s = radial scale, y = depth, n = vertical jitter, k = how far the
+    // buttress ridges protrude at this depth. Alternating s in/out carves
+    // undercuts and overhangs so the silhouette never reads as a smooth slab.
     const rows = [
-      { s: 0.985, y: 0.45, n: 0.4 },
-      { s: 1.02, y: -0.9, n: 0.9 },
-      { s: 1.075, y: -3.2, n: 1.6 },
-      { s: 1.13, y: -6.4, n: 2.2 },
-      { s: 1.06, y: -9.8, n: 1.8 },
-      { s: 0.72, y: -12.6, n: 1.2 },
-      { s: 0.22, y: -14.4, n: 0.4 },
+      { s: 0.988, y: 0.40, n: 0.30, k: 0.10 },
+      { s: 1.052, y: -0.70, n: 0.75, k: 0.55 },
+      { s: 0.995, y: -2.30, n: 1.15, k: 0.90 },
+      { s: 1.105, y: -4.30, n: 1.60, k: 1.00 },
+      { s: 1.040, y: -6.60, n: 1.85, k: 0.92 },
+      { s: 1.115, y: -8.90, n: 2.00, k: 0.80 },
+      { s: 0.985, y: -11.4, n: 1.90, k: 0.66 },
+      { s: 0.775, y: -14.0, n: 1.60, k: 0.48 },
+      { s: 0.500, y: -16.6, n: 1.15, k: 0.30 },
+      { s: 0.205, y: -18.8, n: 0.60, k: 0.14 },
+      { s: 0.0, y: -20.6, n: 0.0, k: 0.0 },
     ];
+    // Angle-continuous noise (sampled on the circle, so it wraps seamlessly
+    // instead of cracking at i = 0 like a linear-in-i sample would).
+    const ridgeAt = (th) => {
+      const cx = Math.cos(th), sz = Math.sin(th);
+      const broad = cpuNoise.fbm(cx * 2.3 + 11, sz * 2.3 + 5, 3) - 0.5;   // buttresses
+      const flute = cpuNoise.fbm(cx * 7.5 + 31, sz * 7.5 + 17, 2) - 0.5;  // erosion flutes
+      return { broad, flute };
+    };
     const ring = [];
     for (let r = 0; r < rows.length; r++) {
       ring.push([]);
+      const row = rows[r];
       for (let i = 0; i < N; i++) {
         const th = (i / N) * Math.PI * 2;
         let dx = Math.cos(th) * (A.HALF_X + 1.5), dz = Math.sin(th) * (A.EDGE_Z + 0.5);
         const b = boundaryScale(dx, dz);
         dx /= b; dz /= b;
-        const jr = 1 + (cpuNoise.fbm(i * 0.35, r * 1.7, 3) - 0.5) * 0.14 * rows[r].n;
-        ring[r].push([dx * rows[r].s * jr, rows[r].y + (cpuNoise.fbm(i * 0.5 + 9, r * 2.3, 2) - 0.5) * rows[r].n, dz * rows[r].s * jr]);
+        const { broad, flute } = ridgeAt(th);
+        const jr = 1 + (broad * 0.30 + flute * 0.11) * row.k;
+        const yj = (cpuNoise.fbm(Math.cos(th) * 3.1 + 9, Math.sin(th) * 3.1 + 23, 2) - 0.5) * row.n;
+        ring[r].push([dx * row.s * jr, row.y + yj, dz * row.s * jr]);
       }
     }
     const posArr = [], uvArr = [], colArr = [];
-    const shade = [1.0, 0.92, 0.7, 0.52, 0.38, 0.3, 0.26];
-    const cool = new THREE.Color(0x8d9db2), warm = new THREE.Color(0xd9c9a8), tmp = new THREE.Color();
+    const shade = [1.0, 0.95, 0.82, 0.66, 0.55, 0.46, 0.38, 0.32, 0.28, 0.25, 0.24];
+    const cool = new THREE.Color(0x8195b4), warm = new THREE.Color(0xdfcda6);
+    const strataA = new THREE.Color(0xc9b593), strataB = new THREE.Color(0x9a8f7e);
+    const tmp = new THREE.Color(), tmp2 = new THREE.Color();
+    // horizontal sun bias so the lit face of the cliff stays warm instead of
+    // the whole mass going flat-dark (sunDir in environment.js is (-.42,.62,-.55))
+    const SUN_AZ_X = -0.606, SUN_AZ_Z = -0.795;
     const push = (p, u, v, r) => {
       posArr.push(p[0], p[1], p[2]);
       uvArr.push(u * 10, v * 2.2);
       const nn = cpuNoise.fbm(p[0] * 0.15, p[2] * 0.15, 3);
-      tmp.copy(warm).lerp(cool, clamp(r / 4 - 0.1 + (nn - 0.5) * 0.6, 0, 1)).multiplyScalar(shade[r] * (0.85 + nn * 0.3));
+      tmp.copy(warm).lerp(cool, clamp(r / 6 - 0.1 + (nn - 0.5) * 0.6, 0, 1));
+      // sedimentary banding: alternating warm/pale strata by absolute depth
+      const band = Math.sin(p[1] * 0.85 + cpuNoise.fbm(p[0] * 0.08, p[2] * 0.08, 2) * 2.4);
+      tmp2.copy(strataA).lerp(strataB, band * 0.5 + 0.5);
+      tmp.lerp(tmp2, 0.32);
+      // sun-facing warmth (normalized horizontal direction · sun azimuth)
+      const hl = Math.hypot(p[0], p[2]) || 1;
+      const facing = (p[0] / hl) * SUN_AZ_X + (p[2] / hl) * SUN_AZ_Z;
+      const lit = clamp(facing * 0.5 + 0.5, 0, 1);
+      tmp.multiplyScalar(shade[r] * (0.85 + nn * 0.3) * (0.78 + lit * 0.46));
       colArr.push(tmp.r, tmp.g, tmp.b);
     };
     for (let r = 0; r < rows.length - 1; r++) {

@@ -272,16 +272,36 @@ export function addTree(b, x, z, s = 1, { pink = true, ry = RNG.f(6.28) } = {}) 
   const cTint = pink
     ? { base: 0xffb2c6, jitter: 0.09, ao: 0.5, aoY0: -1.5, aoY1: 1.3, topLight: 0.42, mossColor: 0xb0507e }
     : { base: 0x7fae54, jitter: 0.14, ao: 0.5, aoY0: -1.2, aoY1: 1.1, topLight: 0.26 };
-  const blobCount = 5 + (s > 1.1 ? 1 : 0);
+  const blobCount = 5 + (s > 1.1 ? 2 : 0);
   for (let i = 0; i < blobCount; i++) {
     const t = tops[i % tops.length];
-    const bs = rng.f(0.8, 1.3) * s;
+    const bs = rng.f(0.7, 1.35) * s;
     const g = new THREE.IcosahedronGeometry(bs, 2);
-    jitterGeo(g, bs * 0.13, rng);
-    g.scale(1.3, 0.8, 1.3);
+    jitterGeo(g, bs * 0.17, rng);
+    // per-blob squash/stretch: a crown should read as one sculpted mass, not
+    // a stack of identical spheres
+    g.scale(rng.f(1.15, 1.5), rng.f(0.64, 0.94), rng.f(1.1, 1.45));
     puffNormals(g);
     setSway(g, 0.35 + rng.f(0.5));
-    b.add(g, matName, mat4(t[0] + rng.spread(0.35), t[1] + rng.f(0.25), t[2] + rng.spread(0.35), 0, rng.f(6.28)), cTint);
+    // blobs riding high on the crown catch the sun; inner/low ones sit in shade
+    const high = t[1] > 2.7 * s ? 1 : 0;
+    b.add(g, matName,
+      mat4(t[0] + rng.spread(0.42), t[1] + rng.f(-0.1, 0.4), t[2] + rng.spread(0.42),
+        rng.spread(0.16), rng.f(6.28), rng.spread(0.16)),
+      { ...cTint, topLight: cTint.topLight + high * 0.24, ao: cTint.ao - high * 0.12 });
+  }
+  // small outlier tufts so the crown silhouette isn't a clean bubble outline
+  for (let i = 0; i < 3; i++) {
+    const t = tops[(i * 2 + 1) % tops.length];
+    const bs = rng.f(0.3, 0.56) * s;
+    const g = new THREE.IcosahedronGeometry(bs, 1);
+    jitterGeo(g, bs * 0.26, rng);
+    g.scale(1.35, 0.78, 1.2);
+    puffNormals(g);
+    setSway(g, 0.8 + rng.f(0.5));
+    b.add(g, matName,
+      mat4(t[0] + rng.spread(1.4) * s, t[1] + rng.f(-0.45, 0.75) * s, t[2] + rng.spread(1.4) * s, 0, rng.f(6.28)),
+      { ...cTint, topLight: cTint.topLight + 0.26 });
   }
   return { x, z, r: 0.7 * s };
 }
@@ -651,7 +671,7 @@ export function makeFlames(points) {
 
 export function makeGrassBlades(list) {
   const n = list.length;
-  const p1 = new THREE.PlaneGeometry(0.2, 1, 1, 2);
+  const p1 = new THREE.PlaneGeometry(0.2, 1, 1, 4);
   p1.translate(0, 0.5, 0);
   const p2 = p1.clone().rotateY(Math.PI / 2);
   const blade = mergeGeometries([p1.toNonIndexed(), p2.toNonIndexed()], false);
@@ -677,15 +697,34 @@ export function makeGrassBlades(list) {
       void main() {
         float t = uv.y;
         float hash = fract(aOff.x * 12.9898 + aOff.z * 78.233);
+        float hash2 = fract(aOff.x * 45.164 + aOff.z * 21.731 + 7.13);
         float ry = hash * 6.28;
         vec3 p = position;
         p.x *= (1.0 - t * 0.85);
         vec3 rp = vec3(p.x * cos(ry) - p.z * sin(ry), p.y, p.x * sin(ry) + p.z * cos(ry));
+        // constant droop + wind bend: real blades arc over, they don't stand
+        // up as straight cards
+        float droop = 0.28 + hash2 * 0.42;
         float bend = (sin(uTime * 1.5 + hash * 6.28 + aOff.x * 0.24) + 0.55 * sin(uTime * 3.1 + aOff.z * 0.5)) * 0.16 + 0.1;
-        rp.x += t * t * bend * aOff.w;
-        rp.z += t * t * bend * 0.6 * aOff.w;
+        vec2 lean = vec2(cos(ry * 1.7), sin(ry * 1.7));
+        float arc = t * t;
+        rp.x += arc * (bend + droop * lean.x) * aOff.w;
+        rp.z += arc * (bend * 0.6 + droop * lean.y) * aOff.w;
+        rp.y -= arc * droop * 0.30 * aOff.w;   // tip dips as it arcs
         vec3 wp = aOff.xyz + rp * aOff.w;
-        vCol = mix(aTint * 0.4, aTint * vec3(1.0, 1.08, 0.78) + vec3(0.05, 0.04, 0.0), t * t);
+
+        // fake directional shading: blades facing the sun stay warm, blades
+        // turned away fall into cool shadow — kills the flat-cardboard look
+        const vec3 SUN = vec3(-0.42, 0.62, -0.55);
+        vec3 face = normalize(vec3(sin(ry), 0.55, cos(ry)));
+        float lam = max(dot(face, SUN), 0.0);
+        vec3 base = mix(aTint * 0.34, aTint, t * t);
+        // a minority of blades go dry/straw for hue variety
+        base = mix(base, base * vec3(1.28, 1.1, 0.62), step(0.86, hash2) * 0.75);
+        base *= 0.72 + lam * 0.55;
+        // golden-hour sheen on the top third
+        base += vec3(0.16, 0.13, 0.05) * smoothstep(0.62, 1.0, t) * (0.35 + lam);
+        vCol = base;
         gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
       }`,
     fragmentShader: `

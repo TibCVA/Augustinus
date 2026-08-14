@@ -1,4 +1,4 @@
 node_modules/
-game/tools/shots/
+game/tools/shots*/
 __pycache__/
 .DS_Store
