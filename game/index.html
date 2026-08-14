@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>AETHER RIFT</title>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+<link rel="stylesheet" href="./css/hud.css">
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud">
+  <!-- top-left: circular minimap -->
+  <div id="minimapWrap" class="glass">
+    <canvas id="minimap" width="256" height="256"></canvas>
+    <div class="mmRing"></div>
+  </div>
+
+  <!-- top-center: team score -->
+  <div id="scoreboard" class="glass">
+    <span id="scoreBlue" class="scoreNum blue">0</span>
+    <span class="swords"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="#ffd98c" d="M6.9 2 13 8.1l-1.4 1.4L5.5 3.4V2h1.4zm10.2 0h1.4v1.4l-9.8 9.8 1.1 1.1-1.4 1.4-1.4-1.4-2.5 2.5.7.7L3.8 19l-1-1 1.4-1.4.7.7 2.5-2.5-1.4-1.4L7.4 12l1.1 1.1L17.1 2zM16 13.9l2.5 2.5.7-.7 1.4 1.4-1 1-1.4 1.4-1-1 .7-.7-2.5-2.5 1.4-1.4-.8-.8 1.4-1.4 1.4 1.4-1.4 1.4-.4.4z"/></svg></span>
+    <span id="scoreRed" class="scoreNum red">0</span>
+    <span id="gameTimer">00:00</span>
+  </div>
+
+  <!-- top-right: economy stats -->
+  <div id="statsBar" class="glass">
+    <span class="stat"><i class="coin"></i><b id="statGold">0</b></span>
+    <span class="stat"><i class="csIcon"></i><b id="statCS">0</b></span>
+    <span class="stat kda"><b id="statKDA">0/0/0</b></span>
+  </div>
+
+  <div id="killFeed"></div>
+
+  <!-- bottom-left: hero portrait + bars -->
+  <div id="heroPlate">
+    <div id="portrait" class="glass"><div id="portraitImg"></div><div id="levelBadge">1</div></div>
+    <div id="plateBars">
+      <div id="heroName">Sera <span>· Blade of Dawn</span></div>
+      <div class="barWrap hpWrap"><div id="hpFill"></div><div id="hpGhost"></div><span id="hpText">580/580</span></div>
+      <div class="barWrap mpWrap"><div id="mpFill"></div><span id="mpText">100/100</span></div>
+      <div class="barWrap xpWrap"><div id="xpFill"></div></div>
+    </div>
+  </div>
+
+  <!-- bottom-right: ability cluster -->
+  <div id="abilityCluster">
+    <button id="btnA" class="abBtn atk" data-key="A">
+      <svg viewBox="0 0 24 24"><path d="M19.6 3.2 12 10.8 8.6 7.4 4.4 3.2 3.2 4.4l4.2 4.2 3.4 3.4-1.5 1.5-1.7-1.7-1.4 1.4 1.7 1.7-3.7 3.7 1.4 1.4 3.7-3.7 1.7 1.7 1.4-1.4-1.7-1.7 1.5-1.5 7.6 7.6 1.2-1.2-7.6-7.6 7.6-7.6z"/></svg>
+      <div class="cdSweep"></div><span class="cdText"></span>
+    </button>
+    <button id="btnQ" class="abBtn" data-key="Q">
+      <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14.9-4A9.5 9.5 0 0 0 12 6a9.5 9.5 0 0 0-6.9 12A8 8 0 0 1 4 12zm8 8a8 8 0 0 0 7.4-5 9.6 9.6 0 0 1-7.4 3 9.7 9.7 0 0 1-4.3-1A8 8 0 0 0 12 20z"/></svg>
+      <em>Q</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+    </button>
+    <button id="btnW" class="abBtn" data-key="W">
+      <svg viewBox="0 0 24 24"><path d="M3 11h8l-2.5-2.5L10 7l5 5-5 5-1.5-1.5L11 13H3v-2zm11-6 6 7-6 7-1.2-1 5-6-5-6 1.2-1z"/></svg>
+      <em>W</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+    </button>
+    <button id="btnE" class="abBtn" data-key="E">
+      <svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 8 8h-2.4a5.6 5.6 0 0 0-5.6-5.6V4zm0 16a8 8 0 0 1-8-8h2.4a5.6 5.6 0 0 0 5.6 5.6V20zm0-12.4A4.4 4.4 0 0 1 16.4 12H14a2 2 0 0 0-2-2V7.6zm0 8.8A4.4 4.4 0 0 1 7.6 12H10a2 2 0 0 0 2 2v2.4z"/></svg>
+      <em>E</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+    </button>
+    <button id="btnR" class="abBtn ult locked" data-key="R">
+      <svg viewBox="0 0 24 24"><path d="M12 2l2.2 5.4L20 8l-4.3 3.9L17 18l-5-3-5 3 1.3-6.1L4 8l5.8-.6L12 2zM4 20h16v2H4z"/></svg>
+      <em>R</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+    </button>
+  </div>
+
+  <!-- floating joystick -->
+  <div id="joyBase"><div id="joyKnob"></div></div>
+
+  <div id="dmgLayer"></div>
+  <div id="announce"><div id="announceTitle"></div><div id="announceSub"></div></div>
+
+  <div id="endScreen">
+    <div id="endPanel" class="glass">
+      <div id="endBanner">VICTORY</div>
+      <div id="endStats"></div>
+      <button id="endReplay">BATTLE AGAIN</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

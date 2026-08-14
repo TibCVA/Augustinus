@@ -1,0 +1,6 @@
+# Force the Node provider (the repo also contains an unrelated Python scraper,
+# which Nixpacks would otherwise auto-detect via requirements.txt).
+providers = ["node"]
+
+[start]
+cmd = "node server.mjs"

@@ -1,0 +1,13 @@
+{
+  "name": "aether-rift",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AAA-style Three.js mobile MOBA arena (Wild Rift-inspired), served statically",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
