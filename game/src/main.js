@@ -123,6 +123,37 @@ addEventListener('resize', () => {
   post.setSize(innerWidth, innerHeight);
 });
 
+// iOS Safari drops the WebGL context when the tab is backgrounded or memory is
+// tight. Without preventDefault() on the lost event the context can never be
+// restored and the canvas stays black for good.
+let ctxLost = false;
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  ctxLost = true;
+  paused = true;
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  ctxLost = false;
+  // three.js re-uploads its own GPU resources; re-assert the size-dependent
+  // render targets, which the composer owns.
+  renderer.setSize(innerWidth, innerHeight);
+  post.setSize(innerWidth, innerHeight);
+  if (!SHOT_MODE) paused = false;
+  last = performance.now();
+});
+
+// Backgrounding the tab suspends rAF anyway; pausing explicitly stops the sim
+// from being handed one huge catch-up frame on return, and saves battery.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    paused = true;
+  } else if (!ctxLost && !SHOT_MODE) {
+    paused = false;
+    last = performance.now();
+    acc = 0;
+  }
+});
+
 // ---------------------------------------------------------------- presets --
 function setCam(px, py, pz, lx, ly, lz) {
   CAM.mode = 'fixed';
