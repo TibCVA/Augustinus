@@ -109,10 +109,14 @@ export function strand(w, len, thick, taper = 0.0) {
 
 // Fresnel rim: warm gold on the sun-facing side, cool teal from ambient. This is
 // what lifts characters off the ground plane at MOBA camera distance.
-export function addDualRim(mat, { warm = 0xffd79a, cool = 0x63c9e8, power = 2.7, strength = 0.34 } = {}) {
+// `fill` is a wrap-around bounce on the shadow side. The sun sits behind the
+// play area at golden hour, so without it every character's *face* — the side
+// the camera actually sees — falls into flat blue shadow and the silhouette is
+// all the player gets. A few percent of cool fill keeps the read.
+export function addDualRim(mat, { warm = 0xffd79a, cool = 0x63c9e8, power = 2.7, strength = 0.34, fill = 0.13 } = {}) {
   const cw = new THREE.Color(warm), cc = new THREE.Color(cool);
   return patchMaterial(mat, {
-    id: `drim${warm.toString(16)}_${cool.toString(16)}_${power}_${strength}`,
+    id: `drim${warm.toString(16)}_${cool.toString(16)}_${power}_${strength}_${fill}`,
     apply(shader) {
       shader.uniforms.uRimW = { value: cw };
       shader.uniforms.uRimC = { value: cc };
@@ -128,6 +132,8 @@ export function addDualRim(mat, { warm = 0xffd79a, cool = 0x63c9e8, power = 2.7,
             vec3 sunV = normalize( ( viewMatrix * vec4( uRimS, 0.0 ) ).xyz );
             float lit = smoothstep( -0.5, 0.62, dot( nrm, sunV ) );
             totalEmissiveRadiance += mix( uRimC, uRimW, lit ) * ( rimF * ${strength.toFixed(3)} );
+            totalEmissiveRadiance += diffuseColor.rgb * mix( uRimC, uRimW, 0.35 )
+              * ( ${fill.toFixed(3)} * ( 1.0 - lit ) );
           }`);
     },
   });
@@ -162,16 +168,16 @@ function ensureUnitMats() {
 
 const TEAM = {
   blue: {
-    cloth: 0x4f86dc, clothDark: 0x2b4d96, metal: 0xd2dced, metalDark: 0x8296b0,
-    trim: 0xf3cf76, accent: 0xa6e6ff, dark: 0x151d2e,
+    cloth: 0x4a86e4, clothDark: 0x27479a, metal: 0xdbe4f2, metalDark: 0x7d92b2,
+    trim: 0xecc46a, accent: 0x9fe9ff, dark: 0x131b2c,
   },
   red: {
-    cloth: 0xd9603a, clothDark: 0x8e3520, metal: 0xc3ab93, metalDark: 0x7a604b,
-    trim: 0xefac52, accent: 0xffb478, dark: 0x22110a,
+    cloth: 0xd85a2e, clothDark: 0x7e2c15, metal: 0xb99a78, metalDark: 0x6d523a,
+    trim: 0xf0a244, accent: 0xffa055, dark: 0x1e0f07,
   },
 };
 // Minions read at ~2.5 m on a phone screen: keep them chunky.
-const MINION_SCALE = { melee: 1.12, caster: 1.06 };
+const MINION_SCALE = { melee: 1.14, caster: 1.02 };
 
 // ============================================================ minion rigs ==
 // Shape language: BLUE reads as ordered sanctum guard — hexagonal/faceted forms,
@@ -205,17 +211,20 @@ function meleeBlue(T) {
   body.push([lathe([[0.135, 0.94], [0.20, 1.00], [0.175, 1.07]], 6, true), T.trim, { ao: 0.2, aoY0: 0.9, aoY1: 1.05 }]);
   body.push([lathe([[0.06, 1.02], [0.185, 1.12], [0.195, 1.26], [0.10, 1.38]], 6, true), T.metal,
     { ao: 0.25, aoY0: 1.0, aoY1: 1.3, top: 0.18 }]);
-  body.push([strand(0.05, 0.30, 0.035).rotateX(0.25).translate(0, 1.24, -0.02), T.accent, { ao: 0 }]);
+  body.push([strand(0.062, 0.44, 0.040).rotateX(0.30).translate(0, 1.26, -0.02), T.accent,
+    { ao: 0, to: 0xffffff, y0: 1.2, y1: 1.7 }]);
+  body.push([strand(0.042, 0.24, 0.028).rotateX(0.60).translate(0, 1.20, -0.10), T.cloth, { ao: 0 }]);
   body.push([chamferBox(0.25, 0.05, 0.06, 0.012).translate(0, 1.19, 0.155), T.dark, { ao: 0 }]);
   body.push([chamferBox(0.06, 0.14, 0.06, 0.015).translate(0, 1.06, 0.17), T.metalDark, { ao: 0 }]);
   // shield arm braced forward (merged: it doesn't animate)
   body.push([new THREE.CapsuleGeometry(0.078, 0.20, 3, 6).rotateZ(1.15).translate(-0.27, 0.75, 0.06), T.metalDark, { ao: 0 }]);
-  body.push([chamferBox(0.30, 0.44, 0.075, 0.035).translate(-0.40, 0.78, 0.20).rotateY(-0.28), T.cloth,
-    { ao: 0.3, aoY0: 0.3, aoY1: 0.75 }]);
-  body.push([new THREE.ConeGeometry(0.215, 0.24, 4).rotateY(Math.PI / 4).rotateX(Math.PI).translate(-0.40, 0.34, 0.20).rotateY(-0.28),
-    T.cloth, { ao: 0.5, aoY0: 0.2, aoY1: 0.4 }]);
-  body.push([chamferBox(0.045, 0.40, 0.02, 0.008).translate(-0.40, 0.78, 0.245).rotateY(-0.28), T.trim, { ao: 0 }]);
-  body.push([new THREE.OctahedronGeometry(0.075, 0).scale(1, 1, 0.6).translate(-0.40, 0.58, 0.26).rotateY(-0.28), T.trim, { ao: 0 }]);
+  body.push([chamferBox(0.36, 0.52, 0.075, 0.04).translate(-0.42, 0.80, 0.20).rotateY(-0.28), T.cloth,
+    { ao: 0.3, aoY0: 0.3, aoY1: 0.8, to: T.clothDark, y0: 0.9, y1: 0.35 }]);
+  body.push([new THREE.ConeGeometry(0.255, 0.28, 4).rotateY(Math.PI / 4).rotateX(Math.PI).translate(-0.42, 0.32, 0.20).rotateY(-0.28),
+    T.clothDark, { ao: 0.5, aoY0: 0.2, aoY1: 0.4 }]);
+  body.push([chamferBox(0.045, 0.46, 0.02, 0.008).translate(-0.42, 0.80, 0.245).rotateY(-0.28), T.trim, { ao: 0 }]);
+  body.push([chamferBox(0.34, 0.045, 0.02, 0.008).translate(-0.42, 0.94, 0.245).rotateY(-0.28), T.trim, { ao: 0 }]);
+  body.push([new THREE.OctahedronGeometry(0.082, 0).scale(1, 1, 0.6).translate(-0.42, 0.62, 0.26).rotateY(-0.28), T.accent, { ao: 0 }]);
 
   // sword arm (animated)
   const arm = [];
@@ -246,18 +255,22 @@ function meleeRed(T) {
   body.push([shear(lathe([[0.265, 0.42], [0.375, 0.60], [0.395, 0.80], [0.30, 0.90]], 10), 0.30, 0.42),
     T.cloth, { ao: 0.42, aoY0: 0.3, aoY1: 0.9, top: 0.1, jitter: 0.04 }]);
   // spine spikes
-  for (let i = 0; i < 3; i++)
-    body.push([new THREE.ConeGeometry(0.05 - i * 0.008, 0.17 + i * 0.02, 5).rotateX(-0.9)
-      .translate(0, 0.56 + i * 0.13, -0.28 + i * 0.05), T.metal, { ao: 0 }]);
+  for (let i = 0; i < 4; i++)
+    body.push([new THREE.ConeGeometry(0.056 - i * 0.007, 0.20 + i * 0.035, 5).rotateX(-0.85)
+      .translate(0, 0.52 + i * 0.13, -0.30 + i * 0.05), T.accent,
+    { ao: 0, to: 0xffd8a8, y0: 0.5, y1: 1.1 }]);
   // fur ruff
   body.push([new THREE.TorusGeometry(0.28, 0.10, 6, 12).rotateX(Math.PI / 2).translate(0, 0.86, 0.06), T.metalDark,
     { ao: 0.2, aoY0: 0.75, aoY1: 0.92, jitter: 0.1 }]);
   // low forward-jutting head + horns
   body.push([ell(0.20, 0.185, 0.21, 10, 8).translate(0, 0.99, 0.12), T.metal, { ao: 0.25, aoY0: 0.85, aoY1: 1.05, top: 0.16 }]);
   body.push([ell(0.145, 0.09, 0.10, 8, 6).translate(0, 0.93, 0.25), T.dark, { ao: 0 }]);
-  for (const sx of [-1, 1])
-    body.push([new THREE.TorusGeometry(0.115, 0.036, 5, 8, Math.PI * 0.8).rotateY(sx > 0 ? 0.4 : Math.PI - 0.4)
-      .rotateZ(sx * -0.5).translate(sx * 0.16, 1.10, 0.06), 0xd9cbb0, { ao: 0 }]);
+  for (const sx of [-1, 1]) {
+    body.push([new THREE.TorusGeometry(0.165, 0.045, 5, 9, Math.PI * 0.86).rotateY(sx > 0 ? 0.4 : Math.PI - 0.4)
+      .rotateZ(sx * -0.55).translate(sx * 0.18, 1.10, 0.02), 0xe4d6ba,
+    { ao: 0, to: 0xfff0d4, y0: 0.95, y1: 1.35 }]);
+    body.push([new THREE.ConeGeometry(0.030, 0.10, 5).rotateZ(sx * 0.5).translate(sx * 0.10, 1.20, -0.04), T.trim, { ao: 0 }]);
+  }
   // spiked round buckler
   body.push([new THREE.CapsuleGeometry(0.082, 0.18, 3, 6).rotateZ(1.25).translate(-0.26, 0.70, 0.08), T.clothDark, { ao: 0 }]);
   body.push([new THREE.CylinderGeometry(0.245, 0.225, 0.09, 10).rotateZ(Math.PI / 2).translate(-0.40, 0.62, 0.16), T.metalDark,
@@ -302,8 +315,9 @@ function casterBlue(T) {
   // angular mantle
   body.push([lathe([[0.185, 1.04], [0.345, 0.90], [0.31, 0.80]], 6, true), T.clothDark, { ao: 0.25, aoY0: 0.78, aoY1: 1.04, top: 0.14 }]);
   // tall peaked hood
-  body.push([lathe([[0.185, 1.10], [0.235, 1.24], [0.205, 1.42], [0.09, 1.62], [0.02, 1.72]], 6, true), T.clothDark,
-    { ao: 0.2, aoY0: 1.05, aoY1: 1.5, top: 0.16, to: T.cloth, y0: 1.1, y1: 1.7 }]);
+  body.push([lathe([[0.185, 1.10], [0.238, 1.26], [0.208, 1.48], [0.085, 1.74], [0.018, 1.90]], 6, true), T.clothDark,
+    { ao: 0.2, aoY0: 1.05, aoY1: 1.6, top: 0.16, to: T.cloth, y0: 1.1, y1: 1.85 }]);
+  body.push([new THREE.OctahedronGeometry(0.055, 0).scale(1, 1.5, 1).translate(0, 1.92, 0), T.accent, { ao: 0 }]);
   body.push([ell(0.155, 0.15, 0.09, 8, 6).translate(0, 1.28, 0.115), T.dark, { ao: 0 }]);
   for (const sx of [-1, 1])
     body.push([ell(0.035, 0.028, 0.02, 6, 5).translate(sx * 0.058, 1.30, 0.185), T.accent, { ao: 0 }]);
@@ -347,8 +361,8 @@ function casterRed(T) {
   body.push([shear(lathe([[0.20, 1.00], [0.375, 0.86], [0.335, 0.74]], 10), 0.12, 0.7), T.metalDark,
     { ao: 0.25, aoY0: 0.7, aoY1: 1.0, jitter: 0.1 }]);
   // wide, forward-bent hood
-  body.push([shear(lathe([[0.20, 1.04], [0.28, 1.18], [0.245, 1.36], [0.11, 1.50]], 10), 0.26, 1.04), T.clothDark,
-    { ao: 0.2, aoY0: 1.0, aoY1: 1.4, top: 0.14 }]);
+  body.push([shear(lathe([[0.215, 1.02], [0.305, 1.18], [0.265, 1.38], [0.12, 1.54]], 10), 0.30, 1.02), T.clothDark,
+    { ao: 0.2, aoY0: 1.0, aoY1: 1.45, top: 0.14, jitter: 0.06 }]);
   body.push([ell(0.165, 0.135, 0.10, 8, 6).translate(0, 1.20, 0.22), T.dark, { ao: 0 }]);
   for (const sx of [-1, 1]) {
     body.push([ell(0.035, 0.028, 0.02, 6, 5).translate(sx * 0.06, 1.22, 0.29), T.accent, { ao: 0 }]);

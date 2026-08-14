@@ -874,6 +874,7 @@ export function buildEnvironment(scene, quality = 1) {
       [-118, 92, -6, 10, { deep: 24, style: 'stack', stack: 8, trees: 3, ruin: 1, sx: 1.3, sz: 0.8 }],
       [-100, 104, -4, 12, { deep: 26, trees: 3, stack: 8, sx: 1.25, sz: 0.85 }],
       [-84, 124, 0, 10, { deep: 20, style: 'raft', trees: 2, ruin: 1, sx: 1.35, sz: 0.9 }],
+      [-80, 96, -5, 11, { deep: 24, stack: 9, trees: 2, sx: 1.2, sz: 0.9 }],
       [-68, 148, -5, 15, { deep: 34, style: 'stack', stack: 12, trees: 2 }],
       [-48, 112, -10, 9, { deep: 20, style: 'raft' }],
       [-131, 130, -3, 12, { deep: 26, trees: 2, ruin: 1, sx: 0.85, sz: 1.3 }],
@@ -1017,7 +1018,8 @@ export function buildEnvironment(scene, quality = 1) {
     const bgMesh = new THREE.Mesh(merged, bgMat);
     bgMesh.castShadow = false;
     bgMesh.receiveShadow = false;
-    bgMesh.renderOrder = -6;
+    // default renderOrder on purpose: it stays in the normal front-to-back
+    // opaque sort, so the arena's depth rejects most of these pixels for free
     bgMesh.matrixAutoUpdate = false; bgMesh.updateMatrix();
     group.add(bgMesh);
 
@@ -1083,7 +1085,7 @@ export function buildEnvironment(scene, quality = 1) {
       });
       const mesh = new THREE.Mesh(g, mat);
       mesh.frustumCulled = false;
-      mesh.renderOrder = -6;
+      mesh.renderOrder = -9.5;   // behind every cloud stratum, ahead of the band
       mesh.matrixAutoUpdate = false; mesh.updateMatrix();
       group.add(mesh);
     }
