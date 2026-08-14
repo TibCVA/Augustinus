@@ -14,7 +14,7 @@ export function createRenderer(container) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.98;
+  renderer.toneMappingExposure = 1.06;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.info.autoReset = false; // manual reset per frame so stats cover all passes
@@ -25,35 +25,55 @@ export function createRenderer(container) {
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
-    uVig: { value: 0.42 },
+    uVig: { value: 0.44 },
     uFlash: { value: 0 },
-    uSat: { value: 1.16 },
+    uSat: { value: 1.14 },
+    uContrast: { value: 0.26 },
   },
   vertexShader: `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `
     uniform sampler2D tDiffuse;
-    uniform float uVig; uniform float uFlash; uniform float uSat;
+    uniform float uVig; uniform float uFlash; uniform float uSat; uniform float uContrast;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
-      vec3 col = c.rgb;
-      // gentle S-curve contrast
-      col = mix(col, col * col * (3.0 - 2.0 * clamp(col, 0.0, 1.0)), 0.14);
-      // saturation
+      vec3 col = max(c.rgb, 0.0);
+
+      // black point: reclaim the milky floor without crushing detail
+      col = max(vec3(0.0), col - 0.010) / (1.0 - 0.010);
+
+      // filmic S-curve, pivoted so midtones stay put
+      vec3 sc = col * col * (3.0 - 2.0 * clamp(col, 0.0, 1.0));
+      col = mix(col, sc, uContrast);
+
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      col = mix(vec3(luma), col, uSat);
-      // split tone: teal shadows / warm highlights
-      float sh = 1.0 - smoothstep(0.0, 0.45, luma);
-      float hi = smoothstep(0.5, 1.0, luma);
-      col *= mix(vec3(1.0), vec3(0.94, 1.015, 1.06), sh * 0.5);
-      col *= mix(vec3(1.0), vec3(1.05, 1.0, 0.94), hi * 0.4);
-      // vignette
+      // vibrance: push flat areas, leave already-saturated pixels alone
+      float mx = max(col.r, max(col.g, col.b));
+      float mn = min(col.r, min(col.g, col.b));
+      float sat = (mx - mn) / max(mx, 1e-4);
+      col = mix(vec3(luma), col, uSat + (1.0 - sat) * 0.22);
+
+      // split tone: teal shadows / golden highlights
+      float sh = 1.0 - smoothstep(0.0, 0.42, luma);
+      float hi = smoothstep(0.45, 1.0, luma);
+      col *= mix(vec3(1.0), vec3(0.92, 1.005, 1.09), sh * 0.55);
+      col *= mix(vec3(1.0), vec3(1.06, 1.005, 0.92), hi * 0.50);
+
+      // vignette (slightly cool at the corners, like a wide lens)
       vec2 d = vUv - 0.5;
-      col *= 1.0 - uVig * smoothstep(0.28, 0.92, dot(d, d) * 2.4);
+      float v = uVig * smoothstep(0.20, 0.98, dot(d, d) * 2.4);
+      col *= 1.0 - v;
+      col = mix(col, col * vec3(0.94, 0.98, 1.06), v * 0.7);
+
       // impact flash
       col += vec3(1.0, 0.95, 0.85) * uFlash;
+
+      // 8-bit dither: large sky gradients band without it
+      float dth = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+      col += (dth - 0.5) * 0.0032;
+
       gl_FragColor = vec4(col, c.a);
     }`,
 };
@@ -61,7 +81,9 @@ const GradeShader = {
 export function createComposer(renderer, scene, camera) {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.42, 0.4, 0.88);
+  // Tighter, brighter bloom: only genuine highlights (sun, runes, crystals) glow,
+  // so the frame keeps filmic contrast instead of going milky.
+  const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.62, 0.48, 0.94);
   composer.addPass(bloom);
   const grade = new ShaderPass(GradeShader);
   composer.addPass(grade);

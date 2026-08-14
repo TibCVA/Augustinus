@@ -13,68 +13,143 @@
 <div id="app"></div>
 
 <div id="hud">
-  <!-- top-left: circular minimap -->
-  <div id="minimapWrap" class="glass">
-    <canvas id="minimap" width="256" height="256"></canvas>
-    <div class="mmRing"></div>
+  <!-- floating combat text (under HUD chrome, over the world) -->
+  <div id="dmgLayer"></div>
+
+  <!-- top-left: lane minimap (arena is 114x34 — framed to the lane aspect) -->
+  <div id="minimapWrap">
+    <canvas id="minimap" width="456" height="180"></canvas>
+    <div class="mmFrame"></div>
+    <div class="mmStud tl"></div><div class="mmStud tr"></div>
+    <div class="mmStud bl"></div><div class="mmStud br"></div>
   </div>
 
-  <!-- top-center: team score -->
-  <div id="scoreboard" class="glass">
-    <span id="scoreBlue" class="scoreNum blue">0</span>
-    <span class="swords"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="#ffd98c" d="M6.9 2 13 8.1l-1.4 1.4L5.5 3.4V2h1.4zm10.2 0h1.4v1.4l-9.8 9.8 1.1 1.1-1.4 1.4-1.4-1.4-2.5 2.5.7.7L3.8 19l-1-1 1.4-1.4.7.7 2.5-2.5-1.4-1.4L7.4 12l1.1 1.1L17.1 2zM16 13.9l2.5 2.5.7-.7 1.4 1.4-1 1-1.4 1.4-1-1 .7-.7-2.5-2.5 1.4-1.4-.8-.8 1.4-1.4 1.4 1.4-1.4 1.4-.4.4z"/></svg></span>
-    <span id="scoreRed" class="scoreNum red">0</span>
-    <span id="gameTimer">00:00</span>
+  <!-- top-center: team score + match timer -->
+  <div id="scoreboard">
+    <div class="sbRow">
+      <span id="scoreBlue" class="scoreNum blue">0</span>
+      <span class="sbMark"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M6.9 2 13 8.1l-1.4 1.4L5.5 3.4V2h1.4zm10.2 0h1.4v1.4l-9.8 9.8 1.1 1.1-1.4 1.4-1.4-1.4-2.5 2.5.7.7L3.8 19l-1-1 1.4-1.4.7.7 2.5-2.5-1.4-1.4L7.4 12l1.1 1.1L17.1 2zM16 13.9l2.5 2.5.7-.7 1.4 1.4-1 1-1.4 1.4-1-1 .7-.7-2.5-2.5 1.4-1.4-.8-.8 1.4-1.4 1.4 1.4-1.4 1.4-.4.4z"/></svg></span>
+      <span id="scoreRed" class="scoreNum red">0</span>
+    </div>
+    <div class="sbRule"><i></i><b></b><i></i></div>
+    <div id="gameTimer">00:00</div>
   </div>
 
-  <!-- top-right: economy stats -->
-  <div id="statsBar" class="glass">
-    <span class="stat"><i class="coin"></i><b id="statGold">0</b></span>
-    <span class="stat"><i class="csIcon"></i><b id="statCS">0</b></span>
-    <span class="stat kda"><b id="statKDA">0/0/0</b></span>
+  <!-- top-right: economy -->
+  <div id="statsBar">
+    <span class="stat"><i class="ico coin"></i><b id="statGold">0</b></span>
+    <span class="vr"></span>
+    <span class="stat"><i class="ico csIcon"></i><b id="statCS">0</b></span>
+    <span class="vr"></span>
+    <span class="stat kda"><i class="ico kdaIcon"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.2 14 7l4.9.5-3.7 3.3 1.1 4.8L12 13.1 7.7 15.6l1.1-4.8L5.1 7.5 10 7zM6.4 17.4h11.2v1.8H6.4zm1.4 3h8.4v1.6H7.8z"/></svg></i><b id="statKDA">0/0/0</b></span>
   </div>
 
   <div id="killFeed"></div>
 
-  <!-- bottom-left: hero portrait + bars -->
+  <!-- bottom-left: hero plate -->
   <div id="heroPlate">
-    <div id="portrait" class="glass"><div id="portraitImg"></div><div id="levelBadge">1</div></div>
+    <div id="portrait">
+      <div id="portraitImg"></div>
+      <div class="portGloss"></div>
+      <div class="portInner"></div>
+      <div class="portRing"></div>
+      <svg class="xpRing" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="xpTrack" cx="50" cy="50" r="45.6"/>
+        <circle id="xpFill" class="xpArc" cx="50" cy="50" r="45.6"/>
+      </svg>
+      <div id="levelBadge">1</div>
+    </div>
     <div id="plateBars">
       <div id="heroName">Sera <span>· Blade of Dawn</span></div>
-      <div class="barWrap hpWrap"><div id="hpFill"></div><div id="hpGhost"></div><span id="hpText">580/580</span></div>
-      <div class="barWrap mpWrap"><div id="mpFill"></div><span id="mpText">100/100</span></div>
-      <div class="barWrap xpWrap"><div id="xpFill"></div></div>
+      <div class="barWrap hpWrap">
+        <div id="hpGhost"></div>
+        <div id="hpFill"></div>
+        <div class="barTicks"></div>
+        <div class="barGloss"></div>
+        <span id="hpText">580/580</span>
+      </div>
+      <div class="barWrap mpWrap">
+        <div id="mpFill"></div>
+        <div class="barGloss"></div>
+        <span id="mpText">100/100</span>
+      </div>
     </div>
   </div>
 
-  <!-- bottom-right: ability cluster -->
+  <!-- bottom-right: ability cluster (Wild Rift arc: A anchor + Q/W/E arc + R ultimate) -->
   <div id="abilityCluster">
-    <button id="btnA" class="abBtn atk" data-key="A">
-      <svg viewBox="0 0 24 24"><path d="M19.6 3.2 12 10.8 8.6 7.4 4.4 3.2 3.2 4.4l4.2 4.2 3.4 3.4-1.5 1.5-1.7-1.7-1.4 1.4 1.7 1.7-3.7 3.7 1.4 1.4 3.7-3.7 1.7 1.7 1.4-1.4-1.7-1.7 1.5-1.5 7.6 7.6 1.2-1.2-7.6-7.6 7.6-7.6z"/></svg>
-      <div class="cdSweep"></div><span class="cdText"></span>
+    <button id="btnR" class="abBtn ult" data-key="R" aria-label="Ultimate">
+      <span class="abGlow"></span>
+      <span class="abFrame"></span>
+      <span class="abFace">
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0.8c.7 6.9 3.5 9.7 10.4 10.4C15.5 11.9 12.7 14.7 12 21.6c-.7-6.9-3.5-9.7-10.4-10.4C8.5 10.5 11.3 7.7 12 .8z" transform="translate(0 1.2)"/><path d="M19.6 3.2c.2 1.9 1 2.7 2.9 2.9-1.9.2-2.7 1-2.9 2.9-.2-1.9-1-2.7-2.9-2.9 1.9-.2 2.7-1 2.9-2.9zM4.4 15.2c.2 1.9 1 2.7 2.9 2.9-1.9.2-2.7 1-2.9 2.9-.2-1.9-1-2.7-2.9-2.9 1.9-.2 2.7-1 2.9-2.9z" opacity=".85"/></svg>
+        <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
+      </span>
+      <span class="abSweep"></span>
+      <span class="abCd"></span>
+      <span class="abKey">R</span>
+      <span class="abPips"></span>
+      <span class="abPlus">+</span>
+      <span class="abFlash"></span>
     </button>
-    <button id="btnQ" class="abBtn" data-key="Q">
-      <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14.9-4A9.5 9.5 0 0 0 12 6a9.5 9.5 0 0 0-6.9 12A8 8 0 0 1 4 12zm8 8a8 8 0 0 0 7.4-5 9.6 9.6 0 0 1-7.4 3 9.7 9.7 0 0 1-4.3-1A8 8 0 0 0 12 20z"/></svg>
-      <em>Q</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+
+    <button id="btnQ" class="abBtn" data-key="Q" aria-label="Ability Q">
+      <span class="abFrame"></span>
+      <span class="abFace">
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.9 21.1A13 13 0 0 1 21.1 2.9 26 26 0 0 0 2.9 21.1z"/><path d="M17.6 17.7a15.6 15.6 0 0 0 4.2-4 13.8 13.8 0 0 1-2.6 5.6zM12.2 21.6a15.8 15.8 0 0 0 5-2.1 13.9 13.9 0 0 1-6.8 3.4z" opacity=".65"/></svg>
+        <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
+      </span>
+      <span class="abSweep"></span>
+      <span class="abCd"></span>
+      <span class="abKey">Q</span>
+      <span class="abPips"></span>
+      <span class="abPlus">+</span>
+      <span class="abFlash"></span>
     </button>
-    <button id="btnW" class="abBtn" data-key="W">
-      <svg viewBox="0 0 24 24"><path d="M3 11h8l-2.5-2.5L10 7l5 5-5 5-1.5-1.5L11 13H3v-2zm11-6 6 7-6 7-1.2-1 5-6-5-6 1.2-1z"/></svg>
-      <em>W</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+
+    <button id="btnW" class="abBtn" data-key="W" aria-label="Ability W">
+      <span class="abFrame"></span>
+      <span class="abFace">
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.9 3.6 17.8 12l-8.9 8.4 2.7-8.4z"/><path d="M14.6 3.6 23.5 12l-8.9 8.4 2.7-8.4z" opacity=".55"/><path d="M.9 8.4h6.2l-.7 2.2H.2zM.2 13.4h5.7l-.7 2.2H-.5z" opacity=".8"/></svg>
+        <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
+      </span>
+      <span class="abSweep"></span>
+      <span class="abCd"></span>
+      <span class="abKey">W</span>
+      <span class="abPips"></span>
+      <span class="abPlus">+</span>
+      <span class="abFlash"></span>
     </button>
-    <button id="btnE" class="abBtn" data-key="E">
-      <svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 8 8h-2.4a5.6 5.6 0 0 0-5.6-5.6V4zm0 16a8 8 0 0 1-8-8h2.4a5.6 5.6 0 0 0 5.6 5.6V20zm0-12.4A4.4 4.4 0 0 1 16.4 12H14a2 2 0 0 0-2-2V7.6zm0 8.8A4.4 4.4 0 0 1 7.6 12H10a2 2 0 0 0 2 2v2.4z"/></svg>
-      <em>E</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+
+    <button id="btnE" class="abBtn" data-key="E" aria-label="Ability E">
+      <span class="abFrame"></span>
+      <span class="abFace">
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><g><path d="M11.6 11.3c.4-4.6 3.6-8.5 8.2-10.4-1 4.9-3.5 8.8-7 11z"/><path d="M11.6 11.3c.4-4.6 3.6-8.5 8.2-10.4-1 4.9-3.5 8.8-7 11z" transform="rotate(120 12 12)"/><path d="M11.6 11.3c.4-4.6 3.6-8.5 8.2-10.4-1 4.9-3.5 8.8-7 11z" transform="rotate(240 12 12)"/></g><circle cx="12" cy="12" r="2.6" opacity=".9"/></svg>
+        <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
+      </span>
+      <span class="abSweep"></span>
+      <span class="abCd"></span>
+      <span class="abKey">E</span>
+      <span class="abPips"></span>
+      <span class="abPlus">+</span>
+      <span class="abFlash"></span>
     </button>
-    <button id="btnR" class="abBtn ult locked" data-key="R">
-      <svg viewBox="0 0 24 24"><path d="M12 2l2.2 5.4L20 8l-4.3 3.9L17 18l-5-3-5 3 1.3-6.1L4 8l5.8-.6L12 2zM4 20h16v2H4z"/></svg>
-      <em>R</em><div class="cdSweep"></div><span class="cdText"></span><div class="pips" data-p="0"></div>
+
+    <button id="btnA" class="abBtn atk" data-key="A" aria-label="Attack">
+      <span class="abDash"></span>
+      <span class="abFrame"></span>
+      <span class="abFace">
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 22.4A12.4 12.4 0 0 1 9.9 1.9 15 15 0 0 0 6.6 21.1a10 10 0 0 0-2.2 1.3z" opacity=".42"/><path d="M14.8 1.1l3.1 4.2v9H11.7v-9zM9.4 15.7h11v2.5h-11zM13.6 19.4h2.6v2.7h2.5v2.1h-7.6v-2.1h2.5z"/></svg>
+      </span>
+      <span class="abSweep"></span>
+      <span class="abCd"></span>
+      <span class="abFlash"></span>
     </button>
   </div>
 
   <!-- floating joystick -->
-  <div id="joyBase"><div id="joyKnob"></div></div>
+  <div id="joyBase"><div class="joyRing"></div><div id="joyKnob"></div></div>
 
-  <div id="dmgLayer"></div>
   <div id="announce"><div id="announceTitle"></div><div id="announceSub"></div></div>
 
   <div id="endScreen">

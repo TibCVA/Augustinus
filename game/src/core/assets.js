@@ -8,6 +8,9 @@ export const mats = {};  // shared materials by name
 
 // One global time uniform shared by every animated shader.
 export const uTime = { value: 0 };
+// World-space sun direction (points *toward* the sun). environment.js owns the
+// real value and writes it here at build time; shaders in any module read it.
+export const uSunDir = { value: new THREE.Vector3(-0.44, 0.50, -0.60).normalize() };
 
 // ---------------------------------------------------------------- palette --
 export const PAL = {
@@ -667,6 +670,42 @@ export function addRim(mat, { color = 0xbfe8ff, power = 2.6, strength = 0.6 } = 
   });
 }
 
+// Fake subsurface scattering for foliage. Without it a backlit blossom crown
+// only gets cool ambient and reads dark plum; real petals/leaves transmit the
+// sun and glow warm from behind. `wrap` also lifts the shaded side so canopies
+// never go blue-purple in shadow.
+export function addTranslucency(mat, {
+  color = 0xffb8cf, power = 2.6, strength = 0.9, wrap = 0.22, wrapColor = null,
+} = {}) {
+  const col = new THREE.Color(color);
+  const wcol = new THREE.Color(wrapColor ?? color);
+  return patchMaterial(mat, {
+    id: `sss${color.toString(16)}${power}${strength}${wrap}`,
+    apply(shader) {
+      shader.uniforms.uSssColor = { value: col };
+      shader.uniforms.uWrapColor = { value: wcol };
+      shader.uniforms.uSunDir = uSunDir;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          {
+            // sun direction in view space (viewMatrix is provided by three.js)
+            vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
+            vec3 V = normalize(vViewPosition);           // fragment → camera
+            vec3 N = normalize(normal);
+            // light travelling toward the camera through the surface
+            float back = pow(saturate(dot(-sunV, V)), ${power.toFixed(2)});
+            // strongest where the surface faces away from the sun
+            float away = saturate(0.5 - dot(N, sunV) * 0.5);
+            totalEmissiveRadiance += uSssColor * (back * away * ${strength.toFixed(3)});
+            // soft warm wrap so shaded foliage keeps its hue
+            totalEmissiveRadiance += uWrapColor * (away * ${wrap.toFixed(3)});
+          }`)
+        .replace('void main() {', 'uniform vec3 uSssColor;\nuniform vec3 uWrapColor;\nuniform vec3 uSunDir;\nvoid main() {');
+    },
+  });
+}
+
 // Wind sway using per-vertex aSway attribute (geometry must provide it).
 // Merged world-space geometry ⇒ `position` is already world space.
 export function addWindSway(mat, { amp = 0.14, freq = 1.1 } = {}) {
@@ -732,10 +771,16 @@ function buildMaterials() {
   });
   addWindSway(mats.canopyPink, { amp: 0.16, freq: 1.2 });
   addRim(mats.canopyPink, { color: 0xffdce8, power: 2.4, strength: 0.28 });
+  addTranslucency(mats.canopyPink, {
+    color: 0xff9ec4, power: 3.0, strength: 0.78, wrap: 0.085, wrapColor: 0xffc0a2,
+  });
   mats.canopyGreen = new THREE.MeshStandardMaterial({
     map: T.canopyGreen, roughness: 0.95, vertexColors: true,
   });
   addWindSway(mats.canopyGreen, { amp: 0.12, freq: 1.35 });
+  addTranslucency(mats.canopyGreen, {
+    color: 0xa8e05a, power: 3.0, strength: 0.62, wrap: 0.06, wrapColor: 0xcbbe78,
+  });
   mats.stoneFloat = new THREE.MeshStandardMaterial({
     map: T.rock, roughness: 0.9, metalness: 0.03, vertexColors: true,
   });

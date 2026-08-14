@@ -3,7 +3,7 @@
 // tinted (AO + moss + hue jitter) and merged into per-material static buckets.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { mats, tex, uTime, PAL, cpuNoise } from '../core/assets.js';
+import { mats, tex, uTime, uSunDir, PAL, cpuNoise } from '../core/assets.js';
 import { RNG, hash2 } from '../core/rng.js';
 
 const _c = new THREE.Color();
@@ -689,10 +689,10 @@ export function makeGrassBlades(list) {
   geo.setAttribute('aTint', new THREE.InstancedBufferAttribute(tint, 3));
   geo.instanceCount = n;
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uTime },
+    uniforms: { uTime, uSunDir },
     vertexShader: `
       attribute vec4 aOff; attribute vec3 aTint;
-      uniform float uTime;
+      uniform float uTime; uniform vec3 uSunDir;
       varying vec3 vCol;
       void main() {
         float t = uv.y;
@@ -715,9 +715,8 @@ export function makeGrassBlades(list) {
 
         // fake directional shading: blades facing the sun stay warm, blades
         // turned away fall into cool shadow — kills the flat-cardboard look
-        const vec3 SUN = vec3(-0.42, 0.62, -0.55);
         vec3 face = normalize(vec3(sin(ry), 0.55, cos(ry)));
-        float lam = max(dot(face, SUN), 0.0);
+        float lam = max(dot(face, uSunDir), 0.0);
         vec3 base = mix(aTint * 0.34, aTint, t * t);
         // a minority of blades go dry/straw for hue variety
         base = mix(base, base * vec3(1.28, 1.1, 0.62), step(0.86, hash2) * 0.75);

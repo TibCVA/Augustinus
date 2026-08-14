@@ -179,6 +179,13 @@ export function buildArena(scene) {
     addRock(B, -2.2, F * 17.2, 2.6, { y: 1.4 }); addRock(B, 2.4, F * 17.4, 2.8, { y: 1.6 });
     addRock(B, 0, F * 18.2, 3.6, { y: 2.2 });
     addRock(B, -3.3, F * 14.6, 1.5, { y: 2.0 }); addRock(B, 3.4, F * 14.8, 1.6, { y: 2.1 });
+    // Solid backing wall behind the falls. Without it the |x| < 2.5 band is a
+    // hole straight through to the cloud sea, and the bright sky reads through
+    // the water sheet as a pale patch.
+    for (let bx = -3.2; bx <= 3.2; bx += 1.55) {
+      addRock(B, bx + RNG.spread(0.3), F * (16.9 + RNG.f(0.7)), RNG.f(2.5, 3.2), { y: RNG.f(1.6, 3.0) });
+    }
+    addRock(B, -1.5, F * 19.4, 3.2, { y: 3.4 }); addRock(B, 1.7, F * 19.6, 3.3, { y: 3.6 });
     addTree(B, -5.6, F * 14.2, 1.35, { pink: true });
     addTree(B, 5.8, F * 14.6, 1.25, { pink: true });
     // spill lip rocks at near rail (+Z) where river exits
