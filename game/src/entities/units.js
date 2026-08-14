@@ -304,8 +304,8 @@ function meleeRed(T) {
 function casterBlue(T) {
   const body = [];
   // straight, tall, faceted robe
-  body.push([lathe([[0.285, 0.0], [0.315, 0.12], [0.20, 0.82], [0.235, 1.00], [0.135, 1.24]], 6, true), T.cloth,
-    { ao: 0.5, aoY0: 0, aoY1: 0.9, to: T.clothDark, y0: 0.5, y1: 1.24 }]);
+  body.push([lathe([[0.285, 0.0], [0.315, 0.12], [0.20, 0.82], [0.235, 1.00], [0.135, 1.24]], 6, true), T.clothDark,
+    { ao: 0.5, aoY0: 0, aoY1: 0.9, top: 0.16, to: T.cloth, y0: 0.1, y1: 1.0, jitter: 0.05 }]);
   // hard-edged hem points
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.3;

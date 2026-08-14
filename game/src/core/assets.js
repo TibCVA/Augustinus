@@ -384,49 +384,93 @@ function texPortrait() {
 
 // -- faces --
 function texFace(kind) {
-  const S = 128, [c, ctx] = mkCanvas(S);
+  // 512 rather than 128: the head fills ~200 screen px in the close-up preset,
+  // so a 128px decal shows visibly soft eyes. `k` scales the hand-placed pixel
+  // coordinates below, which were authored against a 128px canvas.
+  const S = 512, k = S / 128, [c, ctx] = mkCanvas(S);
   ctx.clearRect(0, 0, S, S);
   const skin = kind === 'sera' ? 0xf2cba6 : 0xc98a5e;
   // soft skin oval fades out (decal patch)
   splat(ctx, S / 2, S / 2, S * 0.52, skin, 1);
   splat(ctx, S / 2, S / 2, S * 0.5, skin, 1);
   if (kind === 'sera') {
-    splat(ctx, S * 0.3, S * 0.62, 11, 0xff9d88, 0.4);
-    splat(ctx, S * 0.7, S * 0.62, 11, 0xff9d88, 0.4);
+    // restrained blush — heavy blush is what pushes a stylized face from
+    // "heroic" toward "mascot"
+    splat(ctx, S * 0.3, S * 0.63, 12 * k, 0xff9d88, 0.2);
+    splat(ctx, S * 0.7, S * 0.63, 12 * k, 0xff9d88, 0.2);
     for (const sx of [-1, 1]) {
       const ex = S / 2 + sx * S * 0.16, ey = S * 0.48;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.ellipse(ex, ey, 11, 8.6, 0, 0, 7); ctx.fill();
+      // eye socket shading gives the brow ridge something to sit on
+      splat(ctx, ex, ey - 1.5 * k, 13 * k, 0xb08064, 0.22);
+      // almond eye: narrower than tall-round, outer corner lifted
+      ctx.save();
+      ctx.translate(ex, ey); ctx.rotate(sx * -0.09);
+      ctx.fillStyle = '#fffaf4';
+      ctx.beginPath(); ctx.ellipse(0, 0, 10.2 * k, 6.4 * k, 0, 0, 7); ctx.fill();
       ctx.fillStyle = '#2d6474';
-      ctx.beginPath(); ctx.ellipse(ex, ey + 1, 7.2, 7.6, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = '#0c2530';
-      ctx.beginPath(); ctx.ellipse(ex, ey + 1.2, 3.4, 3.8, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      ctx.beginPath(); ctx.arc(ex - 2.6, ey - 2.2, 2.3, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#4a2e1e'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.arc(ex, ey + 1.5, 12, Math.PI * 1.12, Math.PI * 1.88); ctx.stroke();
-      ctx.lineWidth = 3; ctx.strokeStyle = '#7a5238';
-      ctx.beginPath(); ctx.moveTo(ex - 9, ey - 14); ctx.quadraticCurveTo(ex, ey - 18, ex + 9, ey - 14.5); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(0, 0.5 * k, 6.0 * k, 6.0 * k, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#17506b';
+      ctx.beginPath(); ctx.ellipse(0, 2.0 * k, 5.2 * k, 4.0 * k, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#08202b';
+      ctx.beginPath(); ctx.ellipse(0, 0.8 * k, 2.9 * k, 3.2 * k, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.96)';
+      ctx.beginPath(); ctx.arc(-2.4 * k, -2.2 * k, 2.1 * k, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(180,235,255,0.5)';
+      ctx.beginPath(); ctx.arc(1.9 * k, 2.3 * k, 1.3 * k, 0, 7); ctx.fill();
+      // upper lash line, thickest at the outer corner
+      ctx.strokeStyle = '#3b2418'; ctx.lineWidth = 2.6 * k; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-10.2 * k, 0.4 * k);
+      ctx.quadraticCurveTo(0, -8.2 * k, 10.4 * k, -1.4 * k);
+      ctx.stroke();
+      ctx.lineWidth = 3.6 * k;
+      ctx.beginPath(); ctx.moveTo(7.2 * k, -3.4 * k); ctx.lineTo(11.6 * k, -2.0 * k); ctx.stroke();
+      ctx.restore();
+      // brow: angled down toward the nose for a determined, not doe-eyed, read
+      ctx.strokeStyle = '#6d4a2f'; ctx.lineWidth = 3.6 * k; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ex - sx * 9.5 * k, ey - 12.0 * k);
+      ctx.quadraticCurveTo(ex + sx * 1 * k, ey - 16.4 * k, ex + sx * 10 * k, ey - 13.6 * k);
+      ctx.stroke();
     }
-    ctx.strokeStyle = 'rgba(150,70,50,0.85)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(S / 2, S * 0.66, 4.6, 0.4, Math.PI - 0.4); ctx.stroke();
-    ctx.fillStyle = 'rgba(120,60,40,0.3)';
-    ctx.beginPath(); ctx.ellipse(S / 2, S * 0.575, 1.8, 1.2, 0, 0, 7); ctx.fill();
+    // nose: a shadow plane and nostril hint, no outline
+    ctx.fillStyle = 'rgba(150,96,66,0.30)';
+    ctx.beginPath(); ctx.ellipse(S / 2 + 2 * k, S * 0.578, 2.6 * k, 4.6 * k, 0.2, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(110,62,42,0.34)';
+    ctx.beginPath(); ctx.ellipse(S / 2, S * 0.596, 1.6 * k, 1.1 * k, 0, 0, 7); ctx.fill();
+    // mouth: a confident set, not a wide smile
+    ctx.strokeStyle = 'rgba(150,70,55,0.9)'; ctx.lineWidth = 2.3 * k; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(S / 2 - 5.4 * k, S * 0.663);
+    ctx.quadraticCurveTo(S / 2, S * 0.676, S / 2 + 5.4 * k, S * 0.661);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,200,190,0.35)';
+    ctx.beginPath(); ctx.ellipse(S / 2, S * 0.652, 4.4 * k, 1.5 * k, 0, 0, 7); ctx.fill();
+    // chin/jaw shading so the head reads as a volume, not a painted ball
+    ctx.fillStyle = 'rgba(150,96,66,0.16)';
+    ctx.beginPath(); ctx.ellipse(S / 2, S * 0.735, 9 * k, 4 * k, 0, 0, 7); ctx.fill();
   } else {
     // Kargath: glowing ember eyes, warpaint, scowl
     for (const sx of [-1, 1]) {
       const ex = S / 2 + sx * S * 0.16, ey = S * 0.46;
-      splat(ctx, ex, ey, 10, 0xff5a22, 0.85);
+      splat(ctx, ex, ey, 11 * k, 0xff5a22, 0.85);
       ctx.fillStyle = '#ffd9a0';
-      ctx.beginPath(); ctx.ellipse(ex, ey, 5, 3.2, sx * 0.2, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#3a1d12'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(ex - 8, ey - 7 + sx * 2); ctx.lineTo(ex + 8, ey - 9 - sx * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(ex, ey, 5 * k, 3.2 * k, sx * 0.2, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff4dc';
+      ctx.beginPath(); ctx.ellipse(ex - sx * 0.8 * k, ey, 2.4 * k, 1.6 * k, sx * 0.2, 0, 7); ctx.fill();
+      // heavy angled brow — the whole scowl lives here
+      ctx.strokeStyle = '#3a1d12'; ctx.lineWidth = 4.2 * k; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ex - 9 * k, ey - 7 * k + sx * 2.4 * k);
+      ctx.lineTo(ex + 9 * k, ey - 9.5 * k - sx * 2.4 * k);
+      ctx.stroke();
     }
-    ctx.strokeStyle = 'rgba(60,20,14,0.75)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(S / 2, S * 0.72, 7, Math.PI + 0.5, -0.5); ctx.stroke();
+    ctx.strokeStyle = 'rgba(60,20,14,0.75)'; ctx.lineWidth = 3.2 * k;
+    ctx.beginPath(); ctx.arc(S / 2, S * 0.72, 7.5 * k, Math.PI + 0.5, -0.5); ctx.stroke();
     ctx.fillStyle = 'rgba(140,30,20,0.5)';
-    ctx.fillRect(S * 0.44, S * 0.58, 3, 16); ctx.fillRect(S * 0.53, S * 0.58, 3, 16);
-    ctx.strokeStyle = 'rgba(70,30,20,0.8)'; ctx.lineWidth = 2.4;
+    ctx.fillRect(S * 0.44, S * 0.58, 3 * k, 16 * k);
+    ctx.fillRect(S * 0.53, S * 0.58, 3 * k, 16 * k);
+    ctx.strokeStyle = 'rgba(70,30,20,0.8)'; ctx.lineWidth = 2.6 * k;
     ctx.beginPath(); ctx.moveTo(S * 0.68, S * 0.3); ctx.lineTo(S * 0.62, S * 0.6); ctx.stroke(); // scar
   }
   return toTex(c, { wrap: THREE.ClampToEdgeWrapping });

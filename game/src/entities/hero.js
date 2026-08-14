@@ -370,13 +370,13 @@ class Cape {
 // what gives the Wild Rift read.
 const SERA = {
   hero: 'sera',
-  plate: 0xeee6d2, plateShade: 0xb0bdd6, plate2: 0x4a7ede, trim: 0xd8a33c, trimDeep: 0x976722,
+  plate: 0xeee6d2, plateShade: 0xb0bdd6, plate2: 0x4a7ede, trim: 0xcd9633, trimDeep: 0x8b5f1f,
   cloth: 0x3d55c4, clothDark: 0x232c7e, skin: 0xf3cba4, skinShade: 0xd39a72,
   hair: 0xffc63c, hairMid: 0xffdc79, hairTip: 0xfff2c0, steel: 0xdae6f4, core: 0x7cf0ff,
   capeTex: 'clothBlue', faceTex: 'faceSera', rimW: 0xffd79a, rimC: 0x74d3f0,
-  scale: 1.14, bulk: 1.0, headR: 0.198, hipY: 1.20, shX: 0.252, shY: 0.505,
+  scale: 1.07, bulk: 1.0, headR: 0.198, hipY: 1.20, shX: 0.266, shY: 0.505,
   thigh: 0.545, shin: 0.485, armU: 0.375, armF: 0.335, neck: 0.700,
-  hpY: 2.98,
+  hpY: 2.82,
 };
 const KARGATH = {
   hero: 'kargath',
@@ -384,9 +384,9 @@ const KARGATH = {
   cloth: 0x7d3020, clothDark: 0x3a1611, skin: 0xc98a5e, skinShade: 0x94603c,
   hair: 0x3b3028, hairMid: 0x4f4235, hairTip: 0x635444, steel: 0xc9c2b2, core: 0xff8a30,
   capeTex: 'clothRed', faceTex: 'faceKargath', rimW: 0xffc078, rimC: 0x8fb6d8,
-  scale: 1.22, bulk: 1.40, headR: 0.205, hipY: 1.06, shX: 0.335, shY: 0.455,
+  scale: 1.17, bulk: 1.40, headR: 0.205, hipY: 1.06, shX: 0.335, shY: 0.455,
   thigh: 0.445, shin: 0.415, armU: 0.365, armF: 0.325, neck: 0.640,
-  hpY: 2.95,
+  hpY: 2.86,
   // Kargath is permanently hunched forward — baked as a pose bias so every
   // animation inherits the stance instead of only the idle.
   bias: { torso: [0.16, 0, 0], head: [-0.13, 0, 0], hips: [0.05, 0, 0] },
@@ -423,9 +423,9 @@ function buildRig(spec) {
     mFace.emissive = new THREE.Color(0xff6a22);
     mFace.emissiveIntensity = 0.16;
   }
-  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 3.0, strength: 0.28 });
-  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.5, strength: 0.36 });
-  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.3, strength: 0.30 });
+  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 3.0, strength: 0.28, fill: 0.20 });
+  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.7, strength: 0.28, fill: 0.17 });
+  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.3, strength: 0.30, fill: 0.16 });
   addVertexGlow(mGlow);
   rig.mats.push(mBody, mPlate, mGlow, mCape, mFace);
   for (const mm of rig.mats) mm.userData.baseEmissive = mm.emissive.clone();
@@ -503,7 +503,8 @@ function buildRig(spec) {
     gp.push([limb(0.116 * B, 0.102 * B, shinLen, 9).translate(0, -0.05, 0.005), P,
       { ao: 0.30, aoY0: -shinLen, aoY1: -0.1, to: PS, y0: -0.10, y1: -shinLen, jitter: 0.04 }]);
     gp.push([cbox(0.032, shinLen * 0.60, 0.05, 0.012).translate(0, -shinLen * 0.46, 0.106 * B), TR, { ao: 0, to: TD, y0: -0.1, y1: -shinLen }]);
-    gp.push([band(0.096 * B, 0.122 * B, -shinLen + 0.01, -shinLen + 0.075, 12), TR, { ao: 0.1, aoY0: -shinLen, aoY1: -shinLen + 0.08, top: 0.16 }]);
+    gp.push([band(0.094 * B, 0.118 * B, -shinLen + 0.01, -shinLen + 0.072, 12), TR,
+      { ao: 0.34, aoY0: -shinLen, aoY1: -shinLen + 0.08, top: 0.04, to: TD, y0: -shinLen + 0.08, y1: -shinLen }]);
     // foot: sole slab + toe cap + heel
     gp.push([chamferBox(0.160 * B, 0.100, 0.255, 0.032).translate(0, -shinLen - 0.10, 0.05), PS, { ao: 0.32, aoY0: -shinLen - 0.12, aoY1: -shinLen }]);
     gp.push([ell(0.086 * B, 0.070, 0.112, 8, 6).translate(0, -shinLen - 0.038, 0.148), P, { ao: 0.18, aoY0: -shinLen - 0.1, aoY1: -shinLen, top: 0.16 }]);
@@ -537,12 +538,12 @@ function buildRig(spec) {
     // ribbed abdomen: one watertight lathe whose profile steps out/in three
     // times — reads as overlapping lames with no gaps or sawtooth seams
     const rib = S
-      ? [[0.146, 0.00], [0.184, 0.030], [0.166, 0.078], [0.200, 0.108], [0.180, 0.156], [0.212, 0.188], [0.196, 0.245]]
+      ? [[0.140, 0.00], [0.176, 0.030], [0.158, 0.078], [0.192, 0.108], [0.172, 0.156], [0.206, 0.188], [0.192, 0.245]]
       : [[0.182, 0.00], [0.226, 0.036], [0.204, 0.086], [0.244, 0.124], [0.220, 0.176], [0.260, 0.210], [0.240, 0.260]];
     pp.push([lathe(rib.map(([r, y]) => [r * B, y]), 16), P,
       { ao: 0.30, aoY0: 0.0, aoY1: 0.26, top: 0.16, to: PS, y0: 0.24, y1: 0.0, jitter: 0.045 }]);
     const chest = S
-      ? [[0.196 * B, 0.245], [0.232 * B, 0.345], [0.248 * B, 0.44], [0.236 * B, 0.52], [0.172 * B, 0.60]]
+      ? [[0.192 * B, 0.245], [0.234 * B, 0.345], [0.254 * B, 0.44], [0.240 * B, 0.52], [0.172 * B, 0.60]]
       : [[0.228 * B, 0.24], [0.272 * B, 0.33], [0.288 * B, 0.42], [0.268 * B, 0.51], [0.196 * B, 0.575]];
     pp.push([lathe(chest, 14), P, { ao: 0.28, aoY0: 0.2, aoY1: 0.5, top: 0.20, to: PS, y0: 0.52, y1: 0.22, jitter: 0.045 }]);
     // sternum ridge + V trim (cbox is centred, so rotate-then-place is safe)
@@ -599,12 +600,13 @@ function buildRig(spec) {
       [ell(0.118 * B, 0.115 * B, 0.118 * B, 9, 7), S ? CL : CD, { ao: 0.20, aoY0: -0.1, aoY1: 0.06, top: 0.16 }],
       [limb(0.100 * B, 0.082 * B, armU, 9).translate(0, -0.02, 0), S ? CL : CD,
         { ao: 0.32, aoY0: -armU, aoY1: -0.02, to: S ? CD : 0x2c1a14, y0: -armU, y1: 0 }],
-      [ell(0.086 * B, 0.072 * B, 0.088 * B, 8, 6).translate(0, -armU + 0.01, 0), S ? SK : SS, { ao: 0.2, aoY0: -armU, aoY1: -armU + 0.06 }],
+      [ell(0.086 * B, 0.080 * B, 0.088 * B, 9, 7).translate(0, -armU + 0.010, 0), S ? CL : CD,
+        { ao: 0.26, aoY0: -armU - 0.02, aoY1: -armU + 0.07, top: 0.14 }],
     ];
     sh.add(mesh(assemble(ap), mBody));
 
     const pp = [];
-    const R0 = 0.152 * B * big;
+    const R0 = 0.160 * B * big;
     // Main dome: a faceted lathe, not a smooth sphere — the hard plane changes
     // are what make armour read as forged metal at MOBA distance.
     pp.push([lathe([[0.001, R0 * 0.86], [R0 * 0.44, R0 * 0.74], [R0 * 0.80, R0 * 0.40],
@@ -640,8 +642,8 @@ function buildRig(spec) {
     // starts *inside* the piece it wraps — a trim ring whose inner radius is
     // larger than the arm underneath is what made the old rig look like it was
     // wearing hula hoops.
-    fp.push([lathe([[0.062 * B, 0.098], [0.104 * B, 0.052], [0.118 * B, 0.014], [0.100 * B, -0.010]], 12), TR,
-      { ao: 0.12, aoY0: -0.01, aoY1: 0.10, top: 0.18, to: TD, y0: 0.10, y1: -0.01 }]);
+    fp.push([lathe([[0.078 * B, 0.058], [0.108 * B, 0.034], [0.118 * B, 0.006], [0.100 * B, -0.018]], 12), TR,
+      { ao: 0.16, aoY0: -0.02, aoY1: 0.08, top: 0.12, to: TD, y0: 0.08, y1: -0.02 }]);
     fp.push([lathe([[0.108 * B, 0.006], [0.100 * B, -0.07], [0.084 * B, -0.20], [0.078 * B, -armF + 0.06], [0.072 * B, -armF + 0.02]], 11), P,
       { ao: 0.34, aoY0: -armF, aoY1: 0.02, top: 0.20, to: PS, y0: 0.0, y1: -armF, jitter: 0.04 }]);
     fp.push([lathe([[0.058 * B, -armF - 0.006], [0.082 * B, -armF + 0.014], [0.080 * B, -armF + 0.044], [0.064 * B, -armF + 0.062]], 12), TR,
@@ -1061,16 +1063,18 @@ const POSES = {
     o.hipR = [0.9 * k, 0, 0.2 * k]; o.kneeR = [0.8 * k, 0, 0];
     o.capeLean = 0.5 * k;
   },
-  showcase(t, p, o) { // hero-shot: contrapposto, blade angled across the body
+  showcase(t, p, o) { // hero-shot: contrapposto, blade raised across the body
     const br = Math.sin(t * 1.5);
-    o.hips = [0.01, -0.26, -0.080, 0.03, br * 0.014 - 0.01, 0];
-    o.torso = [0.02 + br * 0.024, 0.14, 0.090];
-    o.head = [-0.08 + br * 0.02, 0.20, -0.045];
-    o.shR = [-0.58, -0.32, 0.60];
-    o.elR = [0.95, 0.1, 0.20];
-    o.grip = [-0.48, 0.30, -0.55];
-    o.shL = [0.22 + br * 0.03, 0.16, -0.42];
-    o.elL = [0.66, 0, -0.24];
+    o.hips = [0.01, -0.24, -0.085, 0.03, br * 0.014 - 0.01, 0];
+    o.torso = [0.02 + br * 0.024, 0.13, 0.095];
+    o.head = [-0.07 + br * 0.02, 0.22, -0.05];
+    // sword arm: elbow tucked, forearm crossing the chest so the blade rakes up
+    // to her left — the weapon has to be part of the silhouette, not behind it
+    o.shR = [-0.30, -0.16, 0.46];
+    o.elR = [1.22, 0.24, 0.22];
+    o.grip = [-0.30, 0.18, -1.02];
+    o.shL = [0.24 + br * 0.03, 0.18, -0.44];
+    o.elL = [0.70, 0, -0.26];
     o.hipL = [0.16, 0.06, -0.04]; o.kneeL = [0.30, 0, 0];
     o.hipR = [-0.10, 0.10, 0.055]; o.kneeR = [0.06, 0, 0];
     o.capeLean = 0.22 + br * 0.04;
