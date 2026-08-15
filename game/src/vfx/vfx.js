@@ -2296,6 +2296,56 @@ export class VFX {
   }
 
   // -------------------------------------------------------------- lifecycle --
+  /**
+   * Drop one throw-away instance into EVERY pool so that a single render links
+   * every VFX program at load.
+   *
+   * three.js creates and links a GL program the first time a mesh is actually
+   * drawn, and every pool mesh here starts `visible = false`. Left alone, the
+   * first Dawnfall is the frame that links the telegraph, crater decal,
+   * shockwave ring, light pillar, debris, ghost, beam and trail programs all at
+   * once — a synchronous driver compile that no amount of pooling avoids, and on
+   * iOS a multi-hundred-millisecond stall that reads exactly as a freeze.
+   *
+   * Everything is parked far below the deck and sized/alpha'd to nothing, so the
+   * warm-up frame draws (and therefore links) all of it without a pixel of it
+   * being visible. main.js calls this, renders one frame, then resetAll()s.
+   */
+  prewarm() {
+    const Y = -400;   // under the arena: still drawn (frustumCulled is false)
+    const T = 1e-3;   // degenerate size
+    const L = 1e4;    // long enough that nothing expires before the reset
+    this.pAdd.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: S_DOT });
+    this.pAdd.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: S_STREAK, stretch: 4, dirX: 1, dirY: 0, dirZ: 0 });
+    this.pAlpha.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: A_SMOKE });
+    this.arcs.spawn({ x: 0, y: Y, z: 0, life: L, sx0: T, sx1: T, sy0: T, sy1: T, alpha: 0, sprite: S_SLASH });
+    this.arcs.spawn({ x: 0, y: Y, z: 0, life: L, mode: 1, pin: 1, sx0: T, sx1: T, sy0: T, sy1: T, alpha: 0, sprite: S_RAY });
+    this.ringPool.spawn({ x: 0, y: Y, z: 0, r0: T, r1: T, dur: L, alpha: 0, thick: 0.02, dust: 0, emis: 0 });
+    // explicit rot: DecalPool defaults it from the shared rf() stream, and the
+    // warm-up must not shift the deterministic paint sequence the shots rely on
+    this.decalPool.spawn({ x: 0, y: Y, z: 0, size: T, dur: L, alpha: 0, hot: 0, sprite: 0, rot: 0 });
+    this.telePool.acquire(0, Y, 0, T, 0xffffff);
+    // delay 0 so the quad is actually emitted this frame; pre-marked as fired so
+    // the impact callback (particles + a light pulse) never runs.
+    _v1.set(0, Y, 0); _v2.set(0, Y + T, 0);
+    this.beamPool.fired[this.beamPool.spawn(_v1, _v2, L, T, 0xffffff, 0)] = 1;
+    // hot > 0 also exercises the instanceColor upload path
+    this.debris.spawn({
+      x: 0, y: Y, z: 0, vx: 0, vy: 0, vz: 0, size: T, life: L, ground: Y - 1,
+      ax: 0, ay: 1, az: 0, spin: 0, hot: 1,
+    });
+    this.ghostPool.spawn(0, Y, 0, 0, 0, 0xffffff, L);
+    this.trailBank.setActive(0, true, 0x9fe8ff);
+    this.trailBank.setActive(1, true, 0xffab6a);
+    this.trailBank.push(0, _v1, _v2);
+    this.trailBank.push(1, _v1, _v2);
+    const p = this.projs[0];
+    p.active = true; p.target = null; p.onHit = null; p.t = 0; p.trailAcc = null;
+    p.pos.set(0, Y, 0); p.from.copy(p.pos); p.to.set(0, Y, 1e5);
+    p.speed = 1e-4; p.size = T; p.col = 0xffffff; p.dur = 1e6; p.arc = 0;
+    p.dx = 0; p.dy = 0; p.dz = 1;
+  }
+
   resetAll() {
     this.pAdd.clear(); this.pAlpha.clear();
     this.arcs.clear(); this.ringPool.clear(); this.decalPool.clear();

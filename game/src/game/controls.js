@@ -4,9 +4,18 @@
 // The joystick and the keyboard feed the *same* normalised (dir, mag) pair into
 // sim.setMove, so a champion driven by a thumb and one driven by WASD accelerate,
 // pivot and stop identically. Past the dead zone the magnitude curve starts at
-// WALK so there is never a band of travel that visibly does nothing.
-const DEAD = 0.18;     // fraction of knob travel treated as slack
-const WALK = 0.45;     // magnitude the moment you leave the dead zone
+// WALK so there is never a band of travel that visibly does nothing, and it is
+// at 1.0 by FULL so most of the throw is pure direction.
+//
+// Wild Rift's move stick is effectively *direction only*: a champion runs at its
+// movement speed whether you feather the stick or slam it to the rim. A curve
+// that ramped 0.45 -> 1.0 across the whole throw meant a half tilt walked at
+// 4.7 u/s instead of 7, which is the single biggest "this is not Wild Rift"
+// tell on a thumb. So: a small dead zone, then almost full speed immediately,
+// with a short ramp that exists only so a resting thumb cannot lurch.
+const DEAD = 0.12;     // fraction of knob travel treated as slack (~5 px of 44)
+const WALK = 0.82;     // magnitude the moment you leave the dead zone
+const FULL = 0.42;     // fraction of travel at which you are already at full speed
 const ATTACK_REPEAT = 0.25;
 
 export class Controls {
@@ -45,18 +54,22 @@ export class Controls {
     };
     const pMove = (e) => {
       if (this.joyId !== (e.pointerId ?? 'mouse')) return;
-      let dx = e.clientX - this.joyOrigin.x, dy = e.clientY - this.joyOrigin.y;
-      const len = Math.hypot(dx, dy);
-      if (len > this.R) { dx = dx / len * this.R; dy = dy / len * this.R; }
+      const rx = e.clientX - this.joyOrigin.x, ry = e.clientY - this.joyOrigin.y;
+      const len = Math.hypot(rx, ry);
+      let dx = rx, dy = ry;
+      if (len > this.R) { dx = rx / len * this.R; dy = ry / len * this.R; }
       this.setKnob(dx, dy);   // knob tracks the finger 1:1, dead zone or not
       const t = Math.min(1, len / this.R);
       if (t <= DEAD || len < 1e-3) {
         this.joyVec.mag = 0;
       } else {
-        // direction is pure (unit vector); magnitude carries the tilt
-        this.joyVec.x = dx / len;
-        this.joyVec.y = dy / len;
-        this.joyVec.mag = WALK + (1 - WALK) * ((t - DEAD) / (1 - DEAD));
+        // Direction must come off the RAW delta: dividing the clamped knob
+        // offset by the raw length shrank the vector past the rim (1.6x throw
+        // gave a 0.625-long "unit" vector), which quietly shortened the
+        // camera's forward lead exactly when the player was pushing hardest.
+        this.joyVec.x = rx / len;
+        this.joyVec.y = ry / len;
+        this.joyVec.mag = t >= FULL ? 1 : WALK + (1 - WALK) * ((t - DEAD) / (FULL - DEAD));
       }
     };
     const pUp = (e) => {
@@ -76,12 +89,18 @@ export class Controls {
       if (!el) return;
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault(); e.stopPropagation();
+        // Capture so a thumb that slides off the button keeps the hold and
+        // still delivers pointerup here. Touch gets this implicitly; a mouse
+        // does not, and without it a drag-off left the attack latched on.
+        if (el.setPointerCapture && e.pointerId !== undefined) {
+          try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        }
         fn();
         if (repeat) { this.attackHeld = true; this.attackRepeat = ATTACK_REPEAT; }
       });
       el.addEventListener('pointerup', () => { if (repeat) this.attackHeld = false; });
       el.addEventListener('pointercancel', () => { if (repeat) this.attackHeld = false; });
-      el.addEventListener('pointerleave', () => { if (repeat) this.attackHeld = false; });
+      el.addEventListener('pointerleave', (e) => { if (repeat && e.pointerType === 'mouse' && !e.buttons) this.attackHeld = false; });
     };
     bindBtn('btnA', () => this.sim.pressAttack(), true);
     bindBtn('btnQ', () => this.sim.tryCast('Q'));

@@ -105,6 +105,13 @@ function frame(now) {
       sim.step(STEP);
       acc -= STEP;
     }
+    // A frame that overran the 5-step cap (a real hitch, a tab switch, a slow
+    // first frame) leaves backlog behind. Carrying it forward makes every
+    // following frame run the full five steps — the sim fast-forwards and the
+    // accumulator may never drain, which reads as the game lurching after a
+    // stutter. Drop the surplus: one hitch costs a little sim time, not a
+    // time-warp.
+    if (acc >= STEP) acc = 0;
     visualUpdate(dt);
     renderFrame();
   }
@@ -236,7 +243,38 @@ window.__WR_DEBUG = {
 // internal diagnostics (harmless in production)
 window.__WR_DIAG = { renderer, scene, camera, post, sim, arena, THREE };
 
+// ----------------------------------------------------------- shader warm --
+// three.js links a GL program the first time a mesh is really DRAWN. Every VFX
+// pool mesh starts hidden, so without this the first Dawnfall is the frame that
+// links the telegraph, crater decal, shockwave ring, light pillar, debris,
+// ghost, beam and trail programs in one go — a synchronous compile the driver
+// cannot defer. On a phone that is a several-hundred-millisecond stall on the
+// exact frame the player pressed R, which is the "casting the ult freezes the
+// game" report. Pay it here, once, before the first frame is shown.
+function prewarmShaders() {
+  // 1) really draw one throw-away instance of every pooled effect, parked far
+  //    under the arena, through the exact runtime path — so the driver builds
+  //    the pipeline state for every blend mode and for the debris shadow too.
+  //    This must come FIRST: three r185 deprecates PCFSoftShadowMap and rewrites
+  //    renderer.shadowMap.type to PCFShadowMap on the first shadow pass, and the
+  //    shadow type is part of the program cache key. Compiling before that first
+  //    render links a variant the renderer then never uses, and every material
+  //    compiles a second time anyway.
+  vfx.prewarm();
+  visualUpdate(STEP);
+  renderFrame();
+  vfx.resetAll();
+  // 2) with the render state settled, link the rest of the scene — including
+  //    objects still hidden (tower rubble, nexus shards), which three's
+  //    compile() reaches because it walks the whole graph, not just the visible
+  //    part — so no later reveal pays a compile either.
+  post.compileScene(scene, camera);
+  uTime.value = 0;
+  CAM.snap = true;
+}
+
 // ------------------------------------------------------------------ start --
+prewarmShaders();
 if (SHOT_MODE) {
   // stage a sensible default frame, render once, wait for preset() calls
   visualUpdate(STEP);

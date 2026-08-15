@@ -44,7 +44,11 @@ const MOVE = {
   accel: 62,        // u/s^2  -> 0..7 u/s in ~0.11 s
   decel: 96,        // u/s^2  -> full stop in ~0.07 s
   turnStand: 24,    // rad/s pivot rate at a standstill
-  turnRun: 10.5,    // rad/s pivot rate at full speed (180 deg in ~0.30 s)
+  // rad/s pivot rate at full speed. Nominally pi/10.5 = 0.30 s for a 180, but
+  // turnBleed sheds speed through the turn and the rate climbs toward turnStand
+  // as it does, so a measured full-speed 180 lands at 0.22 s heading-reversed /
+  // 0.23 s back at full speed. It pivots — it never snaps.
+  turnRun: 10.5,
   turnBleed: 0.45,  // fraction of speed shed while hauling through a hard turn
   faceRate: 20,     // how fast the mesh yaw chases the movement heading
 };
@@ -63,7 +67,23 @@ const HERO = {
   ad: (l) => 60 + 7 * (l - 1),
   aps: (l) => 0.93 + 0.022 * (l - 1),   // attacks per second
 };
-const STRUCT_MUL = 0.72;   // heroes hit towers/nexus for a fraction (fortification)
+// Input buffering: a button pressed a beat early is held, not eaten. Covers both
+// "an action currently owns the hero" and "the cooldown is about to tick over",
+// which is the case a player actually notices — you tap Q as the sweep closes
+// and nothing happens.
+const CAST_BUF = 0.35;     // how long a queued press stays live
+const CAST_BUF_CD = 0.30;  // queue a press this far before the cooldown ends
+// hit-stop: the sim crawls for a few frames. Character animation is scaled by
+// the same factor in updateVisuals or the "freeze" is invisible — the rig keeps
+// swinging at full rate while only the damage and the positions slow down.
+const HITSTOP_SCALE = 0.14;
+// a hit smaller than this share of your health bar does not move the camera;
+// otherwise every minion auto rattles the screen for the whole laning phase
+const SHAKE_MIN_FRAC = 0.035;
+// A champion alone is a bad siege engine — that is what the wave is for. At
+// 0.72 a hero out-DPSed the minions it was standing behind, so a bot with a
+// free lane could solo a base in under six minutes.
+const STRUCT_MUL = 0.48;   // heroes hit towers/nexus for a fraction (fortification)
 const XP_RADIUS2 = 9.5 * 9.5;
 const DASH_SPEED = 27, DASH_TIME = 0.28;
 const WAVE_PERIOD = 24;   // shortens as the game runs long (see wavePeriod)
@@ -71,6 +91,10 @@ const MINION_STRUCT_MUL = 1.4;  // waves are what actually siege a tower
 const MINION_CAP = 32;
 // slide-around-obstacle probes (cos/sin pairs), tried both ways round
 const SLIDE = [0.73, 0.68, 0.22, 0.97];
+// hoisted target filters: these run on the bot's think tick and on every minion
+// re-acquire, so allocating a fresh closure per call is pure garbage
+const IS_STRUCT = (u) => u.kind === 'tower' || u.kind === 'nexus';
+const NOT_STRUCT = (u) => u.kind !== 'tower' && u.kind !== 'nexus';
 
 export class Sim {
   constructor({ scene, arena, vfx, hud }) {
@@ -98,7 +122,7 @@ export class Sim {
     for (const spec of arena.towerSpecs) {
       const built = buildTower(spec.team);
       const t = new Tower({ ...spec, built });
-      t.maxHp = spec.tier === 'inner' ? 1800 : 1450;
+      t.maxHp = spec.tier === 'inner' ? 2400 : 1950;
       t.hp = t.maxHp;
       t.aggroT = 0;
       t.towerRamp = 0;
@@ -111,7 +135,7 @@ export class Sim {
     for (const spec of arena.nexusSpecs) {
       const built = buildNexusCrystal(spec.team);
       const n = new Nexus({ ...spec, built });
-      n.maxHp = 2200; n.hp = n.maxHp;
+      n.maxHp = 2800; n.hp = n.maxHp;
       scene.add(n.group);
       arena.addBlocker(spec.x, spec.z, 2.5);
       n.barIdx = this.hpBars.alloc();
@@ -154,7 +178,14 @@ export class Sim {
     this.botAiT = 0;
     this.castBuf = '';
     this.castBufT = 0;
-    this.botIntent = { x: 0, z: 0, move: false, target: null, face: null };
+    this.botBuf = '';
+    this.botBufT = 0;
+    this.botBufTgt = null;
+    // `follow` is the unit the destination is derived from. The *decision* runs
+    // on a human-ish clock, but the destination is re-read from the live target
+    // every frame — otherwise the bot walks at where you stood a third of a
+    // second ago and loses every duel to a moving player.
+    this.botIntent = { x: 0, z: 0, move: false, target: null, face: null, follow: null };
     this.fountainT = 0;
     this.trailBusy = [false, false];
   }
@@ -314,7 +345,10 @@ export class Sim {
     if (src && dst.flinch) dst.flinch(src.pos.x, src.pos.z);
     if (dst.isHero) {
       dst.hitFlash();
-      if (dst === this.player) this.vfx.shake(0.1 + Math.min(0.16, dealt / dst.maxHp * 1.6));
+      if (dst === this.player) {
+        const frac = dealt / dst.maxHp;
+        if (frac > SHAKE_MIN_FRAC) this.vfx.shake(Math.min(0.28, 0.06 + frac * 1.7));
+      }
     }
     // hero-on-hero aggression pulls the defender's tower and wave onto you
     if (src && src.isHero && dst.isHero) this.onHeroAggression(src, dst);
@@ -553,11 +587,15 @@ export class Sim {
   tryCast(key) {
     const h = this.player;
     if (!this.canCast(h, key)) {
-      // pressed a beat early? hold it briefly instead of eating the input
+      // Pressed a beat early? Hold it briefly instead of eating the input.
+      // Queued while an action owns the hero (root / windup / dash) AND while
+      // the cooldown is within a buffer of expiring. Never queued when the bar
+      // is short of mana or the rank is not learned — those are real refusals
+      // and the HUD already says so.
       const ab = ABILITY[key];
-      if (ab && h.alive && this.state !== 'ended' && h.cds[key] <= 0 &&
-        h.mana >= ab.mana && this.rank(h, key) > 0 && (h.rootT > 0 || h.busyT > 0)) {
-        this.castBuf = key; this.castBufT = 0.28;
+      if (ab && h.alive && this.state !== 'ended' && !h.ultPhase &&
+        h.cds[key] <= CAST_BUF_CD && h.mana >= ab.mana && this.rank(h, key) > 0) {
+        this.castBuf = key; this.castBufT = CAST_BUF;
       }
       return;
     }
@@ -566,7 +604,7 @@ export class Sim {
     if (this.input.mag > MOVE.deadzone) aim.set(this.input.x, 0, this.input.z).normalize();
     else {
       const t = this.nearestEnemy(h.team, h.pos.x, h.pos.z, ABILITY[key].range + 2,
-        u => u.kind !== 'tower' && u.kind !== 'nexus');
+        NOT_STRUCT);
       if (t) aim.copy(t.pos).sub(h.pos).setY(0).normalize();
       else aim.set(Math.sin(h.facing), 0, Math.cos(h.facing));
     }
@@ -719,8 +757,14 @@ export class Sim {
     if (h.invulnT > 0) h.invulnT -= dt;
     h.mana = Math.min(h.maxMana, h.mana + (2.2 + h.level * 0.25) * dt);
     if (h.hp < h.maxHp) {
+      // Out-of-combat regen is the lane's reset button. At 1.4 %/s a champion
+      // needed ~28 s of standing still to get from a lost trade back to fighting
+      // weight, so the bot simply walked home instead — the fountain round trip
+      // was eating a quarter of its game. 3 %/s makes "back off behind the
+      // tower, come back" a real option for both sides, which is the Wild Rift
+      // laning rhythm; in-combat regen stays negligible so duels are unaffected.
       const ooc = this.time - Math.max(h.lastDamagedT, h.combatT) > 5;
-      h.hp = Math.min(h.maxHp, h.hp + h.maxHp * (ooc ? 0.014 : 0.0035) * dt);
+      h.hp = Math.min(h.maxHp, h.hp + h.maxHp * (ooc ? 0.030 : 0.005) * dt);
     }
     if (h.spinRate) {
       while (h.spinNext <= this.time && h.spinNext < h.spinUntil) { this.spinTick(h); h.spinNext += 0.3; }
@@ -799,9 +843,14 @@ export class Sim {
     }
     this.tickHero(h, dt);
     if (this.castBufT > 0) {
-      this.castBufT -= dt;
-      if (this.castBufT <= 0) this.castBuf = '';
-      else if (this.canCast(h, this.castBuf)) { const k = this.castBuf; this.castBuf = ''; this.castBufT = 0; this.tryCast(k); }
+      // try first, expire second: on the frame the buffer runs out the press
+      // still gets its shot rather than being dropped a frame early
+      if (this.canCast(h, this.castBuf)) {
+        const k = this.castBuf; this.castBuf = ''; this.castBufT = 0; this.tryCast(k);
+      } else {
+        this.castBufT -= dt;
+        if (this.castBufT <= 0) this.castBuf = '';
+      }
     }
     if (this.stepUlt(h, dt)) return;
     if (this.stepDash(h, dt)) return;
@@ -875,7 +924,7 @@ export class Sim {
     if (near) return near;
     // 5. champion at chase distance, then structures
     if (eh.alive && this.flat(h, eh) < ATK.acquire) return eh;
-    return this.nearestEnemy(h.team, px, pz, ATK.acquire, u => u.kind === 'tower' || u.kind === 'nexus');
+    return this.nearestEnemy(h.team, px, pz, ATK.acquire, IS_STRUCT);
   }
 
   respawn(h) {
@@ -889,6 +938,9 @@ export class Sim {
     h.moveSpd = 0;
     h.rootT = 0; h.busyT = 0; h.dashT = -1; h.ultPhase = null; h.spinRate = 0;
     h.chaseTarget = null;
+    // a press queued in the half-second before dying must not fire on respawn
+    if (h === this.player) { this.castBuf = ''; this.castBufT = 0; }
+    else { this.botBuf = ''; this.botBufT = 0; this.botBufTgt = null; }
     h.group.visible = true;
     h.invulnT = 2;
     h.combatT = -99; h.lastDamagedT = -99;
@@ -910,13 +962,27 @@ export class Sim {
     if (this.stepUlt(b, dt)) return;
     if (this.stepDash(b, dt)) return;
 
+    if (this.botBufT > 0) {
+      if (this.canCast(b, this.botBuf)) {
+        const k = this.botBuf, t = this.botBufTgt;
+        this.botBuf = ''; this.botBufT = 0; this.botBufTgt = null;
+        this.botCast(b, k, t && t.alive ? t : null);
+      } else {
+        this.botBufT -= dt;
+        if (this.botBufT <= 0) { this.botBuf = ''; this.botBufTgt = null; }
+      }
+    }
     this.botAiT -= dt;
     if (this.botAiT <= 0) {
-      this.botAiT = 0.16 + this.rng.f(0.14);   // human-ish reaction window
+      // a human re-reads a duel faster than they re-read a farming pattern
+      const hot = this.player.alive && this.flat(b, this.player) < 8.5 &&
+        (b.aiState === 'trade' || b.aiState === 'execute' || b.aiState === 'retreat');
+      this.botAiT = hot ? 0.09 + this.rng.f(0.07) : 0.16 + this.rng.f(0.14);
       this.botThink();
     }
 
     const I = this.botIntent;
+    if (I.follow && I.follow.alive) { I.x = I.follow.pos.x; I.z = I.follow.pos.z; }
     let dirX = 0, dirZ = 0, mag = 0;
     if (I.move && b.rootT <= 0) {
       dirX = I.x - b.pos.x; dirZ = I.z - b.pos.z;
@@ -939,22 +1005,40 @@ export class Sim {
   botThink() {
     const b = this.bot, p = this.player;
     const I = this.botIntent;
-    I.move = false; I.target = null;
+    I.move = false; I.target = null; I.follow = null;
     const hpP = b.hp / b.maxHp;
     const pAlive = p.alive;
     const pd = pAlive ? this.flat(b, p) : 1e9;
     const php = pAlive ? p.hp / p.maxHp : 1;
     const cover = this.countMinions('red', b.pos.x, b.pos.z, 7.5);
     const front = this.frontlineX('red');
+    // A corpse on a 15-40 s timer is the whole reason kills are worth anything.
+    // While that clock runs the bot stops nursing its health bar and cashes the
+    // lead in on a structure — the old thresholds sent it home to heal instead,
+    // which is how it managed to go 17-3 up and still deal ZERO tower damage.
+    const free = !pAlive && p.respawnT > 7;
+    const winning = pAlive && php < hpP - 0.08;
+    // Is an enemy tower currently chewing on us, and how many stacks deep? A
+    // dive is only a dive if you leave before the ramp catches up; without this
+    // the bot happily stood in a tower it had aggroed until it fell over.
+    let lock = null;
+    for (const t of this.towers) {
+      if (t.alive && t.team === 'blue' && t.target === b) { lock = t; break; }
+    }
+    const ramp = lock ? (lock.towerRamp || 0) : 0;
+    const towerPressure = !!lock && (ramp >= 3 || (ramp >= 2 && hpP < 0.55));
 
     // ---- state machine -----------------------------------------------------
     const st = b.aiState;
-    if (hpP < 0.18 && !(pd < 5 && php < 0.25)) b.aiState = 'heal';
-    else if (st === 'heal' && hpP < 0.72) b.aiState = 'heal';
+    if (hpP < 0.12 && !(pd < 5 && php < 0.25) && !(free && hpP > 0.22)) b.aiState = 'heal';
+    else if (st === 'heal' && hpP < (free ? 0.42 : 0.55)) b.aiState = 'heal';
+    else if (towerPressure && !(pAlive && php < 0.15 && pd < 6)) b.aiState = 'retreat';
     else if (pAlive && php < 0.34 && hpP > 0.42 && pd < 10) b.aiState = 'execute';
-    else if (hpP < 0.33) b.aiState = 'retreat';
-    else if (st === 'retreat' && hpP < 0.58) b.aiState = 'retreat';
-    else if (pAlive && pd < 7.0 && hpP > php - 0.05) b.aiState = 'trade';
+    else if (hpP < 0.30 && !winning && !(free && hpP > 0.24)) b.aiState = 'retreat';
+    else if (st === 'retreat' && hpP < (free ? 0.34 : 0.48)) b.aiState = 'retreat';
+    // fight unless clearly losing: at hpP > php - 0.05 the bot bailed out of any
+    // trade it was a hair behind in and then got chased down anyway
+    else if (pAlive && pd < 7.0 && hpP > php - 0.18) b.aiState = 'trade';
     else if (!pAlive || b.level >= p.level + 2 || (front < -12 && cover >= 2)) b.aiState = 'siege';
     else b.aiState = 'lane';
 
@@ -967,8 +1051,24 @@ export class Sim {
       return;
     }
     if (state === 'retreat') {
-      // fall back behind our own outer tower, kiting away from the player
-      tx = Math.max(b.pos.x, A.TOWER_OUTER_X + 3.5);
+      if (lock) {
+        // Pulled off a dive: step out of the gun, which is a couple of metres,
+        // not all the way home. Running 35 u back to base every time a tower
+        // connected was how a successful dive still ended in a lost lane.
+        const dx = b.pos.x - lock.pos.x, dz = b.pos.z - lock.pos.z;
+        const l = Math.hypot(dx, dz) || 1;
+        I.move = true;
+        I.x = lock.pos.x + (dx / l) * (lock.range + 2.5);
+        I.z = lock.pos.z + (dz / l) * (lock.range + 2.5);
+        I.target = this.botPickTarget(b, false);
+        return;
+      }
+      // Fall back behind our own outer tower while we are actually being chased;
+      // otherwise hold on the tower's near side and keep farming. Sprinting to
+      // x=21.5 every time the health bar dipped was 16 % of the match spent
+      // walking away from a lane nobody was contesting.
+      const chased = pAlive && pd < 9;
+      tx = Math.max(b.pos.x, chased ? A.TOWER_OUTER_X + 3.5 : A.TOWER_OUTER_X - 1.5);
       tz = pAlive && pd < 6 ? (b.pos.z >= p.pos.z ? 3.2 : -3.2) : 0;
       if (pAlive && pd < 4.2 && this.canCast(b, 'W')) {
         _v1.set(b.pos.x - p.pos.x, 0, b.pos.z - p.pos.z).normalize();
@@ -993,25 +1093,30 @@ export class Sim {
         I.x = tower.pos.x + (dx / l) * (tower.range + 2.5);
         I.z = tower.pos.z + (dz / l) * (tower.range + 2.5);
         I.target = this.botPickTarget(b, false);
-        if (pd < ABILITY.Q.range && this.canCast(b, 'Q')) this.botCast(b, 'Q', p);
+        if (pd < ABILITY.Q.range) this.botTryCast(b, 'Q', p);
         return;
       }
       I.target = p;
+      I.follow = p;
       I.move = pd > this.atkRange(b, p) - 0.4;
       I.x = p.pos.x; I.z = p.pos.z;
       // ---- ability usage -------------------------------------------------
       const ad = this.autoDmg(b);
       const rDmg = 180 + 120 * this.rank(b, 'R') + ad;
+      // ...or when the fight is plainly committed — both bars past halfway and
+      // the enemy in leap range. Holding the ultimate for a guaranteed execute
+      // meant the bot ate the player's ult every duel and answered with autos.
+      const committed = hpP < 0.72 && php < 0.72 && pd < ABILITY.R.range;
       if (this.canCast(b, 'R') && pd < ABILITY.R.range + 1.5 &&
-        (p.hp < rDmg * 1.15 || (state === 'execute' && hpP > 0.5) || (php < 0.6 && hpP > php + 0.2))) {
+        (p.hp < rDmg * 1.15 || committed || (state === 'execute' && hpP > 0.5) || (php < 0.6 && hpP > php + 0.2))) {
         _v1.copy(p.pos).sub(b.pos).setY(0);
         if (_v1.lengthSq() < 1e-4) _v1.set(Math.sin(b.facing), 0, Math.cos(b.facing));
         this.castAbility(b, 'R', _v1.normalize());
         return;
       }
-      if (this.canCast(b, 'W') && pd > 3.4 && pd < ABILITY.W.range) { this.botCast(b, 'W', p); return; }
-      if (this.canCast(b, 'Q') && pd < ABILITY.Q.range) { this.botCast(b, 'Q', p); return; }
-      if (this.canCast(b, 'E') && pd < ABILITY.E.range - 0.4) { this.castAbility(b, 'E', this.botAim(b, p)); return; }
+      if (pd > 3.4 && pd < ABILITY.W.range && this.botTryCast(b, 'W', p)) return;
+      if (pd < ABILITY.Q.range && this.botTryCast(b, 'Q', p)) return;
+      if (pd < ABILITY.E.range - 0.4 && this.botTryCast(b, 'E', p)) return;
       return;
     }
 
@@ -1023,19 +1128,43 @@ export class Sim {
       const d = this.flat(b, target);
       I.move = d > want;
       I.x = target.pos.x; I.z = target.pos.z;
+      if (target.kind !== 'tower' && target.kind !== 'nexus') I.follow = target;
+    } else if (state === 'siege') {
+      // Nothing to hit and no wave to follow. frontlineX() falls back to our own
+      // outer tower when the wave is dead, so the bot used to walk all the way
+      // HOME and stand there — 27 % of a match spent with nothing in range and
+      // no structure within 12 u. Hold at the frontier instead: just outside the
+      // next enemy building's gun, or right on it while the enemy is respawning.
+      I.move = true;
+      const st2 = this.nearestEnemy('red', b.pos.x, b.pos.z, 90, IS_STRUCT);
+      if (st2) {
+        const dx = b.pos.x - st2.pos.x, dz = b.pos.z - st2.pos.z;
+        const l = Math.hypot(dx, dz) || 1;
+        const hold = free ? 0.5 : (st2.range || 0) + 1.4;
+        I.x = st2.pos.x + (dx / l) * hold;
+        I.z = st2.pos.z + (dz / l) * hold;
+      } else { I.x = front - 1.5; I.z = 0; }
     } else {
       I.move = true;
       I.x = Math.max(-A.TOWER_INNER_X + 4, Math.min(front - 1.5, A.SPAWN_X));
       I.z = 0;
     }
-    // hold position outside enemy tower range unless we have a wave in front
+    // Hold position outside enemy tower range unless the wave is in front of us.
+    // With the enemy champion on a respawn clock one minion of cover is enough:
+    // that is the difference between "respects tower range" and "never takes an
+    // objective in its life".
     const tw = this.towerThreat('red', I.x, I.z, 0.8);
-    if (tw && this.countMinions('red', tw.pos.x, tw.pos.z, tw.range) < 2) {
+    const needCover = free ? 1 : 2;
+    if (tw && this.countMinions('red', tw.pos.x, tw.pos.z, tw.range) < needCover) {
       const dx = b.pos.x - tw.pos.x, dz = b.pos.z - tw.pos.z;
       const l = Math.hypot(dx, dz) || 1;
       I.x = tw.pos.x + (dx / l) * (tw.range + 2.2);
       I.z = tw.pos.z + (dz / l) * (tw.range + 2.2);
       I.move = true;
+      // the hold-off point is a fixed spot, not a chase — leaving `follow` set
+      // would let stepBot overwrite it with the target's live position every
+      // frame and walk straight back into the gun this clause just dodged
+      I.follow = null;
       if (target && target.kind !== 'tower' && this.flat(b, target) > this.atkRange(b, target)) I.target = null;
     }
     // wave clear / poke
@@ -1049,6 +1178,20 @@ export class Sim {
         this.botCast(b, 'Q', target);
       }
     }
+  }
+
+  // The player's presses survive a windup (castBuf). The bot only re-tries on
+  // its next think tick, so every ability it wanted mid-animation cost it up to
+  // a reaction window. Same buffer, same rules — the aim is re-read from the
+  // live target when it finally fires, so it never throws at a ghost.
+  botTryCast(b, key, target) {
+    if (this.canCast(b, key)) { this.botCast(b, key, target); return true; }
+    const ab = ABILITY[key];
+    if (ab && b.alive && !b.ultPhase && b.cds[key] <= 0 && b.mana >= ab.mana &&
+      this.rank(b, key) > 0 && (b.rootT > 0 || b.busyT > 0 || b.dashT >= 0)) {
+      this.botBuf = key; this.botBufT = 0.25; this.botBufTgt = target || null;
+    }
+    return false;
   }
 
   botAim(b, t) {
@@ -1074,10 +1217,23 @@ export class Sim {
     if (exec) return exec;
     const p = this.player;
     if (p.alive && this.flat(b, p) < reach + p.radius) return p;
-    if (near) return near;
     if (siege) {
-      return this.nearestEnemy('red', b.pos.x, b.pos.z, 11, u => u.kind === 'tower' || u.kind === 'nexus');
+      // Structures used to sit BELOW "nearest minion within 8 u", so as long as
+      // one blue minion was wandering the lane the bot would farm it forever and
+      // the tower never took a scratch. A sieging player hits the building while
+      // their own wave tanks it; the minion only wins the slot if it is actually
+      // in our face or about to die.
+      const st = this.nearestEnemy('red', b.pos.x, b.pos.z, 11.5, IS_STRUCT);
+      if (st) {
+        const sd = this.flat(b, st);
+        const covered = this.countMinions('red', st.pos.x, st.pos.z, 7.5) >= 1;
+        // in swing range with our wave present: hit the building
+        if (sd < this.atkRange(b, st) + 0.6 && (covered || !near)) return st;
+        // nothing chewing on us: walk the last step to the building
+        if (!near || (covered && nd > 4.2)) return st;
+      }
     }
+    if (near) return near;
     return null;
   }
 
@@ -1190,7 +1346,7 @@ export class Sim {
       const d = this.flat(m, eh);
       if (d < 8.5 || (d < 11 && this.time < eh.aggroUntil)) return eh;
     }
-    return this.nearestEnemy(m.team, m.pos.x, m.pos.z, 10.5, u => u.kind === 'tower' || u.kind === 'nexus');
+    return this.nearestEnemy(m.team, m.pos.x, m.pos.z, 10.5, IS_STRUCT);
   }
 
   // =============================================================== towers ==
@@ -1223,8 +1379,14 @@ export class Sim {
           this.vfx.hitSpark(_v2.x, _v2.y, _v2.z, t.team === 'blue' ? 0x9fd8ff : 0xffab7a);
           let dmg;
           if (tgt.isHero) {
-            t.towerRamp = Math.min(4, (t.towerRamp || 0) + 1);
-            dmg = 90 * Math.pow(1.25, t.towerRamp - 1);
+            // Anti-dive tax: 100 / 125 / 156 / 195 / 244 / 305 per shot. The old
+            // 4-stack / 175 cap let a level-15 champion loiter under a tower for
+            // twelve seconds. Measured both over 8 seeds x 3 policies: the deeper
+            // ramp does not change who wins, but it keeps matches inside
+            // 9-16 min instead of letting one drag to 24, and it costs the side
+            // that overstays rather than the side that respects the gun.
+            t.towerRamp = Math.min(6, (t.towerRamp || 0) + 1);
+            dmg = 100 * Math.pow(1.25, t.towerRamp - 1);
             if (tgt === this.player) this.vfx.shake(0.22);
           } else dmg = minDmg;
           this.damage(t, tgt, dmg, 'magic');
@@ -1268,7 +1430,7 @@ export class Sim {
     // hit-stop: a couple of frames of near-freeze sells the impact
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - dt);
-      dt *= 0.14;
+      dt *= HITSTOP_SCALE;
     }
     this.time += dt;
     // scheduled events
@@ -1318,9 +1480,15 @@ export class Sim {
 
   // Visual-rate update (called every render frame with real dt)
   updateVisuals(dt, camera) {
-    for (const m of this.minions) m.update(dt);
-    this.player.update(dt);
-    this.bot.update(dt);
+    // Characters share the sim's clock so hit-stop actually reads: without this
+    // the rigs kept swinging at full speed through the freeze and only the
+    // damage lagged, which felt like input lag instead of impact. VFX and
+    // camera stay on real time (main.js) — particles flying past a frozen
+    // silhouette is the whole point of the effect.
+    const adt = this.hitStop > 0 ? dt * HITSTOP_SCALE : dt;
+    for (const m of this.minions) m.update(adt);
+    this.player.update(adt);
+    this.bot.update(adt);
     // sword trails sampling (indexed loop: no per-frame array allocation)
     for (let i = 0; i < 2; i++) {
       const h = this.heroes[i];

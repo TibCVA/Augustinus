@@ -110,5 +110,22 @@ export function createComposer(renderer, scene, camera) {
     composer, bloom, fxaa,
     gradeUniforms: grade.material.uniforms,
     setSize(w, h) { composer.setSize(w, h); },
+
+    /**
+     * Link every scene material NOW instead of on the frame that first draws it.
+     *
+     * Must go through here rather than calling renderer.compile() directly:
+     * three bakes `toneMapping` and `outputColorSpace` into its program cache
+     * key, and both of those depend on whether the current render target is the
+     * canvas or an offscreen buffer. The composer renders the scene into
+     * renderTarget1, so compiling against the canvas would link a *different*
+     * program variant and leave the real one to stall on first use.
+     */
+    compileScene(scene_, camera_) {
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(composer.renderTarget1);
+      renderer.compile(scene_, camera_);
+      renderer.setRenderTarget(prev);
+    },
   };
 }
