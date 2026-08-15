@@ -387,7 +387,10 @@ export function buildArena(scene) {
     g.computeVertexNormals();
     fixNormals(g);
     const uv = g.attributes.uv;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) * 0.15, pos.getZ(i) * 0.15);
+    // Half the lane's UV rate: base plazas should read as large slabs against
+    // the lane's brick courses. At the lane's own 0.155 they differ by 3%, i.e.
+    // there is no scale hierarchy between the two surfaces at all.
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) * 0.078, pos.getZ(i) * 0.078);
     const disc = new THREE.Mesh(g, mats.lane);
     disc.position.set(side * A.BASE_X, 0, 0);
     disc.receiveShadow = true;

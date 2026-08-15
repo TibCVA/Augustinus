@@ -111,62 +111,94 @@ function texStone() {
   ctx.fillStyle = bg; ctx.fillRect(0, 0, S, S);
   for (let i = 0; i < 260; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(8, 42), 0x55663f, 0.35);
 
-  // irregular tile grid
-  const rows = 7, tileH = S / rows;
+  // Irregular tile grid. The texture tiles with RepeatWrapping, so any tile that
+  // runs off the right edge must be stamped again on the left with IDENTICAL
+  // randomness — otherwise a dead-straight discontinuity crosses the lane every
+  // repeat. That means every TR.* draw is rolled ONCE into `P` up front, and
+  // `stamp(ox)` only reads from it.
+  const rows = 7;
   const tints = [0xcfc5ae, 0xc6bda2, 0xd8cbb4, 0xbdb9a6, 0xcbc0b3, 0xc2c3b0, 0xd2c3a4];
+  // jittered course heights, renormalised to sum exactly S so the band rhythm
+  // stops reading as a metronome while the texture still tiles vertically
+  const courseH = [];
+  let hSum = 0;
+  for (let r = 0; r < rows; r++) { const v = TR.f(0.82, 1.18); courseH.push(v); hSum += v; }
+  for (let r = 0; r < rows; r++) courseH[r] = (courseH[r] / hSum) * S;
+
+  let yTop = 0;
   for (let r = 0; r < rows; r++) {
+    const h = courseH[r], rowY = yTop;
+    yTop += h;
     let x = (r % 2) * -TR.f(40, 130);
     while (x < S + 10) {
-      const w = TR.f(110, 220), h = tileH;
-      const x0 = x + 5, y0 = r * tileH + 5, x1 = x + w - 5, y1 = r * tileH + h - 5;
-      const j = () => TR.spread(9);
-      // tile poly with jittered corners + midpoints (hand-cut look)
-      const pts = [
-        [x0 + j(), y0 + j()], [(x0 + x1) / 2 + j(), y0 + j() * 1.6], [x1 + j(), y0 + j()],
-        [x1 + j() * 1.6, (y0 + y1) / 2 + j()], [x1 + j(), y1 + j()],
-        [(x0 + x1) / 2 + j(), y1 + j() * 1.6], [x0 + j(), y1 + j()], [x0 + j() * 1.6, (y0 + y1) / 2 + j()],
-      ];
-      let base = tints[TR.i(0, tints.length - 1)];
-      if (TR.chance(0.16)) base = mixh(base, 0x8fa3a0, 0.4);   // cool blue-gray tile
-      if (TR.chance(0.12)) base = mixh(base, 0xc9a276, 0.35);  // warm sand tile
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let p = 1; p < pts.length; p++) ctx.lineTo(pts[p][0], pts[p][1]);
-      ctx.closePath();
-      ctx.fillStyle = css(base);
-      ctx.fill();
-      ctx.save();
-      ctx.clip();
-      // inner shading: light top-left, AO bottom-right (baked sun feel)
-      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-      splat(ctx, cx - w * 0.18, cy - h * 0.2, w * 0.75, 0xfff3da, 0.22);
-      splat(ctx, cx + w * 0.25, cy + h * 0.28, w * 0.8, 0x4e5347, 0.3);
-      // painterly patches
-      for (let k = 0; k < 7; k++)
-        splat(ctx, x0 + TR.f(w), y0 + TR.f(h), TR.f(10, 46), TR.chance(0.5) ? 0xb9c4bb : 0xd9c9a6, 0.14);
-      // edge AO ring
-      ctx.lineWidth = 14; ctx.strokeStyle = css(0x3a3d33, 0.4); ctx.stroke();
-      ctx.lineWidth = 6; ctx.strokeStyle = css(0x2f3129, 0.5); ctx.stroke();
-      // top-left worn highlight edge
-      ctx.beginPath();
-      ctx.moveTo(pts[6][0] + 4, pts[6][1] - 4);
-      ctx.lineTo(pts[0][0] + 4, pts[0][1] + 4);
-      ctx.lineTo(pts[2][0] - 4, pts[2][1] + 4);
-      ctx.lineWidth = 3.5; ctx.strokeStyle = css(0xfff6e0, 0.35); ctx.stroke();
-      // cracks
-      if (TR.chance(0.4)) {
+      const w = TR.f(110, 220);
+      const P = {
+        j: Array.from({ length: 16 }, () => TR.spread(9)),
+        tint: TR.i(0, tints.length - 1),
+        cool: TR.chance(0.16), warm: TR.chance(0.12),
+        patches: Array.from({ length: 7 }, () => ({
+          x: TR.f(w), y: TR.f(h), r: TR.f(10, 46), c: TR.chance(0.5) ? 0xb9c4bb : 0xd9c9a6,
+        })),
+        crack: TR.chance(0.4),
+        crackX: TR.f(w), crackY: TR.f(h),
+        crackSteps: Array.from({ length: 4 }, () => [TR.spread(38), TR.spread(30)]),
+        speckles: Array.from({ length: 26 }, () => ({
+          light: TR.chance(0.5), x: TR.f(w), y: TR.f(h),
+        })),
+      };
+      let base = tints[P.tint];
+      if (P.cool) base = mixh(base, 0x8fa3a0, 0.4);   // cool blue-gray tile
+      if (P.warm) base = mixh(base, 0xc9a276, 0.35);  // warm sand tile
+
+      const stamp = (ox) => {
+        const x0 = x + 5 + ox, y0 = rowY + 5, x1 = x + w - 5 + ox, y1 = rowY + h - 5;
+        const J = P.j;
+        // tile poly with jittered corners + midpoints (hand-cut look)
+        const pts = [
+          [x0 + J[0], y0 + J[1]], [(x0 + x1) / 2 + J[2], y0 + J[3] * 1.6], [x1 + J[4], y0 + J[5]],
+          [x1 + J[6] * 1.6, (y0 + y1) / 2 + J[7]], [x1 + J[8], y1 + J[9]],
+          [(x0 + x1) / 2 + J[10], y1 + J[11] * 1.6], [x0 + J[12], y1 + J[13]],
+          [x0 + J[14] * 1.6, (y0 + y1) / 2 + J[15]],
+        ];
         ctx.beginPath();
-        let px = x0 + TR.f(w), py = y0 + TR.f(h);
-        ctx.moveTo(px, py);
-        for (let s = 0; s < 4; s++) { px += TR.spread(38); py += TR.spread(30); ctx.lineTo(px, py); }
-        ctx.lineWidth = 2; ctx.strokeStyle = css(0x3c3f35, 0.55); ctx.stroke();
-      }
-      // speckle
-      for (let k = 0; k < 26; k++) {
-        ctx.fillStyle = css(TR.chance(0.5) ? 0xffffff : 0x33352c, 0.08);
-        ctx.fillRect(x0 + TR.f(w), y0 + TR.f(h), 2.4, 2.4);
-      }
-      ctx.restore();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let p = 1; p < pts.length; p++) ctx.lineTo(pts[p][0], pts[p][1]);
+        ctx.closePath();
+        ctx.fillStyle = css(base);
+        ctx.fill();
+        ctx.save();
+        ctx.clip();
+        // inner shading: light top-left, AO bottom-right (baked sun feel)
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        splat(ctx, cx - w * 0.18, cy - h * 0.2, w * 0.75, 0xfff3da, 0.22);
+        splat(ctx, cx + w * 0.25, cy + h * 0.28, w * 0.8, 0x4e5347, 0.3);
+        for (const p of P.patches) splat(ctx, x0 + p.x, y0 + p.y, p.r, p.c, 0.14);
+        // edge AO ring
+        ctx.lineWidth = 14; ctx.strokeStyle = css(0x3a3d33, 0.4); ctx.stroke();
+        ctx.lineWidth = 6; ctx.strokeStyle = css(0x2f3129, 0.5); ctx.stroke();
+        // top-left worn highlight edge
+        ctx.beginPath();
+        ctx.moveTo(pts[6][0] + 4, pts[6][1] - 4);
+        ctx.lineTo(pts[0][0] + 4, pts[0][1] + 4);
+        ctx.lineTo(pts[2][0] - 4, pts[2][1] + 4);
+        ctx.lineWidth = 3.5; ctx.strokeStyle = css(0xfff6e0, 0.35); ctx.stroke();
+        if (P.crack) {
+          ctx.beginPath();
+          let px = x0 + P.crackX, py = y0 + P.crackY;
+          ctx.moveTo(px, py);
+          for (const [dx, dy] of P.crackSteps) { px += dx; py += dy; ctx.lineTo(px, py); }
+          ctx.lineWidth = 2; ctx.strokeStyle = css(0x3c3f35, 0.55); ctx.stroke();
+        }
+        for (const s of P.speckles) {
+          ctx.fillStyle = css(s.light ? 0xffffff : 0x33352c, 0.08);
+          ctx.fillRect(x0 + s.x, y0 + s.y, 2.4, 2.4);
+        }
+        ctx.restore();
+      };
+
+      stamp(0);
+      if (x + w > S) stamp(-S);   // wrap the overhang onto the left edge
+      if (x < 0) stamp(S);        // and the row's negative-start tile onto the right
       x += w;
     }
   }
@@ -178,7 +210,9 @@ function texStone() {
   // large-scale hue variation (golden pools & teal shadow pools)
   for (let i = 0; i < 14; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(120, 320), 0xffd9a0, 0.06);
   for (let i = 0; i < 14; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(120, 320), 0x39586c, 0.07);
-  return toTex(c);
+  // The lane runs toward the horizon at a grazing angle; at the default aniso
+  // its far half mips down to featureless mush.
+  return toTex(c, { aniso: 16 });
 }
 
 // -- cliff / boulder rock: chunky facets, painterly --

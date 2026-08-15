@@ -687,8 +687,13 @@ function buildRig(spec) {
       const lock = (w, len, th, taper, az, el, d, swing, roll) => strand(w, len, th, taper)
         .rotateX(Math.PI - swing).rotateZ(roll).translate(0, 0, d).rotateX(-el).rotateY(az).translate(0, hy, 0);
       const HA = { ao: 0.20, aoY0: hy - R * 0.9, aoY1: hy + R * 0.9, top: 0.26, to: spec.hairMid, y0: hy - R, y1: hy + R };
-      // crown shell: front edge lands right at the top of the face decal
-      bp.push([ell(R * 1.06, R * 1.05, R * 1.05, 15, 11).translate(0, hy + R * 0.12, -R * 0.08), spec.hair, HA]);
+      // Crown shell. Lifted and pulled back so its front-lower silhouette sits
+      // at el +0.64 rad on centre and never drops below +0.41 across the width
+      // of the face decal (|az| <= 0.70). The old shell bottomed out at el
+      // +0.12/-0.16 — i.e. ON the brow row — which is what buried the painted
+      // face under 0.3 px of hair. The visible hairline is set by the fringe
+      // locks below, not by this shell; the shell only has to stop occluding.
+      bp.push([ell(R * 1.06, R * 1.03, R * 1.02, 15, 11).translate(0, hy + R * 0.21, -R * 0.16), spec.hair, HA]);
       // occipital mass — gives the profile a real back-of-head silhouette
       bp.push([ell(R * 0.96, R * 0.90, R * 0.86, 12, 9).translate(0, hy - R * 0.10, -R * 0.50), spec.hair,
         { ao: 0.36, aoY0: hy - R, aoY1: hy + R * 0.5, to: spec.hairMid, y0: hy - R, y1: hy + R * 0.6 }]);
@@ -696,9 +701,16 @@ function buildRig(spec) {
       // tips stopping just above the brows
       // Locks are wide and blunt-tipped (taper 0.5) and overlap each other:
       // needle-thin strands read as a crown of leaves, not as hair.
+      // [az, len, el, roll]. el is where the lock is born on the skull, len how
+      // far it falls. Every anchor is inside the crown shell (roots hidden) and
+      // every tip over the brow row (|az| < 0.45) lands at el >= +0.38, i.e.
+      // ~15 screen px clear of the brow and ~25 px clear of the eyes in the
+      // hero shot. Outside the brow zone the locks are longer on purpose —
+      // they frame the temples, which is what stops the raised hairline from
+      // reading as a shaved forehead.
       const fringe = [
-        [-0.98, 0.62, 0.44, -0.30], [-0.60, 0.72, 0.56, -0.20], [-0.22, 0.76, 0.62, -0.06],
-        [0.20, 0.68, 0.60, 0.10], [0.60, 0.60, 0.52, 0.24], [0.98, 0.52, 0.42, 0.36],
+        [-0.98, 0.60, 0.62, -0.30], [-0.60, 0.56, 0.80, -0.20], [-0.22, 0.50, 0.92, -0.06],
+        [0.20, 0.46, 0.90, 0.10], [0.60, 0.52, 0.82, 0.24], [0.98, 0.52, 0.66, 0.36],
       ];
       for (const [az, len, el, roll] of fringe) {
         bp.push([lock(R * 0.40, R * len, R * 0.15, 0.52, az, el, R * 0.90, 0.10, roll), spec.hair,
