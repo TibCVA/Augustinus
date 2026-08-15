@@ -113,6 +113,111 @@ function facePatch(rx, ry, rz, hy, {
   return g;
 }
 
+// ------------------------------------------------------------ ground ring --
+// Team-coloured selection ring laid on the ground under the player.
+//
+// At the overview camera the hero silhouette is ~14 screen px tall and reads as
+// a minion; the ring is what lets a player find their own character without
+// parsing the HUD. Built as one annulus with a 4-component colour attribute
+// (three auto-defines USE_COLOR_ALPHA), so a single transparent draw carries a
+// dark contour, a bright core and a soft feathered edge — that dark contour is
+// why it still reads against sunlit cream paving and not just against grass.
+function ringGeo(hex, rows, seg = 44) {
+  const c = new THREE.Color(hex);
+  const nr = rows.length, N = nr * (seg + 1);
+  const pos = new Float32Array(N * 3), nor = new Float32Array(N * 3);
+  const uv = new Float32Array(N * 2), col = new Float32Array(N * 4);
+  for (let i = 0; i < nr; i++) {
+    const [r, mul, a] = rows[i];
+    for (let j = 0; j <= seg; j++) {
+      const t = j / seg, ang = t * Math.PI * 2;
+      const k = i * (seg + 1) + j;
+      pos[k * 3] = Math.sin(ang) * r; pos[k * 3 + 1] = 0; pos[k * 3 + 2] = Math.cos(ang) * r;
+      nor[k * 3 + 1] = 1;
+      uv[k * 2] = t; uv[k * 2 + 1] = i / (nr - 1);
+      col[k * 4] = c.r * mul; col[k * 4 + 1] = c.g * mul; col[k * 4 + 2] = c.b * mul; col[k * 4 + 3] = a;
+    }
+  }
+  const idx = [];
+  for (let i = 0; i < nr - 1; i++) {
+    for (let j = 0; j < seg; j++) {
+      const a = i * (seg + 1) + j, b = a + 1, d = a + seg + 1, e = d + 1;
+      idx.push(a, d, b, b, d, e);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  g.setIndex(idx);
+  return g;
+}
+// A flat chevron tick, apex pointing outward along +Z, laid in the XZ plane.
+function ringTick(hex, r0, r1, halfW, a) {
+  const c = new THREE.Color(hex);
+  const pos = new Float32Array([-halfW, 0, r0, halfW, 0, r0, 0, 0, r1]);
+  const col = new Float32Array([c.r, c.g, c.b, 0.0, c.r, c.g, c.b, 0.0, c.r, c.g, c.b, 0.95]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  g.setIndex([0, 2, 1]);
+  return g.rotateY(a);
+}
+function buildGroundRing(hex) {
+  const dark = 0x0a1622;
+  // [radius, colour multiplier, alpha] — dark shoulder / hot core / dark shoulder
+  const band = ringGeo(hex, [
+    [0.60, 0.00, 0.00], [0.665, 0.10, 0.55], [0.715, 1.00, 0.92],
+    [0.775, 1.00, 0.92], [0.825, 0.10, 0.50], [0.98, 0.00, 0.00],
+  ]);
+  // The hot band is ~0.7 screen px at the overview camera; this inner wash is
+  // what actually finds the player from 60 units up.
+  const fill = ringGeo(hex, [[0.0, 0.75, 0.15], [0.44, 0.80, 0.22], [0.665, 1.00, 0.40], [0.71, 0.0, 0.0]]);
+  const shade = ringGeo(dark, [[0.60, 1, 0], [0.70, 1, 0.30], [0.86, 1, 0.28], [1.02, 1, 0]]);
+  const parts = [shade, fill, band];
+  for (let i = 0; i < 3; i++) parts.push(ringTick(hex, 0.80, 1.00, 0.085, i * (Math.PI * 2 / 3) + 0.4));
+  const geo = mergeGeos4(parts);
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    toneMapped: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.renderOrder = 3;
+  m.position.y = 0.07;
+  m.frustumCulled = false;
+  return m;
+}
+// mergeGeos() in units.js normalises colour to itemSize 3; the ring needs the
+// alpha channel, so it gets its own tiny merge.
+function mergeGeos4(list) {
+  let nv = 0, ni = 0;
+  for (const g of list) { nv += g.attributes.position.count; ni += g.index.count; }
+  const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3);
+  const uv = new Float32Array(nv * 2), col = new Float32Array(nv * 4);
+  const idx = new Uint16Array(ni);
+  let vo = 0, io = 0;
+  for (const g of list) {
+    const n = g.attributes.position.count;
+    pos.set(g.attributes.position.array, vo * 3);
+    nor.set(g.attributes.normal.array, vo * 3);
+    uv.set(g.attributes.uv.array, vo * 2);
+    col.set(g.attributes.color.array, vo * 4);
+    const src = g.index.array;
+    for (let i = 0; i < src.length; i++) idx[io + i] = src[i] + vo;
+    vo += n; io += src.length;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  out.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
 // ------------------------------------------------------------------ blade --
 // Hexagonal cross-section with a fuller groove, extruded then tapered to a point.
 function bladeGeo({ len = 1.05, w = 0.058, th = 0.022, steps = 8 }) {
@@ -374,9 +479,15 @@ const SERA = {
   cloth: 0x3d55c4, clothDark: 0x232c7e, skin: 0xf3cba4, skinShade: 0xd39a72,
   hair: 0xffc63c, hairMid: 0xffdc79, hairTip: 0xfff2c0, steel: 0xdae6f4, core: 0x7cf0ff,
   capeTex: 'clothBlue', faceTex: 'faceSera', rimW: 0xffd79a, rimC: 0x74d3f0,
-  scale: 1.07, bulk: 1.0, headR: 0.198, hipY: 1.20, shX: 0.266, shY: 0.505,
+  // Champions have to out-read minions at map scale. Sera stood 1.32x a melee
+  // minion's crest — inside the noise once both are 30 px tall, which is why
+  // the overview frame lost the player entirely. The hero-preset camera is
+  // framed head-tight (11 px of headroom at 1.07), so the ratio is bought by
+  // shrinking the minions (units.js MINION_SCALE) and by the dawn crest rather
+  // than by inflating the rig, which would decapitate the beauty shot.
+  scale: 1.09, bulk: 1.0, headR: 0.198, hipY: 1.20, shX: 0.266, shY: 0.505,
   thigh: 0.545, shin: 0.485, armU: 0.375, armF: 0.335, neck: 0.700,
-  hpY: 2.82,
+  hpY: 3.02, ring: 0x63d8ff,
 };
 const KARGATH = {
   hero: 'kargath',
@@ -384,9 +495,11 @@ const KARGATH = {
   cloth: 0x7d3020, clothDark: 0x3a1611, skin: 0xc98a5e, skinShade: 0x94603c,
   hair: 0x3b3028, hairMid: 0x4f4235, hairTip: 0x635444, steel: 0xc9c2b2, core: 0xff8a30,
   capeTex: 'clothRed', faceTex: 'faceKargath', rimW: 0xffc078, rimC: 0x8fb6d8,
-  scale: 1.17, bulk: 1.40, headR: 0.205, hipY: 1.06, shX: 0.335, shY: 0.455,
+  // Kargath never gets a tight close-up preset, so he can carry the full bruiser
+  // scale bump; he must still out-mass Sera.
+  scale: 1.24, bulk: 1.40, headR: 0.205, hipY: 1.06, shX: 0.335, shY: 0.455,
   thigh: 0.445, shin: 0.415, armU: 0.365, armF: 0.325, neck: 0.640,
-  hpY: 2.86,
+  hpY: 3.04, ring: 0xff7a3c,
   // Kargath is permanently hunched forward — baked as a pose bias so every
   // animation inherits the stance instead of only the idle.
   bias: { torso: [0.16, 0, 0], head: [-0.13, 0, 0], hips: [0.05, 0, 0] },
@@ -749,9 +862,22 @@ function buildRig(spec) {
       // circlet with an upswept dawn ornament
       hp.push([new THREE.TorusGeometry(R * 1.09, 0.014, 5, 20, Math.PI * 1.34).rotateZ(Math.PI * -0.10)
         .rotateX(Math.PI / 2 - 0.13).rotateY(Math.PI).translate(0, hy + R * 0.26, 0), TR, { ao: 0, to: TD, y0: hy + R, y1: hy }]);
-      hp.push([onHead(strand(0.036, 0.13, 0.02, 0.0).rotateX(-Math.PI / 2), 0, 0.40, R * 0.92, hy), TR, { ao: 0 }]);
-      for (const sx of [-1, 1])
-        hp.push([onHead(strand(0.024, 0.085, 0.016, 0.0).rotateX(-Math.PI / 2).rotateZ(sx * 0.55), sx * 0.44, 0.34, R * 0.92, hy), TD, { ao: 0 }]);
+      // Dawn crest. The hero preset frames her head-tight — measured 2 px of
+      // headroom above the crown once she is posed — so the champion silhouette
+      // is bought in WIDTH, not height: a short centre spike to break the dome,
+      // plus a pair of swept temple wings that take the head from 0.42 to 0.76
+      // units across. Width survives the overview camera exactly as well as
+      // height would, and it cannot be guillotined by the top of the frame.
+      hp.push([strand(0.048, 0.175, 0.024, 0.10).rotateX(-0.62)
+        .translate(0, hy + R * 0.72, R * 0.24), TR,
+      { ao: 0, to: 0xfbe6a8, y0: hy + R * 0.7, y1: hy + R * 1.8 }]);
+      for (const sx of [-1, 1]) {
+        hp.push([strand(0.052, 0.26, 0.026, 0.12).rotateZ(sx * -1.10).rotateY(sx * 0.55)
+          .translate(sx * R * 0.92, hy + R * 0.30, -R * 0.05), TR,
+        { ao: 0, to: 0xfbe6a8, y0: hy, y1: hy + R * 1.2 }]);
+        hp.push([strand(0.034, 0.15, 0.020, 0.10).rotateZ(sx * -0.80).rotateY(sx * 0.75)
+          .translate(sx * R * 0.86, hy + R * 0.10, -R * 0.16), TD, { ao: 0 }]);
+      }
     } else {
       // open-faced horned helm: a deep skull cap tipped forward so its rim
       // clears the eyes at the front while still swallowing the whole occiput
@@ -950,6 +1076,7 @@ const POSES = {
     o.hips = [0.04, -0.44 * w + 0.96 * st - 0.42 * rec, 0, 0, -0.05 * w, 0.14 * st];
     o.capeLean = 0.25 + st * 0.78 - rec * 0.5;
     o.capeSide = -0.58 * st;
+    o.lunge = -0.07 * w + 0.32 * st - 0.25 * rec;   // step through the cut
   },
   atk2(t, p, o) { // backhand L -> R
     const w = inQuad(t / 0.28), st = outQuint((t - 0.28) / 0.13), rec = sm01((t - 0.50) / 0.44);
@@ -965,6 +1092,7 @@ const POSES = {
     o.hips = [0.04, 0.50 * w - 1.02 * st, 0, 0, -0.04 * w, -0.10 * st];
     o.capeLean = 0.25 + st * 0.72 - rec * 0.45;
     o.capeSide = 0.58 * st;
+    o.lunge = -0.07 * w + 0.30 * st - 0.23 * rec;
   },
   atk3(t, p, o) { // overhead heavy, big anticipation + hard stop
     const w = inQuad(t / 0.34), st = outQuint((t - 0.34) / 0.12), rec = sm01((t - 0.56) / 0.44);
@@ -980,6 +1108,7 @@ const POSES = {
     o.kneeL = [0.20 + 0.50 * st, 0, 0]; o.kneeR = [0.22 + 0.50 * st, 0, 0];
     o.capeLean = 0.20 + w * 0.75 + st * 0.35 - rec * 0.6;
     o.capeLift = w * 0.50 - st * 0.50;
+    o.lunge = -0.12 * w + 0.46 * st - 0.34 * rec;  // heavy: a real step in
   },
   q(t, p, o) { // crescent wave: full-body roundhouse
     const w = inQuad(t / 0.26), st = outQuint((t - 0.26) / 0.15), rec = sm01((t - 0.52) / 0.44);
@@ -995,6 +1124,7 @@ const POSES = {
     o.kneeL = [0.28, 0, 0]; o.kneeR = [0.34, 0, 0];
     o.capeLean = 0.3 + st * 0.9 - rec * 0.6;
     o.capeSide = -0.7 * st;
+    o.lunge = -0.08 * w + 0.28 * st - 0.20 * rec;
   },
   dash(t, p, o) {
     o.torso = [0.66, 0, 0];
@@ -1062,6 +1192,7 @@ const POSES = {
     o.shR = [0.10 - 0.2 * k, 0, 0.22 + 0.2 * k];
     o.hips = [0, 0, 0, 0, -0.05 * k, -0.06 * k];
     o.capeLean = 0.2 + k * 0.4;
+    o.lunge = -0.22 * k;                            // knocked off balance
   },
   death(t, p, o) {
     const k = sm01(t / 0.7);
@@ -1077,7 +1208,9 @@ const POSES = {
   },
   showcase(t, p, o) { // hero-shot: contrapposto, blade raised across the body
     const br = Math.sin(t * 1.5);
-    o.hips = [0.01, -0.24, -0.085, 0.03, br * 0.014 - 0.01, 0];
+    // sunk 0.09 into the support leg: real contrapposto, and it buys the dawn
+    // crest the screen headroom it needs in the (head-tight) hero preset
+    o.hips = [0.01, -0.24, -0.085, 0.03, br * 0.014 - 0.13, 0];
     o.torso = [0.02 + br * 0.024, 0.13, 0.095];
     o.head = [-0.07 + br * 0.02, 0.22, -0.05];
     // sword arm: elbow tucked, forearm crossing the chest so the blade rakes up
@@ -1087,8 +1220,8 @@ const POSES = {
     o.grip = [-0.30, 0.18, -1.02];
     o.shL = [0.24 + br * 0.03, 0.18, -0.44];
     o.elL = [0.70, 0, -0.26];
-    o.hipL = [0.16, 0.06, -0.04]; o.kneeL = [0.30, 0, 0];
-    o.hipR = [-0.10, 0.10, 0.055]; o.kneeR = [0.06, 0, 0];
+    o.hipL = [0.30, 0.06, -0.04]; o.kneeL = [0.52, 0, 0];
+    o.hipR = [-0.02, 0.10, 0.055]; o.kneeR = [0.26, 0, 0];
     o.capeLean = 0.22 + br * 0.04;
     o.capeSide = 0.14 + Math.sin(t * 0.9) * 0.11;
   },
@@ -1105,6 +1238,13 @@ const POSES = {
 };
 
 // -------------------------------------------------------------------- Hero --
+// Hit reaction envelope, same shape as the minions': snap, short hold, release.
+const HFLINCH_DUR = 0.30;
+function hflinchEnv(remain) {
+  const u = 1 - remain / HFLINCH_DUR;
+  return u < 0.25 ? 1 : 1 - sm01((u - 0.25) / 0.75);
+}
+
 export class Hero extends Unit {
   constructor({ name, team, build, x = 0, z = 0 }) {
     const spec = build === 'sera' ? SERA : KARGATH;
@@ -1114,6 +1254,11 @@ export class Hero extends Unit {
     this.isSera = build === 'sera';
     this.rig = buildRig(spec);
     this.group.add(this.rig.root);
+    // Player selection ring. On by default for Sera (the local player); the sim
+    // can move it with setGroundRing() if the played champion ever changes.
+    this.ringMesh = null;
+    this.ringHex = spec.ring;
+    if (this.isSera) this.setGroundRing(true);
     this.anim = { name: 'idle', t: 0, dur: 1e9, lock: false, events: [], loop: true, poseParams: {} };
     this.tgt = {};
     this.moving = false;
@@ -1132,6 +1277,12 @@ export class Hero extends Unit {
     this._tailVel = [0, 0];
     this._tailSide = [0, 0];
     this._tailSideVel = [0, 0];
+    // attack lunge / hit flinch (root-level, so they are instant and cannot be
+    // swallowed by the joint blend)
+    this._lunge = 0;
+    this._flinchT = 0;
+    this._flinchSide = 1;
+    this._flinchN = 0;
     // combat/economy stats (sim mutates)
     this.level = 1; this.xp = 0; this.gold = 0; this.cs = 0;
     this.kills = 0; this.deaths = 0;
@@ -1146,7 +1297,37 @@ export class Hero extends Unit {
   }
   isLocked() { return this.anim.lock && this.anim.t < this.anim.dur; }
 
-  hitFlash() { this.flashT = 1; }
+  // The sim already calls this on every point of damage a champion takes, so
+  // the flinch rides in for free on the existing plumbing.
+  hitFlash() { this.flashT = 1; this.flinch(); }
+
+  // Hit reaction: the whole rig rocks back off the blow and slides. Optional
+  // attacker position picks the shoulder that takes it.
+  flinch(fromX, fromZ) {
+    this._flinchT = HFLINCH_DUR;
+    if (Number.isFinite(fromX) && Number.isFinite(fromZ)) {
+      const f = fin(this.facing);
+      const side = Math.sin(f) * (fromZ - this.pos.z) - Math.cos(f) * (fromX - this.pos.x);
+      this._flinchSide = side >= 0 ? 1 : -1;
+    } else {
+      this._flinchSide = (this._flinchN++) % 2 ? 1 : -1;
+    }
+  }
+
+  // Team-coloured ground ring under the champion. One extra transparent draw
+  // call; only the local player carries it by default.
+  setGroundRing(on, hex) {
+    if (hex !== undefined) this.ringHex = hex;
+    if (on && !this.ringMesh) {
+      this.ringMesh = buildGroundRing(this.ringHex);
+      this.group.add(this.ringMesh);
+    } else if (!on && this.ringMesh) {
+      this.group.remove(this.ringMesh);
+      this.ringMesh.geometry.dispose();
+      this.ringMesh.material.dispose();
+      this.ringMesh = null;
+    }
+  }
 
   getBladePoints(base, tip) {
     this.rig.weapon.localToWorld(base.copy(this.rig.bladeBase));
@@ -1210,7 +1391,25 @@ export class Hero extends Unit {
     // leap height
     const airY = clamp(fin(this.airY), -2, 12);
     this.airY = airY;
-    this.rig.root.position.y = airY;
+    const root = this.rig.root;
+    root.position.y = airY;
+
+    // ------------------------------------------- attack lunge / hit flinch --
+    // Both live on the rig root: a champion who swings without travelling and
+    // takes 428 damage without moving is why the critique said the VFX was
+    // doing 100% of the acting. Root-level means instant — the joint blend
+    // (blendK 10-16) would swallow a 0.12 s impulse.
+    const wantLunge = clamp(fin(out.lunge), -0.5, 0.7);
+    this._lunge += (wantLunge - this._lunge) * Math.min(1, dt * 22);
+    if (!Number.isFinite(this._lunge)) this._lunge = 0;
+    let fl = 0;
+    if (this._flinchT > 0) {
+      this._flinchT = Math.max(0, fin(this._flinchT) - dt);
+      fl = hflinchEnv(this._flinchT);
+    }
+    root.rotation.x = -0.15 * fl;
+    root.rotation.z = this._flinchSide * 0.07 * fl;
+    root.position.z = clamp(this._lunge - 0.11 * fl, -0.8, 0.9);
 
     // ------------------------------------------------- secondary motion --
     // Every quantity that reaches the cloth solver is sanitised here: a single

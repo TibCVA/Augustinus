@@ -20,6 +20,15 @@ function h3(x, y, z) {
   const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
   return s - Math.floor(s);
 }
+// 1-D hash, used to give every unit its own stance/phase/proportions from its id
+// so a wave never renders as six copies of the same puppet on the same frame.
+function h1(x) {
+  const s = Math.sin(x * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+const _clamp01 = x => (x < 0 ? 0 : x > 1 ? 1 : x);
+function sm01(x) { x = _clamp01(x); return x * x * (3 - 2 * x); }
+function outCubic(x) { x = _clamp01(x); return 1 - (1 - x) * (1 - x) * (1 - x); }
 
 // Per-vertex painterly colour: flat base or vertical gradient, optional baked AO
 // toward the bottom, top-light and hue jitter. Everything a minion needs so all
@@ -176,8 +185,13 @@ const TEAM = {
     trim: 0xf0a244, accent: 0xffa055, dark: 0x1e0f07,
   },
 };
-// Minions read at ~2.5 m on a phone screen: keep them chunky.
-const MINION_SCALE = { melee: 1.14, caster: 1.02 };
+// Minions read at ~2.5 m on a phone screen: keep them chunky — but not so
+// chunky that they out-read the champion standing next to them. At 1.14/1.02 a
+// melee minion's crest reached 75% of Sera's total height, which is why the
+// overview frame contained no findable player character. 1.02/0.93 puts them at
+// ~63%, the Wild Rift proportion, and buys the hero silhouette its read without
+// inflating a rig that the head-tight hero-preset camera cannot afford.
+const MINION_SCALE = { melee: 1.02, caster: 0.93 };
 
 // ============================================================ minion rigs ==
 // Shape language: BLUE reads as ordered sanctum guard — hexagonal/faceted forms,
@@ -521,12 +535,23 @@ export class Unit {
 }
 
 // ------------------------------------------------------------------ Minion --
+// Hit-reaction envelope: snap to the impact pose, hold it for ~0.1 s so the eye
+// can catch it under the VFX, then release over the remaining ~0.24 s. A pure
+// exponential decay is gone before the damage number has finished rising.
+const FLINCH_DUR = 0.34;
+const FLINCH_HOLD = 0.28;                        // fraction of the envelope held at full
+function flinchEnv(remain) {
+  const u = 1 - remain / FLINCH_DUR;             // 0 at impact -> 1 at release
+  return u < FLINCH_HOLD ? 1 : 1 - sm01((u - FLINCH_HOLD) / (1 - FLINCH_HOLD));
+}
+
 export class Minion extends Unit {
   constructor(opts) {
     super({
       ...opts, kind: opts.mkind,
       radius: 0.42, speed: opts.mkind === 'melee' ? 3.5 : 3.2,
-      hpW: 0.8, hpY: opts.mkind === 'melee' ? 1.68 : 2.0,
+      // bar heights track MINION_SCALE — a bar left at the old height floats
+      hpW: 0.76, hpY: opts.mkind === 'melee' ? 1.51 : 1.83,
     });
     ensureUnitMats();
     const g = minionGeos(opts.mkind, opts.team);
@@ -557,13 +582,50 @@ export class Minion extends Unit {
     };
     this.group.addEventListener('added', this._onAdded);
     this.group.addEventListener('removed', this._onRemoved);
-    this.walkPhase = Math.random() * 6.28;
+    // ------------------------------------------------- per-unit variation --
+    // A wave used to spawn six byte-identical rigs playing the same clip on the
+    // same frame: at map scale that reads as a picket fence, which is the single
+    // loudest "this is a tech demo" tell in the overview shot. Everything below
+    // is derived from the unit id (not Math.random) so screenshots stay
+    // deterministic while no two neighbours ever match.
+    const r1 = h1(this.id * 1.37), r2 = h1(this.id * 2.71 + 5.1), r3 = h1(this.id * 4.13 + 11.7);
+    this.jScale = 0.95 + r1 * 0.11;          // ±5.5% mass
+    this.jYaw = (r2 - 0.5) * 0.30;           // ±0.15 rad stance yaw
+    this.jLean = (r3 - 0.5) * 0.09;          // ±0.045 rad stance lean
+    this.jPhase = r2 * 6.2832;               // idle-break clock offset
+    this.jRate = 0.80 + r3 * 0.45;           // idle-break clock rate
+    this.walkPhase = r1 * 6.2832;
     this.moving = false;
-    this.attackDur = opts.mkind === 'melee' ? 0.5 : 0.8;
+    // stagger the swing length too, so two minions trading blows never land on
+    // the same frame of the same animation
+    this.attackDur = (opts.mkind === 'melee' ? 0.5 : 0.8) * (0.90 + r3 * 0.20);
     this.hitScale = 0;
     this.bodyLean = opts.mkind === 'melee' ? 0.05 : 0.0;
+    // reaction / locomotion state (all scalars — no per-frame allocation)
+    this.flinchT = 0;
+    this.flinchSide = 0;
+    this._hitPrev = 0;
+    this._fN = 0;
+    this._roll = 0; this._bx = 0; this._by = 0;
+    this._armX = 0; this._armZ = 0;
   }
   playAttack() { this.attackAnimT = 0; }
+  // Hit reaction. Callable directly by the sim with the attacker's position for
+  // a directional knockback; with no argument the unit rocks straight back
+  // along its own facing. Also auto-fires whenever the sim raises hitScale, so
+  // existing damage plumbing needs no change.
+  flinch(fromX, fromZ) {
+    this.flinchT = FLINCH_DUR;
+    if (Number.isFinite(fromX) && Number.isFinite(fromZ)) {
+      // sign of the cross product of facing x (attacker - me): which cheek took it
+      const f = Number.isFinite(this.facing) ? this.facing : 0;
+      const dx = fromX - this.pos.x, dz = fromZ - this.pos.z;
+      const side = Math.sin(f) * dz - Math.cos(f) * dx;
+      this.flinchSide = side >= 0 ? 1 : -1;
+    } else {
+      this.flinchSide = (this._fN++ + this.id) % 2 ? 1 : -1;
+    }
+  }
   getMuzzle(out) {
     if (this.orb) return this.orb.getWorldPosition(out);
     out.copy(this.pos); out.y += 1.0;
@@ -578,25 +640,45 @@ export class Minion extends Unit {
     if (this.orb) p.set(2, this.slot, this.orb.matrixWorld);
   }
   update(dt) {
+    // a non-finite dt used to poison walkPhase and from there every instance
+    // matrix in the pool — same class of bug as the old cape NaN latch
+    if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
     const b = this.body, a = this.arm;
+    // the sim raises hitScale on every damage event (and the screenshot presets
+    // set it directly) — treat any rise as a fresh impact
+    if (this.hitScale > this._hitPrev + 1e-3) this.flinch();
+
+    // ------------------------------------------------------- idle break ----
+    // Constant low-amplitude stance drift on a per-unit clock. Without it a rank
+    // of minions is a picket fence; with it the crowd is never twice the same.
+    const bt = uTime.value * this.jRate + this.jPhase;
+    let lean = this.bodyLean + this.jLean + Math.sin(bt * 0.87 + 1.3) * 0.040;
+    let yaw = this.jYaw + Math.sin(bt * 0.63) * 0.060;
+    let push = 0;
+
+    // ------------------------------------------------------ locomotion ----
     if (this.moving) {
       this.walkPhase += dt * this.speed * 3.1;
       const s = Math.sin(this.walkPhase);
-      b.rotation.z = s * 0.09;
-      b.rotation.x = this.bodyLean + 0.05;
-      b.position.y = Math.abs(s) * 0.075;
-      b.position.x = s * 0.03;
+      this._roll = s * 0.09;
+      this._bx = s * 0.03;
+      this._by = Math.abs(s) * 0.075;
+      lean += 0.05;
       if (this.attackAnimT < 0) {
-        a.rotation.x = -s * 0.55;
-        a.rotation.z = s * 0.1;
+        this._armX = -s * 0.55;
+        this._armZ = s * 0.1;
       }
     } else {
-      b.rotation.z *= 0.86;
-      b.rotation.x += (this.bodyLean - b.rotation.x) * 0.14;
-      b.position.x *= 0.86;
-      b.position.y += (Math.sin(uTime.value * 2 + this.id) * 0.018 - b.position.y) * 0.2;
-      if (this.attackAnimT < 0) { a.rotation.x *= 0.86; a.rotation.z *= 0.86; }
+      this._roll *= 0.86;
+      this._bx *= 0.86;
+      this._by += (Math.sin(uTime.value * 2 + this.id) * 0.018 - this._by) * 0.2;
+      if (this.attackAnimT < 0) { this._armX *= 0.86; this._armZ *= 0.86; }
     }
+
+    // ---------------------------------------------------- attack lunge ----
+    // `drive` runs -0.30 (coil back) -> +1 (weight through the blow) -> 0, and
+    // feeds both the torso lean and a root push so the unit actually travels
+    // into the swing instead of waving an arm from a fixed spot.
     if (this.attackAnimT >= 0) {
       this.attackAnimT += dt;
       const t = this.attackAnimT / this.attackDur;
@@ -605,24 +687,33 @@ export class Minion extends Unit {
         // slow coil, fast chop, settle
         if (t < 0.45) {
           const w = t / 0.45;
-          a.rotation.x = -1.75 * (w * w * (3 - 2 * w));
-          a.rotation.z = -0.35 * w;
-          b.rotation.x = this.bodyLean - 0.12 * w;
-          b.rotation.y = 0.22 * w;
+          this._armX = -1.75 * (w * w * (3 - 2 * w));
+          this._armZ = -0.35 * w;
+          yaw += 0.22 * w;
         } else {
           const w = Math.min(1, (t - 0.45) / 0.22);
-          const e = 1 - Math.pow(1 - w, 3);
-          a.rotation.x = -1.75 + 2.55 * e;
-          a.rotation.z = -0.35 + 0.45 * e;
-          b.rotation.x = this.bodyLean - 0.12 + 0.34 * e;
-          b.rotation.y = 0.22 - 0.42 * e;
+          const e = outCubic(w);
+          this._armX = -1.75 + 2.55 * e;
+          this._armZ = -0.35 + 0.45 * e;
+          yaw += 0.22 - 0.42 * e;
         }
+        const drive = t < 0.45 ? -0.30 * sm01(t / 0.45)
+          : t < 0.67 ? -0.30 + 1.30 * outCubic((t - 0.45) / 0.22)
+            : 1 - sm01((t - 0.67) / 0.33);
+        lean += drive * 0.26;
+        push += drive * 0.15;
       } else {
         const w = Math.sin(Math.min(t, 1) * Math.PI);
         const cast = t < 0.55 ? t / 0.55 : 1;
-        a.rotation.x = -0.35 - 1.55 * w;
-        a.rotation.z = 0.35 * w;
-        b.rotation.x = this.bodyLean - 0.12 * w;
+        this._armX = -0.35 - 1.55 * w;
+        this._armZ = 0.35 * w;
+        // casters wind back onto the heel while the orb charges, then shove the
+        // bolt out — the opposite phase to the melee line in front of them
+        const drive = t < 0.55 ? -0.90 * sm01(t / 0.55)
+          : t < 0.70 ? -0.90 + 1.90 * outCubic((t - 0.55) / 0.15)
+            : 1 - sm01((t - 0.70) / 0.30);
+        lean += drive * 0.17;
+        push += drive * 0.07;
         if (this.orb) {
           const s = 1 + cast * 0.85 - (t > 0.6 ? (t - 0.6) * 2.0 : 0);
           this.orb.scale.setScalar(Math.max(0.4, s));
@@ -632,12 +723,34 @@ export class Minion extends Unit {
     } else if (this.orb) {
       this.orb.scale.setScalar(1 + Math.sin(uTime.value * 3 + this.id) * 0.06);
       this.orb.rotation.y += dt * 1.4;
-      this.body.rotation.y *= 0.9;
     }
-    if (this.hitScale > 0) {
-      this.hitScale = Math.max(0, this.hitScale - dt * 4);
-      b.scale.setScalar(1 + this.hitScale * 0.12);
+
+    // ----------------------------------------------------- hit reaction ----
+    // Torso rocks back, the whole rig slides back off the impact, and one
+    // shoulder drops. Decays inside 0.2 s so it reads as an impact, not a limp.
+    let roll = this._roll;
+    let armX = this._armX, armZ = this._armZ;
+    if (this.flinchT > 0) {
+      this.flinchT = Math.max(0, this.flinchT - dt);
+      const p = flinchEnv(this.flinchT);
+      lean -= 0.18 * p;
+      push -= 0.08 * p;
+      roll += this.flinchSide * 0.11 * p;
+      armX += 0.34 * p;                       // weapon arm thrown wide by the hit
+      armZ -= this.flinchSide * 0.20 * p;
     }
+    if (this.hitScale > 0) this.hitScale = Math.max(0, this.hitScale - dt * 4);
+    this._hitPrev = this.hitScale;
+
+    a.rotation.x = armX;
+    a.rotation.z = armZ;
+    b.rotation.x = lean;
+    b.rotation.y = yaw;
+    b.rotation.z = roll;
+    b.position.x = this._bx;
+    b.position.y = this._by;
+    b.position.z = push;
+    b.scale.setScalar(this.jScale * (1 + this.hitScale * 0.12));
     this.syncTransform();
     this.pushMatrices();
   }

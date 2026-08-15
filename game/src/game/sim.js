@@ -308,6 +308,10 @@ export class Sim {
     if (dst.isHero) dst.combatT = this.time;
     if (src && src.isHero) src.combatT = this.time;
     if (dst.hitScale !== undefined) dst.hitScale = 1;
+    // Directional flinch: units auto-flinch off a hitScale rise, but passing the
+    // attacker's position lets the rig pick the shoulder that actually took the
+    // hit instead of rocking back on an arbitrary side.
+    if (src && dst.flinch) dst.flinch(src.pos.x, src.pos.z);
     if (dst.isHero) {
       dst.hitFlash();
       if (dst === this.player) this.vfx.shake(0.1 + Math.min(0.16, dealt / dst.maxHp * 1.6));
