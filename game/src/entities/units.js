@@ -844,17 +844,19 @@ export class HPBars {
           vUv = uv; vData = aData; vCol = aCol;
           vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
           vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-          vec3 wp = aPos + right * position.x * aData.y * aData.z + up * position.y * 0.16 * aData.z;
+          vec3 wp = aPos + right * position.x * aData.y * aData.z + up * position.y * 0.19 * aData.z;
           gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
         }`,
       fragmentShader: `
         varying vec2 vUv; varying vec4 vData; varying vec3 vCol;
         void main() {
           if (vData.z < 0.5) discard;
-          vec2 b = vec2(0.045, 0.16);
+          // thicker frame: at gameplay distance a hairline border disappears and
+          // the bars read as bare colour swatches
+          vec2 b = vec2(0.075, 0.24);
           float border = step(vUv.x, b.x) + step(1.0 - b.x, vUv.x) + step(vUv.y, b.y) + step(1.0 - b.y, vUv.y);
           float gold = vData.w;
-          vec3 frame = mix(vec3(0.05, 0.06, 0.09), vec3(0.95, 0.78, 0.4), gold * 0.85);
+          vec3 frame = mix(vec3(0.02, 0.02, 0.03), vec3(0.95, 0.78, 0.4), gold * 0.85);
           float fill = step((vUv.x - b.x) / (1.0 - b.x * 2.0), vData.x);
           vec3 hpCol = vCol * (0.75 + 0.5 * smoothstep(0.2, 0.9, vUv.y));
           vec3 col = mix(vec3(0.13, 0.05, 0.06), hpCol, fill);

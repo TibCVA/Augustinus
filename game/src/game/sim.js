@@ -1333,14 +1333,14 @@ export class Sim {
     const bars = this.hpBars, blobs = this.blobs;
     for (const m of this.minions) {
       bars.set(m.barIdx, m.pos.x, m.pos.y + m.hpY, m.pos.z, m.hp / m.maxHp, m.hpW,
-        m.team === 'blue' ? 0x4fa8ff : 0xff5a45, 0);
+        m.team === 'blue' ? 0x4fa8ff : 0xe0342a, 0);
       blobs.set(m.shadowIdx, m.pos.x, m.pos.y + 0.03, m.pos.z, 1.0);
     }
     for (let i = 0; i < 2; i++) {
       const h = this.heroes[i];
       if (h.alive) {
         bars.set(h.barIdx, h.pos.x, h.pos.y + h.hpY + h.airY, h.pos.z, h.hp / h.maxHp, h.hpW,
-          h === this.player ? 0x5ce87a : 0xff5a45, h === this.player ? 1 : 0);
+          h === this.player ? 0x5ce87a : 0xe0342a, h === this.player ? 1 : 0);
         blobs.set(h.shadowIdx, h.pos.x, h.pos.y + 0.03, h.pos.z, 1.35);
       } else {
         bars.set(h.barIdx, 0, -99, 0, 0, 0.1, 0, 0);
@@ -1350,14 +1350,14 @@ export class Sim {
     for (const t of this.towers) {
       if (t.alive && t.barIdx >= 0) {
         bars.set(t.barIdx, t.pos.x, t.hpY, t.pos.z, t.hp / t.maxHp, t.hpW,
-          t.team === 'blue' ? 0x4fa8ff : 0xff5a45, 0);
+          t.team === 'blue' ? 0x4fa8ff : 0xe0342a, 0);
       }
     }
     for (const n of this.nexuses) {
       if (n.alive && n.barIdx >= 0) {
         const show = !n.invulnerable || n.hp < n.maxHp;
         bars.set(n.barIdx, n.pos.x, n.hpY, n.pos.z, n.hp / n.maxHp, show ? n.hpW : 0,
-          n.team === 'blue' ? 0x4fa8ff : 0xff5a45, 0);
+          n.team === 'blue' ? 0x4fa8ff : 0xe0342a, 0);
         if (!show) bars.set(n.barIdx, 0, -99, 0, 0, 0.1, 0, 0);
       }
     }

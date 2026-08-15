@@ -27,7 +27,7 @@ const GradeShader = {
     tDiffuse: { value: null },
     uVig: { value: 0.44 },
     uFlash: { value: 0 },
-    uSat: { value: 1.14 },
+    uSat: { value: 1.28 },
     uContrast: { value: 0.26 },
     // Shadow lift: the linear-light value of 0x1a3346 (cool teal), scaled by how
     // deep in shadow the pixel is. ACES + the S-curve were crushing every shadow
@@ -60,7 +60,7 @@ const GradeShader = {
       float mx = max(col.r, max(col.g, col.b));
       float mn = min(col.r, min(col.g, col.b));
       float sat = (mx - mn) / max(mx, 1e-4);
-      col = mix(vec3(luma), col, uSat + (1.0 - sat) * 0.22);
+      col = mix(vec3(luma), col, uSat + (1.0 - sat) * 0.26);
 
       // split tone: teal shadows / golden highlights
       float sh = 1.0 - smoothstep(0.0, 0.42, luma);

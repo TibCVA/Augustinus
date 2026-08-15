@@ -26,7 +26,7 @@ const HAZE_HEX = 0xdcc0ad; // scene fog / horizon haze
 // Aerial perspective: eye-level frames dissolve if the deck is over-hazed, aerial
 // frames read flat without it — so density is driven by how far above the deck the
 // camera sits (see fitShadowAndHaze()).
-const FOG_EYE = 0.0035, FOG_AERIAL = 0.0058;
+const FOG_EYE = 0.0035, FOG_AERIAL = 0.0050;
 
 // ============================================================ DYNAMIC LIGHTS ==
 // The scene shipped with ZERO dynamic lights: every emissive was unlit geometry
