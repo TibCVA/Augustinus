@@ -27,13 +27,15 @@ const GradeShader = {
     tDiffuse: { value: null },
     uVig: { value: 0.44 },
     uFlash: { value: 0 },
-    uSat: { value: 1.28 },
-    uContrast: { value: 0.26 },
+    uSat: { value: 1.36 },
+    uContrast: { value: 0.32 },
     // Shadow lift: the linear-light value of 0x1a3346 (cool teal), scaled by how
     // deep in shadow the pixel is. ACES + the S-curve were crushing every shadow
     // to an untinted near-black, which the design doc explicitly forbids.
     uLift: { value: new THREE.Vector3(0.0103, 0.0331, 0.0613) },
-    uLiftK: { value: 0.40 },
+    // The shadow lift buys teal shadows but costs frame-wide chroma; 0.40 read
+    // as a milky wash over the whole ult frame.
+    uLiftK: { value: 0.26 },
   },
   vertexShader: `
     varying vec2 vUv;

@@ -558,12 +558,14 @@ html, body {
 #joyHome {
   position: absolute;
   left: calc(170px + var(--sa-l)); bottom: calc(146px + var(--sa-b));
-  width: 104px; height: 104px; border-radius: 50%; pointer-events: none;
+  width: 88px; height: 88px; border-radius: 50%; pointer-events: none;
   transform: translate(-50%, 50%);
-  opacity: 0.62; transition: opacity 0.18s linear;
+  /* A resting hint, not a panel — at 0.62 it read as a grey disc parked in the
+     middle of the play area, competing with the fight for attention. */
+  opacity: 0.34; transition: opacity 0.18s linear;
   background:
-    radial-gradient(circle closest-side, rgba(10, 16, 30, 0.34) 0 62%, rgba(12, 20, 38, 0.5) 88%, rgba(10, 16, 30, 0) 100%);
-  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.45);
+    radial-gradient(circle closest-side, rgba(10, 16, 30, 0.20) 0 62%, rgba(12, 20, 38, 0.32) 88%, rgba(10, 16, 30, 0) 100%);
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.30);
 }
 #joyBase[style*="display: block"] + #joyHome { opacity: 0; }
 .jhRing {

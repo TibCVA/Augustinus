@@ -2305,6 +2305,7 @@ export class VFX {
     this.projGeo.instanceCount = 0;
     this.projMesh.visible = false;
     this.trauma = 0; this.kick = 0;
+    this._holeDur = 0; uHoleK.value = 0;
     this.dash.on = false; this.dash.last = -99;
     if (this.grade) this.grade.uFlash.value = 0;
   }

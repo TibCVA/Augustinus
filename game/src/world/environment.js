@@ -26,7 +26,9 @@ const HAZE_HEX = 0xdcc0ad; // scene fog / horizon haze
 // Aerial perspective: eye-level frames dissolve if the deck is over-hazed, aerial
 // frames read flat without it — so density is driven by how far above the deck the
 // camera sits (see fitShadowAndHaze()).
-const FOG_EYE = 0.0035, FOG_AERIAL = 0.0050;
+// Aerial haze sells depth but eats chroma; 0.0050 dissolved the far half of the
+// overview. Depth separation survives the pull-back (measured Δlum still ~+11).
+const FOG_EYE = 0.0032, FOG_AERIAL = 0.0042;
 
 // ============================================================ DYNAMIC LIGHTS ==
 // The scene shipped with ZERO dynamic lights: every emissive was unlit geometry
@@ -43,7 +45,7 @@ export const DYN = {
 };
 
 // impact envelope state
-const _imp = { t: 0, dur: 0, peak: 0, dist: 18 };
+const _imp = { t: 0, dur: 0, peak: 0 };
 const _impCol = new THREE.Color();
 
 /**
@@ -61,7 +63,7 @@ export function pulseLight(x, y, z, { color = 0xffb347, peak = 60, dur = 0.35, d
   _impCol.setHex(color);
   L.color.copy(_impCol);
   L.distance = distance;
-  _imp.t = 0; _imp.dur = dur; _imp.peak = peak; _imp.dist = distance;
+  _imp.t = 0; _imp.dur = dur; _imp.peak = peak;
 }
 
 // Shared GLSL: uniform block + the single sky function used by the dome, the cloud
@@ -210,7 +212,7 @@ export function buildEnvironment(scene, quality = 1) {
     // ---- quantised square half-extent: a *stable* texel size is what makes
     // texel snapping actually kill the crawl, so never let it vary smoothly ---
     let half = Math.max(maxX - minX, maxY - minY) * 0.5;
-    half = Math.ceil(Math.max(HALF_MIN, Math.min(HALF_MAX, half)) / HALF_STEP) * HALF_STEP;
+    half = Math.min(HALF_MAX, Math.ceil(Math.max(HALF_MIN, half) / HALF_STEP) * HALF_STEP);
     const texel = (half * 2) / SHADOW_MAP;
 
     // ---- snap the centre to whole texels in light space --------------------
@@ -257,6 +259,9 @@ export function buildEnvironment(scene, quality = 1) {
       DYN.nexus.position.copy(NEXUS_SPOTS[want].p);
       _nexCol.setHex(NEXUS_SPOTS[want].hex);
       DYN.nexus.color.copy(_nexCol);
+      // scene.updateMatrixWorld() already ran this frame, so refresh by hand or
+      // the light lights last frame's position (visible on a preset teleport)
+      DYN.nexus.updateMatrixWorld(true);
     }
     // torches: the two nearest lit spots, kept apart so they never stack
     let b0 = -1, b1 = -1, d0 = Infinity, d1 = Infinity;
@@ -272,7 +277,7 @@ export function buildEnvironment(scene, quality = 1) {
       st.want = wants[k];
       // a cinematic preset teleports the camera: re-home instantly, no fade
       if (snap || st.idx < 0) { st.idx = st.want; st.fade = 1; }
-      if (st.idx >= 0) L.position.copy(TORCH_SPOTS[st.idx]);
+      if (st.idx >= 0) { L.position.copy(TORCH_SPOTS[st.idx]); L.updateMatrixWorld(true); }
     }
   }
 
@@ -294,7 +299,10 @@ export function buildEnvironment(scene, quality = 1) {
       const L = k === 0 ? DYN.torchA : DYN.torchB;
       if (st.idx !== st.want) {
         st.fade -= dt * 4;
-        if (st.fade <= 0) { st.fade = 0; st.idx = st.want; if (st.idx >= 0) L.position.copy(TORCH_SPOTS[st.idx]); }
+        if (st.fade <= 0) {
+          st.fade = 0; st.idx = st.want;
+          if (st.idx >= 0) { L.position.copy(TORCH_SPOTS[st.idx]); L.updateMatrixWorld(true); }
+        }
       } else if (st.fade < 1) st.fade = Math.min(1, st.fade + dt * 4);
       const flick = 0.82 + 0.18 * Math.sin(T * (7.3 + k * 2.1) + k * 2.4)
                          + 0.10 * Math.sin(T * (17.0 - k * 3.0) + k);
