@@ -39,7 +39,7 @@
   <div id="statsBar">
     <span class="stat"><i class="ico coin"></i><b id="statGold">0</b></span>
     <span class="vr"></span>
-    <span class="stat"><i class="ico csIcon"></i><b id="statCS">0</b></span>
+    <span class="stat"><i class="ico csIcon"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M12 2.3A7.6 7.6 0 0 0 4.4 9.9v9.4c0 1.3 3.4 2.3 7.6 2.3s7.6-1 7.6-2.3V9.9A7.6 7.6 0 0 0 12 2.3Zm-4.4 8.2h8.8v3.2H7.6Z"/><path fill="#ffd98c" d="M18.6 1.2 21.9 4l-9.1 8.6-1.6-1.4Z" opacity=".95"/></svg></i><b id="statCS">0</b></span>
     <span class="vr"></span>
     <span class="stat kda"><i class="ico kdaIcon"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.2 14 7l4.9.5-3.7 3.3 1.1 4.8L12 13.1 7.7 15.6l1.1-4.8L5.1 7.5 10 7zM6.4 17.4h11.2v1.8H6.4zm1.4 3h8.4v1.6H7.8z"/></svg></i><b id="statKDA">0/0/0</b></span>
   </div>
@@ -76,13 +76,22 @@
     </div>
   </div>
 
+  <!-- relic sockets: unlock on the level milestones the sim actually grants -->
+  <div id="itemRail" aria-hidden="true">
+    <div class="itemSlot" data-lv="4"><svg viewBox="0 0 24 24"><path d="M12 1.6 15.4 8.2 15 18.4H9L8.6 8.2ZM6.6 19.6h10.8l-1 2.2H7.6Z"/></svg></div>
+    <div class="itemSlot" data-lv="7"><svg viewBox="0 0 24 24"><path d="M12 1.8 21 5v7.4c0 5-3.8 8.4-9 9.8-5.2-1.4-9-4.8-9-9.8V5Zm0 3.4L6.2 7.4v5c0 3.2 2.2 5.4 5.8 6.6 3.6-1.2 5.8-3.4 5.8-6.6v-5Z"/></svg></div>
+    <div class="itemSlot" data-lv="10"><svg viewBox="0 0 24 24"><path d="M2.4 15.6 12.6 7v4.2L21.6 4l-2.6 12.6-6.4-2.6-1.2 6.2Z"/></svg></div>
+    <div class="itemSlot" data-lv="13"><svg viewBox="0 0 24 24"><path d="M12 1.4 19.4 12 12 22.6 4.6 12Zm0 4.6L8.4 12l3.6 5.4L15.6 12Z"/></svg></div>
+  </div>
+
   <!-- bottom-right: ability cluster (Wild Rift arc: A anchor + Q/W/E arc + R ultimate) -->
   <div id="abilityCluster">
     <button id="btnR" class="abBtn ult" data-key="R" aria-label="Ultimate">
       <span class="abGlow"></span>
       <span class="abFrame"></span>
       <span class="abFace">
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0.8c.7 6.9 3.5 9.7 10.4 10.4C15.5 11.9 12.7 14.7 12 21.6c-.7-6.9-3.5-9.7-10.4-10.4C8.5 10.5 11.3 7.7 12 .8z" transform="translate(0 1.2)"/><path d="M19.6 3.2c.2 1.9 1 2.7 2.9 2.9-1.9.2-2.7 1-2.9 2.9-.2-1.9-1-2.7-2.9-2.9 1.9-.2 2.7-1 2.9-2.9zM4.4 15.2c.2 1.9 1 2.7 2.9 2.9-1.9.2-2.7 1-2.9 2.9-.2-1.9-1-2.7-2.9-2.9 1.9-.2 2.7-1 2.9-2.9z" opacity=".85"/></svg>
+        <!-- R · Dawnfall: point-down blade driven into a shock ring -->
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaR"><path d="M12 18L9.9 6.3L14.1 6.3Z"/><path d="M8.4 4.2H15.6V6.3H8.4Z"/><path d="M11.2 1.7h1.6v2.7h-1.6Z"/><path d="M13.35 1.7 12 3.1 10.65 1.7 12 .5Z"/><path d="M12 15.9c4.53 0 8.2 1.39 8.2 3.1s-3.67 3.1-8.2 3.1-8.2-1.39-8.2-3.1 3.67-3.1 8.2-3.1Zm0 1.7c-3.36 0-6.1.83-6.1 1.4s2.74 1.4 6.1 1.4 6.1-.83 6.1-1.4-2.74-1.4-6.1-1.4Z"/><path opacity=".82" d="M0.7 11.2L5.6 14.6L4.2 15.9Z"/><path opacity=".82" d="M23.3 11.2L18.4 14.6L19.8 15.9Z"/><path opacity=".82" d="M8.2 23.6L10.9 20.4L13.1 20.4L15.8 23.6Z"/></g><clipPath id="icR"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaR" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaR" fill="url(#igR)"/><g clip-path="url(#icR)"><use href="#iaR" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -96,7 +105,8 @@
     <button id="btnQ" class="abBtn" data-key="Q" aria-label="Ability Q">
       <span class="abFrame"></span>
       <span class="abFace">
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.9 21.1A13 13 0 0 1 21.1 2.9 26 26 0 0 0 2.9 21.1z"/><path d="M17.6 17.7a15.6 15.6 0 0 0 4.2-4 13.8 13.8 0 0 1-2.6 5.6zM12.2 21.6a15.8 15.8 0 0 0 5-2.1 13.9 13.9 0 0 1-6.8 3.4z" opacity=".65"/></svg>
+        <!-- Q · crescent slash: one heavy sweep with two trailing echoes -->
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igQ" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaQ"><path d="M2.6 19.9A15 15 0 0 1 20.4 4A44 44 0 0 0 2.6 19.9Z"/><path opacity=".5" d="M7.6 22.4A13.6 13.6 0 0 1 22.7 9A22.6 22.6 0 0 0 7.6 22.4Z"/><path opacity=".28" d="M13.4 23.4A10.6 10.6 0 0 1 23.4 14.4A17.7 17.7 0 0 0 13.4 23.4Z"/></g><clipPath id="icQ"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaQ" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaQ" fill="url(#igQ)"/><g clip-path="url(#icQ)"><use href="#iaQ" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -110,7 +120,8 @@
     <button id="btnW" class="abBtn" data-key="W" aria-label="Ability W">
       <span class="abFrame"></span>
       <span class="abFace">
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.9 3.6 17.8 12l-8.9 8.4 2.7-8.4z"/><path d="M14.6 3.6 23.5 12l-8.9 8.4 2.7-8.4z" opacity=".55"/><path d="M.9 8.4h6.2l-.7 2.2H.2zM.2 13.4h5.7l-.7 2.2H-.5z" opacity=".8"/></svg>
+        <!-- W · dash-strike: blade lunging up-right, motion streaks behind -->
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igW" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaW"><path d="M19.24 4.76L17.49 8.7L11.76 14.25L9.75 12.24L15.3 6.51ZM13.73 15.22L12.39 15.87L8.13 11.61L8.78 10.27ZM10.77 14.25L8.22 16.65L7.35 15.78L9.75 13.23ZM8.54 16.71a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 1 1 2.5 0Z"/><path opacity=".85" d="M6.63 7.37L2 13.2L0.8 12Z"/><path opacity=".62" d="M5.24 14.16L1.49 18.89L0.51 17.91Z"/><path opacity=".62" d="M11.04 18.56L7.29 23.29L6.31 22.31Z"/></g><clipPath id="icW"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaW" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaW" fill="url(#igW)"/><g clip-path="url(#icW)"><use href="#iaW" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -124,7 +135,8 @@
     <button id="btnE" class="abBtn" data-key="E" aria-label="Ability E">
       <span class="abFrame"></span>
       <span class="abFace">
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><g><path d="M11.6 11.3c.4-4.6 3.6-8.5 8.2-10.4-1 4.9-3.5 8.8-7 11z"/><path d="M11.6 11.3c.4-4.6 3.6-8.5 8.2-10.4-1 4.9-3.5 8.8-7 11z" transform="rotate(120 12 12)"/><path d="M11.6 11.3c.4-4.6 3.6-8.5 8.2-10.4-1 4.9-3.5 8.8-7 11z" transform="rotate(240 12 12)"/></g><circle cx="12" cy="12" r="2.6" opacity=".9"/></svg>
+        <!-- E · blade-storm: three curved blades whirling off a hub -->
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igE" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaE"><path d="M11.1 9.77Q11.32 2.22 20.73 4.67Q15.1 6.17 12.75 9.93Z"/><path d="M14.38 12.33Q20.81 16.3 13.98 23.23Q15.5 17.6 13.41 13.69Z"/><path d="M10.52 13.89Q3.88 17.48 1.29 8.1Q5.4 12.23 9.83 12.38Z"/><path opacity=".4" d="M21.92 5.8Q23.41 8.29 23.67 11.18L22.27 11.28Q22.08 8.72 20.73 6.54Z"/><path opacity=".4" d="M12.41 23.69Q9.51 23.74 6.87 22.52L7.48 21.26Q9.8 22.37 12.36 22.29Z"/><path opacity=".4" d="M1.67 6.51Q3.08 3.97 5.46 2.3L6.24 3.46Q4.12 4.91 2.91 7.16Z"/><path d="M12 8.4 15.6 12 12 15.6 8.4 12Z"/></g><clipPath id="icE"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaE" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaE" fill="url(#igE)"/><g clip-path="url(#icE)"><use href="#iaE" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -139,7 +151,8 @@
       <span class="abDash"></span>
       <span class="abFrame"></span>
       <span class="abFace">
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 22.4A12.4 12.4 0 0 1 9.9 1.9 15 15 0 0 0 6.6 21.1a10 10 0 0 0-2.2 1.3z" opacity=".42"/><path d="M14.8 1.1l3.1 4.2v9H11.7v-9zM9.4 15.7h11v2.5h-11zM13.6 19.4h2.6v2.7h2.5v2.1h-7.6v-2.1h2.5z"/></svg>
+        <!-- A · basic attack: upright blade over a swing arc -->
+        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaA"><path opacity=".42" d="M2.6 20.6A12.5 12.5 0 0 1 9.4 1.6A26 26 0 0 0 2.6 20.6Z"/><path d="M13.6 3.4L15.4 8.08L15.26 17.8L11.94 17.8L11.8 8.08ZM17.5 17.1L16.95 18.5L10.25 18.5L9.7 17.1ZM14.45 18.5L14.33 22L12.87 22L12.75 18.5ZM14.85 22.7a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 1 1 2.5 0Z"/></g><clipPath id="icA"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaA" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaA" fill="url(#igA)"/><g clip-path="url(#icA)"><use href="#iaA" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
       </span>
       <span class="abSweep"></span>
       <span class="abCd"></span>
@@ -147,8 +160,22 @@
     </button>
   </div>
 
+  <!-- summoner column: sits left of the ability arc, Wild Rift placement -->
+  <div id="sumRail">
+    <button id="sumMend" class="sumSlot" aria-label="Mend">
+      <span class="sumFace"><svg class="sumIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.6C6.1 17.3 2.4 13.7 2.4 9.6a5.1 5.1 0 0 1 9.6-2.5 5.1 5.1 0 0 1 9.6 2.5c0 4.1-3.7 7.7-9.6 12Z"/><path opacity=".55" fill="#fff" d="M7.3 6.6a3.4 3.4 0 0 1 3 1.5 5.4 5.4 0 0 0-4.6 3.2A3.4 3.4 0 0 1 7.3 6.6Z"/></svg></span>
+      <span class="sumSweep"></span><span class="sumCd"></span>
+    </button>
+    <button id="sumRecall" class="sumSlot recall" aria-label="Recall">
+      <span class="sumFace"><svg class="sumIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4a8.6 8.6 0 1 1-8.1 5.7l2.4.9A6.1 6.1 0 1 0 12 5.9Z"/><path d="M13.9 1.2 9.3 4.4l4.6 3.2Z"/><path opacity=".85" d="M12 8.6 15.4 12 12 15.4 8.6 12Z"/></svg></span>
+      <span class="sumSweep"></span><span class="sumCd"></span>
+    </button>
+  </div>
+
   <!-- floating joystick -->
   <div id="joyBase"><div class="joyRing"></div><div id="joyKnob"></div></div>
+  <!-- resting joystick well (hidden while the floating stick is live) -->
+  <div id="joyHome" aria-hidden="true"><span class="jhTicks"></span><span class="jhRing"></span><span class="jhNub"></span></div>
 
   <div id="announce"><div id="announceTitle"></div><div id="announceSub"></div></div>
 

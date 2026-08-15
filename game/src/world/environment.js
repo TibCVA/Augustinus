@@ -8,6 +8,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tex, mats, uTime, uSunDir, PAL } from '../core/assets.js';
 import { SEED, makeRng } from '../core/rng.js';
 import { Bucket, mat4, lathe, jitterGeo, boxUV, bakeTint, chamferBox, puffNormals } from './props.js';
+import { A } from './arena.js';
 
 // Local deterministic stream so environment tweaks never shift other modules' RNG.
 const ER = makeRng(SEED ^ 0x7c1d53);
@@ -19,7 +20,49 @@ const SKY_MID = new THREE.Vector3(0.155, 0.345, 0.610);
 const SKY_HOR = new THREE.Vector3(0.640, 0.372, 0.208);
 const SKY_DEEP = new THREE.Vector3(0.135, 0.160, 0.275); // below-horizon chasm haze
 const SUN_TINT = new THREE.Vector3(1.000, 0.600, 0.255);
-const HAZE_HEX = 0xebbd93; // scene fog / horizon haze
+// Desaturated warm grey so distant geometry loses *chroma* into the haze instead
+// of blowing out to the same cream as the sky (near/far read identical otherwise).
+const HAZE_HEX = 0xdcc0ad; // scene fog / horizon haze
+// Aerial perspective: eye-level frames dissolve if the deck is over-hazed, aerial
+// frames read flat without it — so density is driven by how far above the deck the
+// camera sits (see fitShadowAndHaze()).
+const FOG_EYE = 0.0035, FOG_AERIAL = 0.0058;
+
+// ============================================================ DYNAMIC LIGHTS ==
+// The scene shipped with ZERO dynamic lights: every emissive was unlit geometry
+// plus bloom, so the ultimate emitted no light into the world and the nexus cast
+// no photons. This is a FIXED pool of four PointLights created once at startup —
+// adding/removing lights mid-fight recompiles every lit shader, so nothing is
+// ever added, removed or toggled; only intensity/position/colour animate.
+export const DYN = {
+  impact: null,   // ability impacts (ult slam, tower kills) — 0 most of the time
+  nexus: null,    // whichever nexus crystal is nearest the camera
+  torchA: null,   // two shared brazier/torch lights, re-homed to the nearest pair
+  torchB: null,
+  ready: false,
+};
+
+// impact envelope state
+const _imp = { t: 0, dur: 0, peak: 0, dist: 18 };
+const _impCol = new THREE.Color();
+
+/**
+ * Fire the shared impact PointLight. Called from vfx.js (dawnfall, big blasts).
+ * Never allocates a light — it re-aims the one that already exists.
+ * @param {number} x @param {number} y @param {number} z
+ */
+export function pulseLight(x, y, z, { color = 0xffb347, peak = 60, dur = 0.35, distance = 18 } = {}) {
+  const L = DYN.impact;
+  if (!L) return;
+  // don't let a small hit stomp a bigger one that is still burning
+  const cur = _imp.dur > 0 ? _imp.peak * Math.max(0, 1 - _imp.t / _imp.dur) : 0;
+  if (peak < cur * 0.9) return;
+  L.position.set(x, y, z);
+  _impCol.setHex(color);
+  L.color.copy(_impCol);
+  L.distance = distance;
+  _imp.t = 0; _imp.dur = dur; _imp.peak = peak; _imp.dist = distance;
+}
 
 // Shared GLSL: uniform block + the single sky function used by the dome, the cloud
 // strata and the cumulus band. Because every one of them evaluates the *same*
@@ -59,7 +102,7 @@ export function buildEnvironment(scene, quality = 1) {
   const sunDir = new THREE.Vector3(-0.44, 0.50, -0.60).normalize();
   uSunDir.value.copy(sunDir);   // shared with foliage/grass shaders in other modules
   const sun = new THREE.DirectionalLight(PAL.sun, 3.15);
-  sun.position.copy(sunDir).multiplyScalar(100);
+  sun.position.copy(sunDir).multiplyScalar(150);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -66; sun.shadow.camera.right = 66;
@@ -69,9 +112,203 @@ export function buildEnvironment(scene, quality = 1) {
   sun.shadow.normalBias = 0.55;
   scene.add(sun);
   scene.add(sun.target);
-  // Cooler, dimmer fill so shadows read teal instead of milky grey.
-  const hemi = new THREE.HemisphereLight(0x93cbf8, 0x8f7450, 0.95);
+  // Cool sky fill, lifted: ACES + the grade were crushing every shadow to an
+  // untinted near-black, in violation of the doc's own "cool teal shadows".
+  const hemi = new THREE.HemisphereLight(0x8fd4ff, 0x8f7450, 1.25);
   scene.add(hemi);
+
+  // -------------------------------------------------- dynamic light pool ---
+  // Created ONCE, here, so the shader recompile happens at boot and never again.
+  // castShadow stays false on all four: the sun owns the only shadow map.
+  {
+    const mk = (hex, intensity, distance, decay) => {
+      const L = new THREE.PointLight(hex, intensity, distance, decay);
+      L.castShadow = false;
+      L.matrixAutoUpdate = true;
+      scene.add(L);
+      return L;
+    };
+    DYN.impact = mk(0xffb347, 0, 18, 2);
+    DYN.nexus = mk(0x59e8ff, 11, 15, 2);
+    DYN.torchA = mk(0xffa348, 3.6, 9, 2);
+    DYN.torchB = mk(0xffa348, 3.6, 9, 2);
+    DYN.impact.position.set(0, 1.2, 0);
+    DYN.nexus.position.set(-A.NEXUS_X, 4.1, 0);
+    DYN.torchA.position.set(-(A.NEXUS_X - 3.6), 1.82, 3.6);
+    DYN.torchB.position.set(-(A.NEXUS_X - 3.6), 1.82, -3.6);
+    DYN.ready = true;
+  }
+  // Candidate homes for the two shared warm lights: every torch + brazier in the
+  // arena, mirrored per side. Positions mirror arena.js's torch layout.
+  const TORCH_SPOTS = [];
+  for (const side of [-1, 1]) {
+    for (const [tx, tz] of [[13.5, 6.9], [13.5, -6.9], [22.5, 7.1], [22.5, -7.1],
+      [30, 6.9], [30, -6.9], [43.5, 8.2], [43.5, -8.2]]) {
+      TORCH_SPOTS.push(new THREE.Vector3(side * tx, 1.82, tz));
+    }
+    TORCH_SPOTS.push(new THREE.Vector3(side * (A.NEXUS_X - 3.6), 1.82, 3.6));
+    TORCH_SPOTS.push(new THREE.Vector3(side * (A.NEXUS_X - 3.6), 1.82, -3.6));
+    TORCH_SPOTS.push(new THREE.Vector3(side * (A.NEXUS_X - 3.4), 1.9, 3.4));
+    TORCH_SPOTS.push(new THREE.Vector3(side * (A.NEXUS_X - 3.4), 1.9, -3.4));
+  }
+  const NEXUS_SPOTS = [
+    { p: new THREE.Vector3(-A.NEXUS_X, 4.1, 0), hex: 0x59e8ff },
+    { p: new THREE.Vector3(A.NEXUS_X, 4.1, 0), hex: 0xff6a3c },
+  ];
+  const _torchState = [{ idx: -1, want: -1, fade: 0 }, { idx: -1, want: -1, fade: 0 }];
+  const _nexCol = new THREE.Color();
+  let _nexIdx = -1;
+  let bgHazeU = null;   // aerial-haze uniform of the background massif shader
+
+  // --------------------------------------------- shadow frustum fitting ----
+  // The shipped frustum was 132x92 units at 2048² = a 6.4 cm texel ≈ 3.6 screen
+  // px at gameplay distance: the stair-stepped shadow edge critics called the
+  // single most amateur artifact in the set. Refit it to the ground footprint
+  // the *play camera* actually sees, snapped to whole shadow texels so the edge
+  // cannot crawl as the camera slides. Cinematic cameras see the whole arena, so
+  // the fit naturally clamps back out to the original wide frustum for them.
+  const SHADOW_MAP = 2048;
+  const HALF_MIN = 16, HALF_MAX = 66, HALF_STEP = 4;
+  const CASTER_H = 12;         // tallest thing that must cast in from off-screen
+  const FIT_PAD = 2;
+  // light-space basis (sunDir is fixed, so build it once)
+  const LZ = sunDir.clone();
+  const LX = new THREE.Vector3(0, 1, 0).cross(LZ).normalize();
+  const LY = new THREE.Vector3().crossVectors(LZ, LX).normalize();
+  const upY = LY.y;            // how far a unit of height slides in light-space Y
+  const _corner = new THREE.Vector3();
+  const _hit = new THREE.Vector3();
+  const _prevCam = new THREE.Vector3(1e9, 1e9, 1e9);
+  const _ctr = new THREE.Vector3();
+  const NDC = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]];
+
+  function fitShadowAndHaze(camera) {
+    if (!camera || !camera.isPerspectiveCamera) return;
+    // ---- ground footprint of the view frustum, clipped to the arena --------
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const cp = camera.position;
+    for (let i = 0; i < NDC.length; i++) {
+      _corner.set(NDC[i][0], NDC[i][1], 0.5).unproject(camera).sub(cp);
+      const len = _corner.length() || 1;
+      _corner.multiplyScalar(1 / len);
+      // intersect y = 0; rays aimed at or above the horizon run to the far cap
+      const t = _corner.y < -0.02 ? Math.min(-cp.y / _corner.y, 150) : 150;
+      _hit.copy(cp).addScaledVector(_corner, t);
+      _hit.x = Math.min(A.HALF_X + 6, Math.max(-A.HALF_X - 6, _hit.x));
+      _hit.z = Math.min(A.EDGE_Z + 4, Math.max(-A.EDGE_Z - 4, _hit.z));
+      _hit.y = 0;
+      const lx = _hit.dot(LX), ly = _hit.dot(LY);
+      if (lx < minX) minX = lx; if (lx > maxX) maxX = lx;
+      if (ly < minY) minY = ly; if (ly > maxY) maxY = ly;
+    }
+    minX -= FIT_PAD; maxX += FIT_PAD;
+    minY -= FIT_PAD; maxY += FIT_PAD;
+    // a caster of height h projects to +upY*h in light-space Y, so widen that
+    // side only — that is where off-screen towers throw their shadows in from
+    if (upY > 0) maxY += upY * CASTER_H; else minY += upY * CASTER_H;
+
+    // ---- quantised square half-extent: a *stable* texel size is what makes
+    // texel snapping actually kill the crawl, so never let it vary smoothly ---
+    let half = Math.max(maxX - minX, maxY - minY) * 0.5;
+    half = Math.ceil(Math.max(HALF_MIN, Math.min(HALF_MAX, half)) / HALF_STEP) * HALF_STEP;
+    const texel = (half * 2) / SHADOW_MAP;
+
+    // ---- snap the centre to whole texels in light space --------------------
+    let cx = (minX + maxX) * 0.5, cy = (minY + maxY) * 0.5;
+    cx = Math.round(cx / texel) * texel;
+    cy = Math.round(cy / texel) * texel;
+    _ctr.set(0, 0, 0).addScaledVector(LX, cx).addScaledVector(LY, cy);
+
+    const sc = sun.shadow.camera;
+    if (sc.left !== -half) {
+      sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half;
+    }
+    const D = 150;
+    const pad = half * 1.5 + 46;
+    sc.near = Math.max(2, D - pad);
+    sc.far = D + pad;
+    sc.updateProjectionMatrix();
+    // depth + normal bias must track the texel or a tight frustum peter-pans
+    sun.shadow.normalBias = texel * 8.5;
+    sun.shadow.bias = -(texel * 1.13) / (sc.far - sc.near);
+
+    sun.target.position.copy(_ctr);
+    sun.position.copy(_ctr).addScaledVector(sunDir, D);
+    sun.updateMatrixWorld(true);
+    sun.target.updateMatrixWorld(true);
+
+    // ---- aerial haze, gated by how high the camera flies -------------------
+    const t = THREE.MathUtils.smoothstep(cp.y, 6, 26);
+    const dens = FOG_EYE + (FOG_AERIAL - FOG_EYE) * t;
+    if (scene.fog) scene.fog.density = dens;
+    if (bgHazeU) bgHazeU.value = dens * 0.86;
+
+    // ---- camera-relative light placement ----------------------------------
+    const teleport = _prevCam.distanceToSquared(cp) > 64;
+    _prevCam.copy(cp);
+    placeLights(cp, teleport);
+  }
+
+  function placeLights(cp, snap) {
+    // nexus: whichever crystal the camera is closer to, tinted by its team
+    const want = cp.distanceToSquared(NEXUS_SPOTS[0].p) <= cp.distanceToSquared(NEXUS_SPOTS[1].p) ? 0 : 1;
+    if (want !== _nexIdx) {
+      _nexIdx = want;
+      DYN.nexus.position.copy(NEXUS_SPOTS[want].p);
+      _nexCol.setHex(NEXUS_SPOTS[want].hex);
+      DYN.nexus.color.copy(_nexCol);
+    }
+    // torches: the two nearest lit spots, kept apart so they never stack
+    let b0 = -1, b1 = -1, d0 = Infinity, d1 = Infinity;
+    for (let i = 0; i < TORCH_SPOTS.length; i++) {
+      const d = cp.distanceToSquared(TORCH_SPOTS[i]);
+      if (d < d0) { d1 = d0; b1 = b0; d0 = d; b0 = i; }
+      else if (d < d1) { d1 = d; b1 = i; }
+    }
+    const wants = [b0, b1];
+    for (let k = 0; k < 2; k++) {
+      const st = _torchState[k];
+      const L = k === 0 ? DYN.torchA : DYN.torchB;
+      st.want = wants[k];
+      // a cinematic preset teleports the camera: re-home instantly, no fade
+      if (snap || st.idx < 0) { st.idx = st.want; st.fade = 1; }
+      if (st.idx >= 0) L.position.copy(TORCH_SPOTS[st.idx]);
+    }
+  }
+
+  // Torch/nexus animation lives in update() because that is the call that owns dt.
+  function updateLights(dt) {
+    const T = uTime.value;
+    // ult impact: fast attack, quadratic decay, then flat 0 (no per-frame cost)
+    if (_imp.dur > 0) {
+      _imp.t += dt;
+      const k = _imp.t / _imp.dur;
+      if (k >= 1) { _imp.dur = 0; DYN.impact.intensity = 0; }
+      else DYN.impact.intensity = _imp.peak * (k < 0.12 ? k / 0.12 : Math.pow(1 - (k - 0.12) / 0.88, 2.2));
+    }
+    // nexus: 2.2 s breathing pulse
+    DYN.nexus.intensity = 11 * (0.72 + 0.28 * Math.sin(T * (Math.PI * 2 / 2.2)));
+    // braziers: flicker + a short cross-fade whenever they re-home
+    for (let k = 0; k < 2; k++) {
+      const st = _torchState[k];
+      const L = k === 0 ? DYN.torchA : DYN.torchB;
+      if (st.idx !== st.want) {
+        st.fade -= dt * 4;
+        if (st.fade <= 0) { st.fade = 0; st.idx = st.want; if (st.idx >= 0) L.position.copy(TORCH_SPOTS[st.idx]); }
+      } else if (st.fade < 1) st.fade = Math.min(1, st.fade + dt * 4);
+      const flick = 0.82 + 0.18 * Math.sin(T * (7.3 + k * 2.1) + k * 2.4)
+                         + 0.10 * Math.sin(T * (17.0 - k * 3.0) + k);
+      L.intensity = 3.6 * st.fade * flick;
+    }
+  }
+
+  // WebGLRenderer fires this on the Scene *before* it builds the shadow list, so
+  // it is the one hook that sees the live play camera without main.js knowing.
+  const prevOBR = scene.onBeforeRender;
+  scene.onBeforeRender = function (renderer, sc, camera, rt) {
+    fitShadowAndHaze(camera);
+    if (prevOBR) prevOBR.call(this, renderer, sc, camera, rt);
+  };
 
   // The cloud strata are read at extreme grazing angles; without high anisotropy
   // the far deck mips down to featureless mush.
@@ -79,7 +316,8 @@ export function buildEnvironment(scene, quality = 1) {
 
   // -------------------------------------------------------- aerial haze fog --
   // exp2 so distant islets / far arena ends lift into the horizon colour smoothly.
-  scene.fog = new THREE.FogExp2(HAZE_HEX, 0.0030);
+  // density is re-gated per frame by fitShadowAndHaze(); this is the eye-level value
+  scene.fog = new THREE.FogExp2(HAZE_HEX, FOG_EYE);
 
   // --------------------------------------------------------- sky uniforms ---
   const skyU = {
@@ -478,9 +716,15 @@ export function buildEnvironment(scene, quality = 1) {
   }
 
   // ------------------------------------------------ GPU particles (points) --
-  function makeDrifters({ count, box, tint, size, tex_, speed, flutter, rise = 0, additive = false, opacity = 1 }) {
+  // aVar packs the per-instance variation that a single unvaried billboard is
+  // missing: .x size multiplier, .y alpha multiplier, .z edge-softness.
+  function makeDrifters({
+    count, box, tint, size, tex_, speed, flutter, rise = 0, additive = false, opacity = 1,
+    sizeVar = [0.35, 1.4], alphaVar = [0.15, 0.55], nearFade = 4, farFade = 30, soft = 1,
+  }) {
     const pos = new Float32Array(count * 3);
     const seed = new Float32Array(count);
+    const vary = new Float32Array(count * 3);
     const col = new Float32Array(count * 3);
     const c = new THREE.Color();
     for (let i = 0; i < count; i++) {
@@ -488,21 +732,27 @@ export function buildEnvironment(scene, quality = 1) {
       pos[i * 3 + 1] = ER.f(box[1], box[4]);
       pos[i * 3 + 2] = ER.f(box[2], box[5]);
       seed[i] = ER.next();
+      // biased low so a few big motes read against a crowd of faint small ones
+      const u = ER.next();
+      vary[i * 3] = sizeVar[0] + (sizeVar[1] - sizeVar[0]) * u * u;
+      vary[i * 3 + 1] = alphaVar[0] + (alphaVar[1] - alphaVar[0]) * ER.next();
+      vary[i * 3 + 2] = ER.f(0.55, 1.0);
       c.setHex(tint[Math.floor(ER.next() * tint.length)]);
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    g.setAttribute('aVar', new THREE.BufferAttribute(vary, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       uniforms: { uTime, tMap: { value: tex_ }, uSize: { value: size }, uOp: { value: opacity } },
       vertexShader: `
-        attribute float aSeed;
+        attribute float aSeed; attribute vec3 aVar;
         uniform float uTime; uniform float uSize;
-        varying float vSeed; varying vec3 vCol;
+        varying float vSeed; varying vec3 vCol; varying vec2 vAV;
         void main() {
           vSeed = aSeed; vCol = color;
           vec3 p = position;
@@ -513,19 +763,26 @@ export function buildEnvironment(scene, quality = 1) {
           p.z += cos(uTime * (0.4 + aSeed * 0.7) + aSeed * 17.0) * ${(flutter * 1.4).toFixed(2)};
           vec4 mv = viewMatrix * vec4(p, 1.0);
           gl_Position = projectionMatrix * mv;
-          gl_PointSize = min(uSize * (1.0 + aSeed * 0.7) * (140.0 / max(-mv.z, 4.0)), 38.0);
+          float d = max(-mv.z, 0.5);
+          gl_PointSize = min(uSize * aVar.x * (1.0 + aSeed * 0.7) * (140.0 / max(d, 4.0)), 38.0);
+          // motes that pass through the lens and motes lost in the haze both fade
+          float near = smoothstep(0.6, ${nearFade.toFixed(1)}, d);
+          float far  = 1.0 - smoothstep(${farFade.toFixed(1)}, ${(farFade * 2.1).toFixed(1)}, d);
+          vAV = vec2(aVar.y * near * far, aVar.z);
         }`,
       fragmentShader: `
         uniform sampler2D tMap; uniform float uTime; uniform float uOp;
-        varying float vSeed; varying vec3 vCol;
+        varying float vSeed; varying vec3 vCol; varying vec2 vAV;
         void main() {
           vec2 uv = gl_PointCoord - 0.5;
           float a = uTime * (1.5 + vSeed * 3.0) + vSeed * 6.28;
           vec2 ruv = vec2(uv.x * cos(a) - uv.y * sin(a), uv.x * sin(a) + uv.y * cos(a)) + 0.5;
           vec4 c = texture2D(tMap, ruv);
+          // soft-edged mote: kill the hard disc rim the atlas cell still has
+          float soft = mix(1.0, smoothstep(0.5, 0.5 - 0.34 * vAV.y, length(uv)), ${soft.toFixed(2)});
           float tw = 0.75 + 0.25 * sin(uTime * (2.0 + vSeed * 4.0) + vSeed * 31.0);
-          gl_FragColor = vec4(c.rgb * vCol, c.a * tw * uOp);
-          if (gl_FragColor.a < 0.02) discard;
+          gl_FragColor = vec4(c.rgb * vCol, c.a * tw * uOp * vAV.x * soft);
+          if (gl_FragColor.a < 0.004) discard;
         }`,
       vertexColors: true,
     });
@@ -534,23 +791,28 @@ export function buildEnvironment(scene, quality = 1) {
     return pts;
   }
 
-  // blossom petals drifting across the whole arena
+  // blossom petals drifting across the whole arena (a petal has its own silhouette,
+  // so no extra edge softening — just size/alpha spread and the depth fades)
   group.add(makeDrifters({
     count: Math.round(230 * quality), box: [-58, 0.3, -17, 58, 11, 17],
     tint: [0xffc9d8, 0xffa9c1, 0xff8fb0, 0xffe0ea], size: 7.5, tex_: tex.petal,
     speed: 1.4, flutter: 0.8,
+    sizeVar: [0.55, 1.35], alphaVar: [0.55, 1.0], nearFade: 3, farFade: 46, soft: 0,
   }));
   // fireflies at the rails (bloom picks these up)
   group.add(makeDrifters({
     count: Math.round(70 * quality), box: [-50, 0.6, -16, 50, 3.2, 16],
     tint: [0xaffff0, 0x8fe8ff, 0xfff0b0], size: 3.6, tex_: tex.dot,
-    speed: 0.24, flutter: 0.5, additive: true, opacity: 0.5,
+    speed: 0.24, flutter: 0.5, additive: true, opacity: 1,
+    sizeVar: [0.45, 1.35], alphaVar: [0.18, 0.62], nearFade: 3, farFade: 34, soft: 0.75,
   }));
-  // warm dust motes floating over the lane
+  // warm dust motes floating over the lane — the V5 target: they used to be
+  // uniform-alpha, uniform-size hard white discs sitting in front of everything
   group.add(makeDrifters({
     count: Math.round(110 * quality), box: [-40, 0.4, -8, 40, 5.5, 8],
     tint: [0xffe2b0, 0xffd9a0], size: 2.6, tex_: tex.dot,
-    speed: 0.5, flutter: 0.35, rise: 0.02, additive: true, opacity: 0.5,
+    speed: 0.5, flutter: 0.35, rise: 0.02, additive: true, opacity: 1,
+    sizeVar: [0.35, 1.4], alphaVar: [0.15, 0.55], nearFade: 4, farFade: 30, soft: 1,
   }));
 
   // ============================================== midground + background ====
@@ -976,7 +1238,7 @@ export function buildEnvironment(scene, quality = 1) {
     for (const g of solid) g.dispose?.();
     const bgMat = new THREE.ShaderMaterial({
       fog: false, vertexColors: true,
-      uniforms: shareSky({ uHazeK: { value: 0.0030 } }),
+      uniforms: shareSky({ uHazeK: { value: FOG_EYE * 0.86 } }),
       vertexShader: `
         varying vec3 vWorld; varying vec3 vNrm; varying vec3 vCol;
         void main() {
@@ -1009,12 +1271,15 @@ export function buildEnvironment(scene, quality = 1) {
           vec3 sky = skyRay(dir);
           // roots soften as they go down into the deck instead of hanging there
           col = mix(col, sky * 1.03, smoothstep(-3.0, -30.0, vWorld.y) * 0.62);
-          // aerial perspective — same exp2 curve as scene.fog and the strata
+          // aerial perspective — same exp2 curve as scene.fog and the strata.
+          // Capped at 0.90 so the far ghost skyline keeps a value shape even when
+          // the density is driven up for an aerial frame.
           float hd = dist * uHazeK;
-          col = mix(col, sky, 1.0 - exp(-hd * hd));
+          col = mix(col, sky, min(0.90, 1.0 - exp(-hd * hd)));
           gl_FragColor = vec4(col, 1.0);
         }`,
     });
+    bgHazeU = bgMat.uniforms.uHazeK;
     const bgMesh = new THREE.Mesh(merged, bgMat);
     bgMesh.castShadow = false;
     bgMesh.receiveShadow = false;
@@ -1097,7 +1362,8 @@ export function buildEnvironment(scene, quality = 1) {
     isletHolder.rotation.y = Math.sin(uTime.value * 0.11) * 0.012;
     // rune decal pulse (shared material)
     mats.rune.opacity = 0.62 + 0.25 * Math.sin(uTime.value * 1.9);
+    updateLights(dt);
   }
 
-  return { group, sun, hemi, sunDir, update };
+  return { group, sun, hemi, sunDir, lights: DYN, pulseLight, update };
 }

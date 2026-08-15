@@ -29,6 +29,11 @@ const GradeShader = {
     uFlash: { value: 0 },
     uSat: { value: 1.14 },
     uContrast: { value: 0.26 },
+    // Shadow lift: the linear-light value of 0x1a3346 (cool teal), scaled by how
+    // deep in shadow the pixel is. ACES + the S-curve were crushing every shadow
+    // to an untinted near-black, which the design doc explicitly forbids.
+    uLift: { value: new THREE.Vector3(0.0103, 0.0331, 0.0613) },
+    uLiftK: { value: 0.40 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -36,13 +41,15 @@ const GradeShader = {
   fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform float uVig; uniform float uFlash; uniform float uSat; uniform float uContrast;
+    uniform vec3 uLift; uniform float uLiftK;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       vec3 col = max(c.rgb, 0.0);
 
-      // black point: reclaim the milky floor without crushing detail
-      col = max(vec3(0.0), col - 0.010) / (1.0 - 0.010);
+      // black point: reclaim the milky floor without crushing detail. Kept small
+      // now that the shadows carry a deliberate teal lift instead of a crush.
+      col = max(vec3(0.0), col - 0.004) / (1.0 - 0.004);
 
       // filmic S-curve, pivoted so midtones stay put
       vec3 sc = col * col * (3.0 - 2.0 * clamp(col, 0.0, 1.0));
@@ -60,6 +67,12 @@ const GradeShader = {
       float hi = smoothstep(0.45, 1.0, luma);
       col *= mix(vec3(1.0), vec3(0.92, 1.005, 1.09), sh * 0.55);
       col *= mix(vec3(1.0), vec3(1.06, 1.005, 0.92), hi * 0.50);
+
+      // Cool teal shadow lift. Additive, so it raises the floor without washing
+      // the midtones, and on a NARROWER mask than the split-tone: the dark grout
+      // inside lit paving must keep its warmth, only true shadow gets the tint.
+      float shL = 1.0 - smoothstep(0.0, 0.24, luma);
+      col += uLift * (uLiftK * shL * shL);
 
       // vignette (slightly cool at the corners, like a wide lens)
       vec2 d = vUv - 0.5;

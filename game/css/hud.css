@@ -154,11 +154,11 @@ html, body {
   background: radial-gradient(circle at 34% 28%, #fffbe4, #ffd469 42%, #d18f14 78%, #7a4f08 100%);
   box-shadow: 0 0 6px rgba(255, 200, 80, 0.55), inset 0 -1px 2px rgba(90, 55, 0, 0.7);
 }
-.csIcon {
-  width: 11px; height: 11px; border-radius: 2px; transform: rotate(45deg);
-  background: linear-gradient(150deg, #e9f5ff, #8fb2da 45%, #3c5680 100%);
-  box-shadow: 0 0 5px rgba(140, 190, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
+/* CS = creeps slain: a struck minion helm, not a gem (a gem reads as premium
+   currency, which is exactly what a last-hit counter must not read as) */
+.csIcon { width: 13px; height: 13px; color: #b9cde8; }
+.csIcon svg { width: 100%; height: 100%; display: block;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85)); }
 .kdaIcon { width: 12px; height: 12px; color: var(--gold); opacity: 0.9; }
 .kdaIcon svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8)); }
 
@@ -196,8 +196,8 @@ html, body {
     radial-gradient(circle at 50% 118%, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0) 62%),
     linear-gradient(203deg, rgba(120, 180, 255, 0.22), rgba(0, 0, 0, 0) 46%),
     var(--portrait, none);
-  background-size: cover, cover, cover, 122%;
-  background-position: center, center, center, 50% 40%;
+  background-size: cover, cover, cover, cover;
+  background-position: center, center, center, center;
   background-repeat: no-repeat;
   box-shadow: inset 0 -7px 13px rgba(0, 0, 0, 0.62), inset 0 2px 5px rgba(190, 220, 255, 0.18);
 }
@@ -337,7 +337,7 @@ html, body {
   100% { transform: translateX(130px); }
 }
 .abIcon {
-  position: relative; width: 55%; height: 55%; fill: #fbfdff;
+  position: relative; width: 55%; height: 55%; color: #fbfdff;
   filter: drop-shadow(0 0 1.5px rgba(2, 8, 20, 0.95)) drop-shadow(0 1.5px 2px rgba(0, 0, 0, 0.85))
     drop-shadow(0 0 6px rgba(0, 0, 0, 0.4));
 }
@@ -348,10 +348,14 @@ html, body {
   box-shadow: 0 3px 9px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.6),
     inset 0 0 0 1px rgba(255, 245, 210, 0.55), 0 0 9px rgba(255, 202, 106, 0.45);
 }
-.abBtn.ready .abIcon { fill: #fffaf0; }
+.abBtn.ready .abIcon { color: #fffaf0; }
 
-/* --- cooling --- */
-.abBtn.cooling .abFace { filter: saturate(0.34) brightness(0.62); }
+/* --- cooling ---
+   Universal convention: a DARK scrim covers the face at cast and *recedes*
+   clockwise as the cooldown burns down. The icon must stay readable under it
+   (the player is scanning the cluster for the glyph, not for the number), so
+   the scrim tops out at 55% and the face only dims to 0.84. */
+.abBtn.cooling .abFace { filter: saturate(0.72) brightness(0.84); }
 .abBtn.cooling .abIcon { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85)); }
 .abSweep { position: absolute; inset: 2.6px; border-radius: 50%; pointer-events: none; }
 .abCd {
@@ -369,7 +373,7 @@ html, body {
   background: linear-gradient(165deg, #9db6d8, #3d5a86 46%, #7d9ac4 78%, #2b4368);
   box-shadow: 0 3px 9px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.6), inset 0 0 0 1px rgba(180, 214, 255, 0.55);
 }
-.abBtn.noMana .abIcon { fill: #9fc4f0; }
+#abilityCluster .abBtn.noMana .abIcon { color: #7fb0e8; }
 
 /* --- locked / unleveled --- */
 .abBtn.locked .abFace { filter: grayscale(0.92) brightness(0.36); }
@@ -391,12 +395,16 @@ html, body {
 .abBtn.locked .abPlus { display: flex; animation: plusPulse 1.25s ease-in-out infinite; }
 @keyframes plusPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.16); } }
 
-/* --- key hint + rank pips --- */
+/* --- key hint + rank pips ---
+   Keycaps are a desktop tell on a touch HUD: they stay hidden until the player
+   actually presses a key, at which point hud.js sets #hud.kb and they fade in. */
 .abKey {
   position: absolute; left: 50%; top: 4.5px; transform: translateX(-50%);
   font-size: 8px; font-weight: 800; letter-spacing: 0.6px; color: rgba(255, 224, 160, 0.85);
   text-shadow: 0 1px 2px #000;
+  opacity: 0; transition: opacity 0.2s linear;
 }
+#hud.kb .abKey { opacity: 1; }
 #btnR .abKey { top: 5.5px; font-size: 8.5px; }
 .abPips {
   position: absolute; left: 50%; bottom: 5.5px; transform: translateX(-50%);
@@ -436,19 +444,19 @@ html, body {
     radial-gradient(circle at 50% 128%, rgba(88, 226, 236, 0.55), rgba(40, 180, 200, 0) 58%),
     radial-gradient(circle at 32% 16%, rgba(178, 238, 252, 0.95) 0%, rgba(26, 122, 152, 0.97) 44%, rgba(5, 32, 52, 0.99) 100%);
 }
-#btnQ .abIcon { fill: #e6feff; filter: drop-shadow(0 0 1.6px rgba(0, 24, 34, 0.95)) drop-shadow(0 0 7px rgba(110, 236, 255, 0.8)) drop-shadow(0 1.5px 2px rgba(0,0,0,.85)); }
+#btnQ .abIcon { color: #5cdcff; filter: drop-shadow(0 0 1.6px rgba(0, 24, 34, 0.95)) drop-shadow(0 0 7px rgba(110, 236, 255, 0.8)) drop-shadow(0 1.5px 2px rgba(0,0,0,.85)); }
 #btnW .abFace {
   background:
     radial-gradient(circle at 50% 128%, rgba(110, 166, 255, 0.52), rgba(60, 110, 235, 0) 58%),
     radial-gradient(circle at 32% 16%, rgba(186, 214, 255, 0.95) 0%, rgba(40, 78, 176, 0.97) 44%, rgba(8, 18, 58, 0.99) 100%);
 }
-#btnW .abIcon { fill: #f0f6ff; filter: drop-shadow(0 0 1.6px rgba(0, 12, 40, 0.95)) drop-shadow(0 0 7px rgba(130, 180, 255, 0.8)) drop-shadow(0 1.5px 2px rgba(0,0,0,.85)); }
+#btnW .abIcon { color: #7fadff; filter: drop-shadow(0 0 1.6px rgba(0, 12, 40, 0.95)) drop-shadow(0 0 7px rgba(130, 180, 255, 0.8)) drop-shadow(0 1.5px 2px rgba(0,0,0,.85)); }
 #btnE .abFace {
   background:
     radial-gradient(circle at 50% 128%, rgba(190, 130, 255, 0.52), rgba(150, 90, 240, 0) 58%),
     radial-gradient(circle at 32% 16%, rgba(224, 198, 255, 0.95) 0%, rgba(88, 54, 178, 0.97) 44%, rgba(22, 8, 58, 0.99) 100%);
 }
-#btnE .abIcon { fill: #f8efff; filter: drop-shadow(0 0 1.6px rgba(20, 4, 40, 0.95)) drop-shadow(0 0 7px rgba(196, 140, 255, 0.85)) drop-shadow(0 1.5px 2px rgba(0,0,0,.85)); }
+#btnE .abIcon { color: #b585ff; filter: drop-shadow(0 0 1.6px rgba(20, 4, 40, 0.95)) drop-shadow(0 0 7px rgba(196, 140, 255, 0.85)) drop-shadow(0 1.5px 2px rgba(0,0,0,.85)); }
 
 /* --- ULTIMATE (R) : richer frame + charge glow --- */
 #btnR .abFrame {
@@ -478,7 +486,7 @@ html, body {
     radial-gradient(circle at 30% 14%, rgba(255, 214, 122, 0.95) 0%, rgba(222, 88, 22, 0.97) 42%, rgba(74, 10, 8, 0.99) 100%);
 }
 #btnR .abSweep { inset: 3.4px; }
-#btnR .abIcon { width: 58%; height: 58%; fill: #fffdf4;
+#btnR .abIcon { width: 58%; height: 58%; color: #ff9f3c;
   filter: drop-shadow(0 0 2px rgba(72, 20, 0, 0.95)) drop-shadow(0 0 9px rgba(255, 232, 168, 0.95)) drop-shadow(0 1.5px 3px rgba(90, 26, 0, 0.9)); }
 .abGlow {
   position: absolute; inset: -13px; border-radius: 50%; opacity: 0; pointer-events: none;
@@ -506,7 +514,7 @@ html, body {
     radial-gradient(circle at 32% 15%, rgba(200, 226, 255, 0.95) 0%, rgba(48, 82, 142, 0.97) 44%, rgba(6, 14, 36, 0.99) 100%);
 }
 #btnA .abSweep { inset: 3.6px; }
-#btnA .abIcon { width: 58%; height: 58%; fill: #ffeec2;
+#btnA .abIcon { width: 58%; height: 58%; color: #ffc463;
   filter: drop-shadow(0 0 1.6px rgba(40, 16, 0, 0.95)) drop-shadow(0 0 8px rgba(255, 190, 80, 0.85)) drop-shadow(0 1.5px 3px rgba(0,0,0,.9)); }
 /* dashed targeting ring around the attack button */
 .abDash {
@@ -541,6 +549,124 @@ html, body {
   transform: translate(-50%, -50%);
   box-shadow: 0 3px 9px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.5),
     0 0 0 1.5px rgba(255, 208, 128, 0.7);
+}
+
+/* ---------- resting well ----------
+   The floating stick only exists while a thumb is down, so at rest the whole
+   lower-left read as empty render. This is the home position; it fades out the
+   moment controls.js shows #joyBase (attribute match, no :has()). */
+#joyHome {
+  position: absolute;
+  left: calc(170px + var(--sa-l)); bottom: calc(146px + var(--sa-b));
+  width: 104px; height: 104px; border-radius: 50%; pointer-events: none;
+  transform: translate(-50%, 50%);
+  opacity: 0.62; transition: opacity 0.18s linear;
+  background:
+    radial-gradient(circle closest-side, rgba(10, 16, 30, 0.34) 0 62%, rgba(12, 20, 38, 0.5) 88%, rgba(10, 16, 30, 0) 100%);
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.45);
+}
+#joyBase[style*="display: block"] + #joyHome { opacity: 0; }
+.jhRing {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: var(--ring); opacity: 0.75;
+  -webkit-mask: radial-gradient(circle closest-side, rgba(0,0,0,0) 0 93.5%, #000 95% 99.5%, rgba(0,0,0,0) 100%);
+  mask: radial-gradient(circle closest-side, rgba(0,0,0,0) 0 93.5%, #000 95% 99.5%, rgba(0,0,0,0) 100%);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
+}
+.jhTicks {
+  position: absolute; inset: 9px; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 216, 140, 0.42) 0deg 1.6deg, rgba(255, 216, 140, 0) 1.6deg 15deg);
+  -webkit-mask: radial-gradient(circle closest-side, rgba(0,0,0,0) 0 88%, #000 90% 99%, rgba(0,0,0,0) 100%);
+  mask: radial-gradient(circle closest-side, rgba(0,0,0,0) 0 88%, #000 90% 99%, rgba(0,0,0,0) 100%);
+}
+.jhNub {
+  position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 36% 28%, rgba(190, 220, 255, 0.85), rgba(52, 84, 144, 0.85) 58%, rgba(14, 24, 46, 0.9));
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.45),
+    0 0 0 1.4px rgba(255, 208, 128, 0.6);
+}
+/* four-way nub glyph: arrowheads, not a plus sign */
+.jhNub::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 21px; height: 21px;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 238, 202, 0.82);
+  -webkit-clip-path: polygon(50% 0, 70% 25%, 57.5% 25%, 57.5% 42.5%, 75% 42.5%, 75% 30%,
+    100% 50%, 75% 70%, 75% 57.5%, 57.5% 57.5%, 57.5% 75%, 70% 75%,
+    50% 100%, 30% 75%, 42.5% 75%, 42.5% 57.5%, 25% 57.5%, 25% 70%,
+    0 50%, 25% 30%, 25% 42.5%, 42.5% 42.5%, 42.5% 25%, 30% 25%);
+  clip-path: polygon(50% 0, 70% 25%, 57.5% 25%, 57.5% 42.5%, 75% 42.5%, 75% 30%,
+    100% 50%, 75% 70%, 75% 57.5%, 57.5% 57.5%, 57.5% 75%, 70% 75%,
+    50% 100%, 30% 75%, 42.5% 75%, 42.5% 57.5%, 25% 57.5%, 25% 70%,
+    0 50%, 25% 30%, 25% 42.5%, 42.5% 42.5%, 42.5% 25%, 30% 25%);
+}
+
+/* ====================================================================
+   SUMMONER COLUMN (left of the ability arc) + RELIC SOCKETS
+   ==================================================================== */
+#sumRail {
+  position: absolute;
+  right: calc(max(10px, var(--sa-r)) + 256px); bottom: calc(14px + var(--sa-b));
+  display: flex; flex-direction: column-reverse; gap: 9px;
+}
+.sumSlot {
+  position: relative; width: 38px; height: 38px; border: 0; padding: 0; border-radius: 50%;
+  background: var(--ring); cursor: pointer;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 240, 200, 0.3);
+  transition: transform 0.07s ease-out;
+}
+.sumSlot:active { transform: scale(0.93); }
+.sumSlot > * { pointer-events: none; }
+.sumFace {
+  position: absolute; inset: 2.2px; border-radius: 50%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 32% 18%, rgba(150, 190, 240, 0.9) 0%, rgba(44, 70, 118, 0.97) 46%, rgba(10, 18, 38, 0.99) 100%);
+  box-shadow: inset 0 2px 3px rgba(255, 245, 215, 0.3), inset 0 -8px 13px rgba(0, 0, 0, 0.55);
+  transition: filter 0.16s linear;
+}
+.sumIcon { width: 56%; height: 56%; fill: #eaf4ff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85)); }
+#sumMend .sumFace { background: radial-gradient(circle at 32% 18%, rgba(180, 245, 200, 0.9) 0%, rgba(30, 110, 74, 0.97) 46%, rgba(6, 32, 22, 0.99) 100%); }
+#sumMend .sumIcon { fill: #ddffe6; }
+#sumRecall .sumFace { background: radial-gradient(circle at 32% 18%, rgba(186, 214, 255, 0.9) 0%, rgba(46, 78, 158, 0.97) 46%, rgba(8, 16, 46, 0.99) 100%); }
+#sumRecall .sumIcon { fill: #dfeaff; }
+.sumSweep { position: absolute; inset: 2.2px; border-radius: 50%; pointer-events: none; }
+.sumCd {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff; letter-spacing: -0.3px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.95), 0 1px 3px #000;
+}
+.sumSlot.cooling .sumFace { filter: saturate(0.7) brightness(0.8); }
+.sumSlot.channel .sumFace { filter: brightness(1.15); }
+.sumSlot.channel { box-shadow: 0 3px 8px rgba(0, 0, 0, 0.6), 0 0 12px rgba(150, 200, 255, 0.85); }
+
+#itemRail {
+  position: absolute;
+  left: calc(286px + var(--sa-l)); bottom: calc(14px + var(--sa-b));
+  display: flex; gap: 4px; pointer-events: none;
+}
+.itemSlot {
+  position: relative; width: 23px; height: 23px; border-radius: 5px;
+  background: linear-gradient(160deg, rgba(24, 34, 56, 0.9), rgba(6, 10, 20, 0.94));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.75),
+    0 0 0 1.6px rgba(255, 208, 128, 0.3), 0 2px 5px rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+}
+/* empty socket: a faint hatched well, never a blank hole */
+.itemSlot::before {
+  content: ""; position: absolute; inset: 3px; border-radius: 2px;
+  background: repeating-linear-gradient(-45deg, rgba(255, 216, 150, 0.1) 0 1px, rgba(255, 216, 150, 0) 1px 5px);
+}
+.itemSlot svg { width: 68%; height: 68%; fill: #63769a; opacity: 0.62; position: relative; transition: opacity 0.2s; }
+.itemSlot.on { background: linear-gradient(160deg, rgba(58, 82, 128, 0.95), rgba(12, 20, 40, 0.96)); }
+.itemSlot.on::before { opacity: 0; }
+.itemSlot.on svg { fill: #ffe0a4; opacity: 1; filter: drop-shadow(0 0 4px rgba(255, 190, 90, 0.7)); }
+.itemSlot.on { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.75),
+  0 0 0 1.6px rgba(255, 214, 140, 0.75), 0 2px 6px rgba(0, 0, 0, 0.55), 0 0 8px rgba(255, 190, 90, 0.35); }
+.itemSlot.pop { animation: itemPop 0.5s cubic-bezier(0.2, 0.8, 0.3, 1); }
+@keyframes itemPop {
+  0% { transform: scale(0.7); } 55% { transform: scale(1.18); } 100% { transform: scale(1); }
 }
 
 /* ====================================================================
@@ -624,5 +750,5 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .abBtn.ready .abFace::after, .abBtn.ult.ready .abGlow, .abBtn.ult.ready .abFrame,
-  .abBtn.atk.ready .abDash, .abBtn.locked .abPlus { animation: none; }
+  .abBtn.atk.ready .abDash, .abBtn.locked .abPlus, .itemSlot.pop { animation: none; }
 }

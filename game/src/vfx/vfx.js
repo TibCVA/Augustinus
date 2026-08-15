@@ -23,6 +23,26 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tex, uTime } from '../core/assets.js';
+import { pulseLight } from '../world/environment.js';
+
+// ---- shared VFX uniforms -------------------------------------------------
+// uHole: a world-space sphere (xyz + radius) that additive effects fade out of,
+// so the caster can be found INSIDE her own ultimate instead of being deleted
+// by her own light. uHoleK ramps it in for the duration of the flash only.
+const uHole = { value: new THREE.Vector4(0, 0, 0, 1.2) };
+const uHoleK = { value: 0 };
+// Minimum angular size for additive sprites: world size >= dist * uMinAng, so
+// clash sparks and tower beams survive at overview distance instead of going
+// sub-pixel. Resolution independent — it is an angle, not a pixel count.
+const uMinAng = { value: 0.0045 };
+const HOLE_GLSL = `
+  uniform vec4 uHole; uniform float uHoleK;
+  float holeFade(vec3 wp) {
+    if (uHoleK <= 0.0) return 1.0;
+    float d = length(wp - uHole.xyz);
+    return mix(1.0, smoothstep(uHole.w * 0.42, uHole.w, d), uHoleK);
+  }
+`;
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -446,10 +466,12 @@ class ParticlePool {
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      uniforms: { tMap: { value: texture } },
+      uniforms: { tMap: { value: texture }, uHole, uHoleK, uMinAng },
       vertexShader: `
         attribute vec3 aPos; attribute vec4 aData; attribute vec3 aCol; attribute vec4 aExt;
+        uniform float uMinAng;
         varying vec2 vUv; varying vec3 vCol; varying float vA; varying float vSprite;
+        varying vec3 vWP;
         void main() {
           vUv = uv; vCol = aCol; vA = aData.z; vSprite = aData.w;
           vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
@@ -463,18 +485,23 @@ class ParticlePool {
           } else {
             dir = vec2(-sin(aData.y), cos(aData.y));
           }
+          // never let a spark shrink below a minimum solid angle
+          float sz = max(aData.x, length(aPos - cameraPosition) * uMinAng);
           vec2 ax = vec2(dir.y, -dir.x);
-          vec2 p = (ax * position.x + dir * position.y * st) * aData.x;
+          vec2 p = (ax * position.x + dir * position.y * st) * sz;
           vec3 wp = aPos + right * p.x + up * p.y;
+          vWP = wp;
           gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
         }`,
       fragmentShader: `
         uniform sampler2D tMap;
         varying vec2 vUv; varying vec3 vCol; varying float vA; varying float vSprite;
+        varying vec3 vWP;
+        ${HOLE_GLSL}
         void main() {
           vec2 cell = vec2(mod(vSprite, 4.0), floor(vSprite / 4.0));
           vec4 c = texture2D(tMap, (cell + clamp(vUv, 0.004, 0.996)) * 0.25);
-          gl_FragColor = vec4(c.rgb * vCol, c.a * vA);
+          gl_FragColor = vec4(c.rgb * vCol, c.a * vA * holeFade(vWP));
           if (gl_FragColor.a < 0.004) discard;
         }`,
     });
@@ -602,10 +629,11 @@ class ArcPool {
     this.geo = geo;
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { tMap: { value: texture } },
+      uniforms: { tMap: { value: texture }, uHole, uHoleK },
       vertexShader: `
         attribute vec3 aPos; attribute vec3 aR; attribute vec3 aU; attribute vec3 aCol; attribute vec3 aData;
         varying vec2 vUv; varying vec3 vCol; varying float vA; varying float vSprite;
+        varying vec3 vWP;
         void main() {
           vUv = uv; vCol = aCol; vA = aData.x; vSprite = aData.y;
           vec3 R = aR, U = aU;
@@ -617,15 +645,18 @@ class ArcPool {
             U = vec3(0.0, aU.y, 0.0);
           }
           vec3 wp = aPos + R * position.x + U * position.y;
+          vWP = wp;
           gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
         }`,
       fragmentShader: `
         uniform sampler2D tMap;
         varying vec2 vUv; varying vec3 vCol; varying float vA; varying float vSprite;
+        varying vec3 vWP;
+        ${HOLE_GLSL}
         void main() {
           vec2 cell = vec2(mod(vSprite, 4.0), floor(vSprite / 4.0));
           vec4 c = texture2D(tMap, (cell + clamp(vUv, 0.004, 0.996)) * 0.25);
-          gl_FragColor = vec4(c.rgb * vCol, c.a * vA);
+          gl_FragColor = vec4(c.rgb * vCol, c.a * vA * holeFade(vWP));
           if (gl_FragColor.a < 0.004) discard;
         }`,
     });
@@ -993,28 +1024,40 @@ class TelePool {
       uniforms: { uTime, tRune: { value: tex.runeRing } },
       vertexShader: `
         attribute vec4 aPos; attribute vec3 aPar; attribute vec3 aCol;
-        varying vec2 vUv; varying vec3 vPar; varying vec3 vCol;
+        varying vec2 vUv; varying vec3 vPar; varying vec3 vCol; varying float vR;
         void main() {
-          vUv = uv; vPar = aPar; vCol = aCol;
+          vUv = uv; vPar = aPar; vCol = aCol; vR = aPos.w;
           gl_Position = projectionMatrix * viewMatrix * vec4(aPos.xyz + position * aPos.w, 1.0);
         }`,
       fragmentShader: `
         uniform float uTime; uniform sampler2D tRune;
-        varying vec2 vUv; varying vec3 vPar; varying vec3 vCol;
+        varying vec2 vUv; varying vec3 vPar; varying vec3 vCol; varying float vR;
         void main() {
           vec2 q = vUv * 2.0 - 1.0;
           float d = length(q);
           if (d > 1.001) discard;
           float age = vPar.x, A = vPar.y, prog = vPar.z;
           float ang = atan(q.y, q.x);
-          // outer rim: double line, pulsing
+          // Line weights are WORLD units converted to normalised radius, so a
+          // 5.5 m telegraph and a 2 m one draw the same physical stroke instead
+          // of the big one turning into a CAD hairline at map scale.
+          float u = 1.0 / max(vR, 0.35);         // 1 world metre in q-space
+          float wRim  = clamp(0.165 * u, 0.018, 0.22);
+          float wThin = clamp(0.075 * u, 0.010, 0.11);
+          // outer rim: double line, pulsing, with a soft outward falloff over
+          // ~8% of the radius so the edge sits in the world instead of floating
           float pulse = 0.72 + 0.28 * sin(uTime * 7.0);
-          float rim = (1.0 - smoothstep(0.0, 0.030, abs(d - 0.985))) * pulse;
-          rim += (1.0 - smoothstep(0.0, 0.016, abs(d - 0.895))) * 0.55;
+          float rim = (1.0 - smoothstep(0.0, wRim, abs(d - 0.960))) * pulse;
+          rim += (1.0 - smoothstep(0.0, wThin, abs(d - 0.855))) * 0.55;
+          float bleed = smoothstep(1.075, 0.960, d) * smoothstep(0.885, 0.955, d) * 0.42 * pulse;
           // radar sweep
           float sw = fract((ang / 6.2831) + 0.5 - uTime * 0.55);
           float sweep = pow(1.0 - sw, 7.0) * (1.0 - smoothstep(0.86, 1.0, d)) * 0.65;
-          // fill that charges up with the cast
+          // interior membrane: an actual surface that charges with the cast,
+          // 0.10 → 0.16 alpha, not the empty air a wireframe leaves behind
+          float interior = (0.10 + 0.06 * prog)
+                         * (0.80 + 0.20 * sin(uTime * 4.0 - d * 5.0))
+                         * (1.0 - smoothstep(0.55, 1.0, d) * 0.35);
           float fill = step(d, prog) * (0.09 + 0.05 * sin(uTime * 6.0 - d * 8.0));
           fill += smoothstep(prog + 0.06, prog - 0.02, d) * smoothstep(prog - 0.16, prog - 0.02, d) * 0.5;
           // marching chevrons
@@ -1022,9 +1065,14 @@ class TelePool {
           // rune band
           vec2 ru = (q * 1.06) * 0.5 + 0.5;
           float rr = texture2D(tRune, clamp(ru, 0.0, 1.0)).a * (0.55 + 0.45 * sin(uTime * 3.0));
-          float glow = (rim * 1.5 + sweep + fill + chev + rr * 0.85) * A;
-          float dark = (1.0 - smoothstep(0.55, 1.0, d)) * 0.16 * A;
-          gl_FragColor = vec4(vCol * glow * 1.25 + vec3(0.02, 0.015, 0.012) * dark, dark);
+          float glow = (rim * 1.5 + bleed + sweep + fill + chev + rr * 0.85 + interior * 1.0) * A;
+          // multiply pass: darken the paving underneath so the decal sits ON the
+          // stone. Strongest just inside the rim, where a real shadow would be.
+          float dark = ((1.0 - smoothstep(0.62, 1.02, d)) * 0.16
+                      + interior * 1.1
+                      + (1.0 - smoothstep(0.0, wRim * 2.2, abs(d - 0.960))) * 0.26) * A;
+          dark = min(dark, 0.34);
+          gl_FragColor = vec4(vCol * glow * 1.25 + vec3(0.030, 0.022, 0.016) * dark, dark);
           if (gl_FragColor.a < 0.003 && glow < 0.004) discard;
         }`,
     });
@@ -1097,20 +1145,24 @@ class BeamPool {
     this.geo = geo;
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { uTime },
+      uniforms: { uTime, uMinAng },
       vertexShader: `
         attribute vec3 aA; attribute vec3 aB; attribute vec2 aPar; attribute vec3 aCol;
+        uniform float uMinAng;
         varying vec2 vUv; varying vec3 vCol; varying float vA;
         void main() {
           vUv = uv; vCol = aCol; vA = aPar.y;
           float s = position.y + 0.5;
           vec3 p = mix(aA, aB, s);
           vec3 axis = normalize(aB - aA);
-          vec3 toCam = normalize(cameraPosition - p);
-          vec3 side = cross(axis, toCam);
+          vec3 toCam = cameraPosition - p;
+          float camD = length(toCam);
+          vec3 side = cross(axis, toCam / max(camD, 1e-4));
           float l = length(side);
           side = (l > 1e-4) ? side / l : vec3(1.0, 0.0, 0.0);
-          gl_Position = projectionMatrix * viewMatrix * vec4(p + side * position.x * aPar.x * 2.0, 1.0);
+          // tower beams must still read as beams from the overview camera
+          float rad = max(aPar.x, camD * uMinAng * 1.7);
+          gl_Position = projectionMatrix * viewMatrix * vec4(p + side * position.x * rad * 2.0, 1.0);
         }`,
       fragmentShader: `
         uniform float uTime;
@@ -1187,7 +1239,8 @@ class BeamPool {
 class DebrisPool {
   constructor(scene, cap) {
     this.cap = cap; this.n = 0;
-    for (const k of ['t', 'dur', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'sc', 'ax', 'ay', 'az', 'aw', 'ground'])
+    for (const k of ['t', 'dur', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'sc', 'ax', 'ay', 'az', 'aw', 'ground',
+      'hot', 'br', 'bg', 'bb'])
       this[k] = new Float32Array(cap);
     this.qx = new Float32Array(cap); this.qy = new Float32Array(cap);
     this.qz = new Float32Array(cap); this.qw = new Float32Array(cap);
@@ -1202,10 +1255,28 @@ class DebrisPool {
         pos.getZ(i) * rf(0.6, 1.35));
     }
     g0.computeVertexNormals();
-    parts.push(g0.toNonIndexed());
-    const geo = mergeGeometries(parts, false);
+    const geo = mergeGeometries([g0.toNonIndexed()], false);
+    // Flat shading gave every chunk one dead value per face — at blast scale
+    // that reads as cut paper. Jitter the per-vertex normals off the face normal
+    // instead: each triangle still reads faceted but carries a gradient, so the
+    // chunks tumble with real form.
+    {
+      const np = geo.attributes.position, nn = geo.attributes.normal;
+      const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _cc = new THREE.Vector3();
+      const _n = new THREE.Vector3();
+      for (let f = 0; f < np.count; f += 3) {
+        _a.fromBufferAttribute(np, f); _b.fromBufferAttribute(np, f + 1); _cc.fromBufferAttribute(np, f + 2);
+        _b.sub(_a); _cc.sub(_a);
+        _n.crossVectors(_b, _cc).normalize();
+        for (let k = 0; k < 3; k++) {
+          _a.set(_n.x + rf(-0.42, 0.42), _n.y + rf(-0.42, 0.42), _n.z + rf(-0.42, 0.42)).normalize();
+          nn.setXYZ(f + k, _a.x, _a.y, _a.z);
+        }
+      }
+      nn.needsUpdate = true;
+    }
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.95, metalness: 0, flatShading: true,
+      color: 0xffffff, roughness: 0.95, metalness: 0, flatShading: false,
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, cap);
     this.mesh.frustumCulled = false;
@@ -1216,10 +1287,15 @@ class DebrisPool {
     for (let i = 0; i < cap; i++) {
       _c.setHSL(0.085 + rf(-0.02, 0.03), rf(0.14, 0.30), rf(0.42, 0.74));
       this.mesh.setColorAt(i, _c);
+      this.br[i] = _c.r; this.bg[i] = _c.g; this.bb[i] = _c.b;
     }
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.mesh.instanceColor) {
+      this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      this.mesh.instanceColor.needsUpdate = true;
+    }
     scene.add(this.mesh);
     this.warm = 2;
+    this.anyHot = false;
   }
   spawn(o) {
     if (this.n >= this.cap) return;
@@ -1229,6 +1305,10 @@ class DebrisPool {
     this.vx[i] = o.vx; this.vy[i] = o.vy; this.vz[i] = o.vz;
     this.sc[i] = o.size;
     this.ground[i] = o.ground ?? 0;
+    // blast light: chunks near the core take the warm flash, chunks at the rim
+    // barely do. Decays over 0.4 s (see update()).
+    this.hot[i] = o.hot ?? 0;
+    if (this.hot[i] > 0) this.anyHot = true;
     const l = Math.hypot(o.ax, o.ay, o.az) || 1;
     this.ax[i] = o.ax / l; this.ay[i] = o.ay / l; this.az[i] = o.az / l;
     this.aw[i] = o.spin;
@@ -1237,8 +1317,11 @@ class DebrisPool {
   kill(i) {
     const l = --this.n;
     if (i !== l) {
-      for (const k of ['t', 'dur', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'sc', 'ax', 'ay', 'az', 'aw', 'ground', 'qx', 'qy', 'qz', 'qw'])
+      for (const k of ['t', 'dur', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'sc', 'ax', 'ay', 'az', 'aw', 'ground',
+        'hot', 'qx', 'qy', 'qz', 'qw'])
         this[k][i] = this[k][l];
+      // br/bg/bb deliberately do NOT travel: base albedo belongs to the instance
+      // SLOT (it is uploaded by instance index) and is random per slot anyway.
     }
   }
   update(dt) {
@@ -1277,6 +1360,11 @@ class DebrisPool {
       this.mesh.instanceMatrix.needsUpdate = true;
       return;
     }
+    // Blast light on the chunks: tint toward 0xffb066 by the per-chunk `hot`
+    // weight, decaying over 0.4 s. Only touched while something is still hot,
+    // so the instanceColor buffer is not re-uploaded on idle frames.
+    let stillHot = false;
+    const IC = this.anyHot && this.mesh.instanceColor ? this.mesh.instanceColor.array : null;
     for (let j = 0; j < n; j++) {
       const t = this.t[j] / this.dur[j];
       const k = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1;
@@ -1285,12 +1373,25 @@ class DebrisPool {
       _sc.setScalar(this.sc[j] * k);
       _m.compose(_v1, _q, _sc);
       this.mesh.setMatrixAt(j, _m);
+      if (IC) {
+        const h = this.hot[j] > 0 ? this.hot[j] * Math.max(0, 1 - this.t[j] / 0.4) : 0;
+        if (h > 0.002) stillHot = true;
+        const j3 = j * 3;
+        // 0xffb066 in linear-ish working space, pushed hard enough to survive ACES
+        IC[j3] = this.br[j] + (1.00 - this.br[j]) * h;
+        IC[j3 + 1] = this.bg[j] + (0.43 - this.bg[j]) * h;
+        IC[j3 + 2] = this.bb[j] + (0.14 - this.bb[j]) * h;
+      }
+    }
+    if (IC) {
+      this.mesh.instanceColor.needsUpdate = true;
+      if (!stillHot) this.anyHot = false;
     }
     this.mesh.count = n;
     this.mesh.visible = n > 0;
     if (n > 0) this.mesh.instanceMatrix.needsUpdate = true;
   }
-  clear() { this.n = 0; this.mesh.count = 0; this.mesh.visible = false; }
+  clear() { this.n = 0; this.mesh.count = 0; this.mesh.visible = false; this.anyHot = false; }
 }
 
 // ================================================================ ghosts ===
@@ -1514,6 +1615,7 @@ export class VFX {
     this.kick = 0;
     this.kickX = 0; this.kickZ = 0;
     this.time = 0;
+    this._holeT = 0; this._holeDur = 0;
 
     const atlasAdd = buildAtlas([
       spDot,
@@ -1804,6 +1906,8 @@ export class VFX {
   _beamImpact(x, y, z, r, g, b) {
     _c.setRGB(r, g, b);
     const hex = _c.getHex();
+    // a tower shot now throws real light onto the ground it hits (L3)
+    pulseLight(x, y + 0.3, z, { color: hex, peak: 16, dur: 0.26, distance: 11 });
     this.pAdd.spawn({ x, y, z, life: 0.2, size: 0.5, sizeEnd: 2.0, col: hex, glow: 1.6, alpha: 0.8, sprite: S_GLOW, fadePow: 3 });
     this.burst(x, y, z, { count: 8, col: hex, col2: 0xffffff, speed: 6, up: 2.6, life: 0.3, size: 0.19, sizeEnd: 0.02, gravity: 10, sprite: S_SPARK2, glow: 2.1, stretch: 2.6, drag: 3 });
   }
@@ -1900,6 +2004,17 @@ export class VFX {
     if (amt > 0.4) { this.kick = Math.min(1, this.kick + amt * 0.8); this.kickX = dirX; this.kickZ = dirZ; }
   }
   flash(amt) { if (this.grade) this.grade.uFlash.value = Math.min(0.85, this.grade.uFlash.value + amt); }
+
+  /**
+   * Open a world-space hole in the additive VFX so a character standing inside
+   * a blast stays findable. Decays to nothing over `dur`.
+   */
+  hole(x, y, z, radius = 1.2, dur = 0.28) {
+    uHole.value.set(x, y, z, radius);
+    uHoleK.value = 1;
+    this._holeDur = dur;
+    this._holeT = 0;
+  }
   text(pos, str, kind) { this.onText(pos, str, kind); }
 
   getShakeOffset(out, t) {
@@ -1956,6 +2071,7 @@ export class VFX {
     this.burst(x, y, z, { count: 7, col: 0xdad4c8, speed: 1.8, up: 1.2, life: 0.85, size: 0.5, sizeEnd: 1.35, gravity: -0.3, sprite: A_SMOKE, pool: 'alpha', alpha: 0.4, glow: 1, fadePow: 1.4 });
     this.pAdd.spawn({ x, y, z, life: 0.22, size: 0.8, sizeEnd: 2.6, col, glow: 1.5, alpha: 0.7, sprite: S_GLOW, fadePow: 3 });
     this.ring(x, y - 0.4, z, { r0: 0.25, r1: 2.9, dur: 0.42, col, alpha: 0.7, thick: 0.2, dust: 0.5, ease: 2.6 });
+    pulseLight(x, y + 0.2, z, { color: col, peak: 12, dur: 0.3, distance: 9 });
   }
   levelUpFx(unit) {
     const p = unit.pos;
@@ -1976,14 +2092,24 @@ export class VFX {
   // arcs → light pillar + god rays → cooling crater → settling embers.
   dawnfall(x, y, z, r) {
     const gy = this.groundHeight(x, z);
-    this.flash(0.72);
+    // The full-screen flash was the single biggest cause of the "clips to pure
+    // white" read — it alone drove the whole frame past 1.0 before bloom.
+    this.flash(0.34);
     this.shake(1.25);
+    // real light in the world: the ult now lights the deck, the debris and the
+    // combatants standing in it (L3 + V2)
+    pulseLight(x, gy + 2.0, z, { color: 0xffb347, peak: 26, dur: 0.35, distance: 18 });
+    // punch the caster out of her own core for the duration of the flash (V1)
+    this.hole(x, gy + 1.25, z, 1.9, 0.34);
 
-    // --- impact frame: a very short, very hot core -------------------------
-    this.pAdd.spawn({ x, y: gy + 0.5, z, life: 0.095, size: r * 1.1, sizeEnd: r * 2.0, col: 0xfff6e2, glow: 1.5, alpha: 0.9, sprite: S_GLOW, fadePow: 4 });
-    this.pAdd.spawn({ x, y: gy + 0.9, z, life: 0.13, size: r * 0.7, sizeEnd: r * 2.6, col: 0xffe6b4, glow: 1.7, alpha: 0.8, sprite: S_FLARE, fadePow: 3, rot: 0.2 });
+    // --- impact frame: a very short, hot core ------------------------------
+    // Peak emissive is CLAMPED and tinted warm (0xffd9a0) instead of white, so
+    // the core keeps a value ramp from gold rim to hot centre instead of
+    // saturating to a flat white disc that deletes everything under it.
+    this.pAdd.spawn({ x, y: gy + 0.5, z, life: 0.095, size: r * 1.1, sizeEnd: r * 2.0, col: 0xffd9a0, glow: 0.86, alpha: 0.78, sprite: S_GLOW, fadePow: 4 });
+    this.pAdd.spawn({ x, y: gy + 0.9, z, life: 0.13, size: r * 0.7, sizeEnd: r * 2.6, col: 0xffcf90, glow: 0.94, alpha: 0.68, sprite: S_FLARE, fadePow: 3, rot: 0.2 });
     // lingering anamorphic star, lifted off the deck so the crater stays visible
-    this.pAdd.spawn({ x, y: gy + 2.1, z, life: 0.55, size: r * 0.34, sizeEnd: r * 0.95, col: 0xffd58a, glow: 1.3, alpha: 0.42, sprite: S_FLARE, fadePow: 2.6, rot: 1.1 });
+    this.pAdd.spawn({ x, y: gy + 2.1, z, life: 0.55, size: r * 0.34, sizeEnd: r * 0.95, col: 0xffd58a, glow: 1.15, alpha: 0.40, sprite: S_FLARE, fadePow: 2.6, rot: 1.1 });
 
     // --- shockwave train ---------------------------------------------------
     // fast thin outrunner
@@ -2084,11 +2210,13 @@ export class VFX {
     for (let i = 0; i < 34; i++) {
       const a = rf(0, TAU);
       const sp0 = rf(11, 26);
+      const dd = rf(0.3, 1.3);
       this.debris.spawn({
-        x: x + Math.cos(a) * rf(0.3, 1.3), y: gy + rf(0.15, 0.7), z: z + Math.sin(a) * rf(0.3, 1.3),
+        x: x + Math.cos(a) * dd, y: gy + rf(0.15, 0.7), z: z + Math.sin(a) * dd,
         vx: Math.cos(a) * sp0, vy: rf(8, 17), vz: Math.sin(a) * sp0,
         size: rf(0.18, 0.58), life: rf(1.5, 2.6), ground: gy + 0.06,
         ax: rf(-1, 1), ay: rf(-1, 1), az: rf(-1, 1), spin: rf(-16, 16),
+        hot: Math.max(0, 1 - dd / r) * 0.92,   // V2: blast light on the chunks
       });
     }
     // glowing shard sprites so the debris reads even against dark stone
@@ -2193,6 +2321,14 @@ export class VFX {
     this.debris.update(dt);
     this.ghostPool.update(dt);
     this.trailBank.update(dt);
+
+    // caster punch-out closes back up once the flash is over
+    if (this._holeDur > 0) {
+      this._holeT += dt;
+      const k = this._holeT / this._holeDur;
+      if (k >= 1) { this._holeDur = 0; uHoleK.value = 0; }
+      else uHoleK.value = 1 - k * k;
+    }
 
     // shake decays fast at first then settles — reads as a real impact
     this.trauma = Math.max(0, this.trauma - dt * (1.5 + this.trauma * 2.6));

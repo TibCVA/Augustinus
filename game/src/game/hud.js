@@ -4,7 +4,7 @@
 // actually changed and never reads layout.
 import * as THREE from 'three';
 import { tex } from '../core/assets.js';
-import { A } from '../world/arena.js';
+import { A, isWalkable } from '../world/arena.js';
 
 const _v = new THREE.Vector3();
 const _dir = new THREE.Vector3();
@@ -16,11 +16,20 @@ const AB_MAX = { Q: 5.5, W: 9.5, E: 11, R: 46 };
 const AB_RANKS = { Q: 5, W: 5, E: 5, R: 3 };
 const AB_REQ = { Q: 1, W: 1, E: 1, R: 5 };
 
+// summoner column (hud-owned: neither spell touches sim state beyond the
+// player's own hp / position, both of which the sim treats as authoritative
+// per frame)
+const MEND_CD = 100;      // s
+const MEND_FRAC = 0.25;   // of max hp
+const RECALL_CHANNEL = 5; // s, cancelled by damage or by moving
+
 // screen-space stacking slots so simultaneous numbers never sit on top of
-// each other (first free slot wins)
-const STACK = [[0, 0], [36, -14], [-36, -14], [18, -32], [-18, -32], [0, -50], [52, -42], [-52, -42]];
+// each other (first free slot wins). Biased horizontal: stacked crits in the
+// same fight used to climb straight into the score plate.
+const STACK = [[0, 0], [44, -12], [-44, -12], [82, -26], [-82, -26], [24, -34], [-24, -34], [0, -52]];
 
 const DEG = Math.PI / 180;
+const sstep = (v, a, b) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class HUD {
   constructor() {
@@ -35,10 +44,26 @@ export class HUD {
       feed: $('killFeed'), dmgLayer: $('dmgLayer'),
       announce: $('announce'), annTitle: $('announceTitle'), annSub: $('announceSub'),
       end: $('endScreen'), endBanner: $('endBanner'), endStats: $('endStats'), endReplay: $('endReplay'),
-      minimap: $('minimap'), cluster: $('abilityCluster'),
+      minimap: $('minimap'), cluster: $('abilityCluster'), hud: $('hud'),
+      items: Array.prototype.slice.call(document.querySelectorAll('#itemRail .itemSlot')),
       btns: { A: $('btnA'), Q: $('btnQ'), W: $('btnW'), E: $('btnE'), R: $('btnR') },
     };
-    this.el.portrait.style.setProperty('--portrait', `url(${tex.portraitURL})`);
+    // painted bust, baked once; the flat two-tone vector face stays as the
+    // context-loss fallback
+    this.el.portrait.style.setProperty('--portrait', `url(${bakePortrait() || tex.portraitURL})`);
+
+    // keycaps are a desktop tell on a touch HUD — reveal them only once the
+    // player actually uses a keyboard (keyboard control itself is untouched)
+    this.kbShown = false;
+    addEventListener('keydown', (e) => {
+      if (this.kbShown) return;
+      const k = e.key.toLowerCase();
+      if (k === 'q' || k === 'w' || k === 'e' || k === 'r' || k === 'f' || k === 'j' ||
+          k === 'a' || k === 's' || k === 'd' || k === ' ' || (k >= '1' && k <= '4')) {
+        this.kbShown = true;
+        if (this.el.hud) this.el.hud.classList.add('kb');
+      }
+    }, { passive: true });
 
     // ---- ability button state cache -------------------------------------
     this.ab = {};
@@ -54,6 +79,24 @@ export class HUD {
     }
     this.setState(this.ab.A, 'ready');
 
+    // ---- summoner column ------------------------------------------------
+    this.sum = {};
+    for (const [key, id, max] of [['mend', 'sumMend', MEND_CD], ['recall', 'sumRecall', 0]]) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const s = {
+        el, sweep: el.querySelector('.sumSweep'), cd: el.querySelector('.sumCd'),
+        t: 0, max, deg: -1, txt: '', cooling: false,
+      };
+      this.sum[key] = s;
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        this.useSummoner(key);
+      });
+    }
+    this.recall = { t: 0, x: 0, z: 0, hp: 0 };
+    this.itemsOn = -1;
+
     // ---- minimap --------------------------------------------------------
     this.mm = this.el.minimap.getContext('2d');
     this.mmW = this.el.minimap.width;
@@ -61,10 +104,11 @@ export class HUD {
     const pad = 11;
     this.mmHX = A.HALF_X + 2;              // world half-extent along the lane
     this.mmS = (this.mmW - pad * 2) / (this.mmHX * 2);
-    this.mmSZ = this.mmS * 1.2;            // slight vertical exaggeration: 114x34 is unreadable at 1:1
+    this.mmSZ = this.mmS * 1.45;           // vertical exaggeration: a 114 x 21 walkable corridor is unreadable at 1:1
     this.mmCx = this.mmW * 0.5;
     this.mmCy = this.mmH * 0.5;
     this.mmT = 0;
+    this.mmBase = this.bakeMinimapBase();   // static layer, baked once
 
     this.txtT = 0;
     this.annT = 0;
@@ -121,6 +165,15 @@ export class HUD {
     this.ghostV = -1;
     this.ghostHold = 0;
     this.seq = 0;
+    this.cancelRecall();
+    for (const k in this.sum) {
+      const s = this.sum[k];
+      s.t = 0; s.deg = -1; s.txt = ''; s.cooling = false;
+      s.cd.textContent = '';
+      s.sweep.style.background = 'none';
+      s.el.classList.remove('cooling');
+    }
+    this.itemsOn = -1;
     for (const k of AB_KEYS) {
       const a = this.ab[k];
       a.prevCd = null; a.castT = 0; a.castCls = '';
@@ -209,8 +262,15 @@ export class HUD {
     _v.project(this.camera);
     // arc: quick pop upward that decelerates, plus a lateral drift
     const rise = 52 * t - 20 * t * t;
-    const x = (_v.x * 0.5 + 0.5) * this.vw + n.ox + n.vx * t;
-    const y = (-_v.y * 0.5 + 0.5) * this.vh + n.oy - rise;
+    let x = (_v.x * 0.5 + 0.5) * this.vw + n.ox + n.vx * t;
+    let y = (-_v.y * 0.5 + 0.5) * this.vh + n.oy - rise;
+    // keep inside a safe rect: 8% off the top (score plate + timer live there)
+    // and 4% off the sides, so a stacked crit never rides off the frame
+    const mx = n.hw * 0.6, my = n.hh * 1.6;
+    const lx = this.vw * 0.04 + mx, rx = this.vw * 0.96 - mx;
+    const ty = this.vh * 0.08 + my, by = this.vh * 0.97;
+    if (x < lx) x = lx; else if (x > rx) x = rx;
+    if (y < ty) y = ty; else if (y > by) y = by;
     n.sx = x; n.sy = y;
     // scale punch: overshoot then settle
     let s;
@@ -273,10 +333,12 @@ export class HUD {
         if (a.deg !== deg) {
           a.deg = deg;
           const e = Math.min(360, deg + 3);
+          // dark scrim RECEDES over the icon (the universal read); the elapsed
+          // wedge clears to almost nothing so the glyph comes back as it cools
           a.sweep.style.background =
-            `conic-gradient(rgba(255,244,214,0.16) 0deg ${deg}deg,` +
-            `rgba(255,236,186,0.95) ${deg}deg ${e}deg,` +
-            `rgba(2,4,10,0.9) ${e}deg 360deg)`;
+            `conic-gradient(rgba(255,246,220,0.07) 0deg ${deg}deg,` +
+            `rgba(255,242,200,0.9) ${deg}deg ${e}deg,` +
+            `rgba(3,6,14,0.55) ${e}deg 360deg)`;
         }
         const t = cd >= 1 ? String(Math.ceil(cd)) : cd.toFixed(1);
         if (a.txt !== t) { a.txt = t; a.cd.textContent = t; }
@@ -285,6 +347,111 @@ export class HUD {
         if (a.txt !== '') { a.txt = ''; a.cd.textContent = ''; }
       }
     }
+  }
+
+  // ------------------------------------------------------------ summoners --
+  // Both spells are hud-owned and only ever touch the player's own hp /
+  // position — the sim reads both fresh every step, so there is nothing to
+  // desync. Cooldowns live here, not in sim.cds (which the ability sweep owns).
+  useSummoner(key) {
+    const p = this.sim && this.sim.player;
+    if (!p || !p.alive) return;
+    const s = this.sum[key];
+    if (!s || s.t > 0) return;
+    if (key === 'mend') {
+      const amt = Math.min(p.maxHp - p.hp, p.maxHp * MEND_FRAC);
+      if (amt <= 1) return;
+      p.hp += amt;
+      s.t = s.max;
+      this.damageNumber(p.pos, '+' + Math.round(amt), 'heal');
+    } else if (key === 'recall') {
+      if (this.recall.t > 0) { this.cancelRecall(); return; }
+      this.recall.t = RECALL_CHANNEL;
+      this.recall.x = p.pos.x; this.recall.z = p.pos.z; this.recall.hp = p.hp;
+      s.el.classList.add('channel');
+    }
+  }
+
+  cancelRecall() {
+    this.recall.t = 0;
+    const s = this.sum.recall;
+    if (!s) return;
+    s.el.classList.remove('channel');
+    s.deg = -1; s.sweep.style.background = 'none';
+    if (s.txt !== '') { s.txt = ''; s.cd.textContent = ''; }
+  }
+
+  updateSummoners(dt) {
+    const p = this.sim && this.sim.player;
+    // --- recall channel: cancelled by damage, by moving, or by dying ---
+    if (this.recall.t > 0) {
+      const r = this.recall;
+      if (!p || !p.alive || p.hp < r.hp - 0.5 ||
+          Math.abs(p.pos.x - r.x) > 0.35 || Math.abs(p.pos.z - r.z) > 0.35) {
+        this.cancelRecall();
+      } else {
+        r.hp = p.hp;
+        r.t -= dt;
+        if (r.t <= 0) {
+          // home to the fountain apron: the sim's own heal zone takes it from here
+          const fx = -A.FOUNTAIN_X + 1.2;
+          p.pos.x = fx; p.pos.z = 0;
+          const arena = this.sim.arena;
+          if (arena && arena.groundHeight) p.pos.y = arena.groundHeight(fx, 0);
+          this.cancelRecall();
+          this.damageNumber(p.pos, 'RECALL', 'magic');
+        }
+      }
+    }
+    for (const key in this.sum) {
+      const s = this.sum[key];
+      const chan = key === 'recall' && this.recall.t > 0;
+      if (s.t > 0) s.t = Math.max(0, s.t - dt);
+      const cooling = s.t > 0;
+      if (cooling !== s.cooling) {
+        s.cooling = cooling;
+        s.el.classList.toggle('cooling', cooling);
+      }
+      let deg = -1, txt = '';
+      if (chan) {
+        deg = Math.round((1 - this.recall.t / RECALL_CHANNEL) * 180) * 2;
+        txt = this.recall.t.toFixed(1);
+      } else if (cooling && s.max > 0) {
+        deg = Math.round((1 - s.t / s.max) * 180) * 2;
+        txt = s.t >= 1 ? String(Math.ceil(s.t)) : s.t.toFixed(1);
+      }
+      if (s.deg !== deg) {
+        s.deg = deg;
+        if (deg < 0) s.sweep.style.background = 'none';
+        else {
+          const e = Math.min(360, deg + 3);
+          s.sweep.style.background = chan
+            ? `conic-gradient(rgba(150,215,255,0.5) 0deg ${deg}deg,` +
+              `rgba(226,244,255,0.95) ${deg}deg ${e}deg,rgba(4,10,22,0.42) ${e}deg 360deg)`
+            : `conic-gradient(rgba(255,246,220,0.07) 0deg ${deg}deg,` +
+              `rgba(255,242,200,0.9) ${deg}deg ${e}deg,rgba(3,6,14,0.55) ${e}deg 360deg)`;
+        }
+      }
+      if (s.txt !== txt) { s.txt = txt; s.cd.textContent = txt; }
+    }
+  }
+
+  // relic sockets fill on the level milestones the sim actually grants
+  updateItems(level) {
+    const items = this.el.items;
+    if (!items || !items.length) return;
+    let n = 0;
+    for (let i = 0; i < items.length; i++) if (level >= +items[i].dataset.lv) n++;
+    if (n === this.itemsOn) return;
+    const first = this.itemsOn < 0;
+    for (let i = 0; i < items.length; i++) {
+      const on = i < n;
+      items[i].classList.toggle('on', on);
+      // each socket only ever unlocks once, so adding the class is enough to
+      // start the animation — no reflow poke, no layout read in the loop
+      if (on && !first && i >= this.itemsOn) items[i].classList.add('pop');
+    }
+    this.itemsOn = n;
   }
 
   // --------------------------------------------------------------- update --
@@ -326,11 +493,13 @@ export class HUD {
     }
 
     this.updateAbilities(p, dt);
+    this.updateSummoners(dt);
 
     // ---- level-driven chrome (rank pips, badge, HP segment ticks) ----
     if (L.lvl !== p.level) {
       L.lvl = p.level;
       this.el.level.textContent = p.level;
+      this.updateItems(p.level);
       const ranks = {
         Q: Math.min(5, 1 + Math.floor(p.level / 3)),
         W: Math.min(5, 1 + Math.floor((p.level - 1) / 3)),
@@ -399,95 +568,214 @@ export class HUD {
     }
   }
 
-  // -------------------------------------------------------------- minimap --
+  // ------------------------------------------------------------ minimap ----
+  // STATIC LAYER, baked once at boot. The terrain outline is the real
+  // collision mask (isWalkable), the lane is drawn at its true half-width
+  // with the bridge pinch, and the plateaus are ellipses because the map's
+  // x and z scales differ (mmS 3.68 vs mmSZ 5.52 — an arc would be wrong).
+  // ~460 mask probes: far too expensive to repeat at 8 Hz.
+  bakeMinimapBase() {
+    const W = this.mmW, H = this.mmH, s = this.mmS, sz = this.mmSZ;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    const sx = (x) => this.mmCx + x * s;
+    const sy = (z) => this.mmCy + z * sz;
+
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, 'rgba(21,30,49,0.96)');
+    bg.addColorStop(1, 'rgba(5,8,16,0.98)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // ---- walkable mask → one z-span per column ----
+    // for any x the walkable set is a single interval symmetric about z=0, so
+    // a binary search on |z| is exact (and 9 probes instead of a full scan)
+    const top = [], bot = [];
+    for (let px = 0; px <= W; px += 3) {
+      const wx = (px - this.mmCx) / s;
+      if (!isWalkable(wx, 0)) continue;
+      let lo = 0, hi = A.EDGE_Z + 2;
+      for (let i = 0; i < 9; i++) {
+        const mid = (lo + hi) * 0.5;
+        if (isWalkable(wx, mid)) lo = mid; else hi = mid;
+      }
+      top.push(px, sy(-lo));
+      bot.push(px, sy(lo));
+    }
+    const silhouette = () => {
+      ctx.beginPath();
+      ctx.moveTo(top[0], top[1]);
+      for (let i = 2; i < top.length; i += 2) ctx.lineTo(top[i], top[i + 1]);
+      for (let i = bot.length - 2; i >= 0; i -= 2) ctx.lineTo(bot[i], bot[i + 1]);
+      ctx.closePath();
+    };
+
+    ctx.save();
+    this.rr(ctx, 1, 1, W - 2, H - 2, 27);
+    ctx.clip();
+
+    // soft drop under the island so it sits on the panel
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 7; ctx.shadowOffsetY = 2;
+    ctx.fillStyle = 'rgba(10,16,12,0.9)';
+    silhouette(); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    silhouette();
+    ctx.clip();
+
+    // ---- terrain ----
+    const gr = ctx.createLinearGradient(0, sy(-A.WALK_Z), 0, sy(A.WALK_Z));
+    gr.addColorStop(0, '#1e3f1c');
+    gr.addColorStop(0.13, '#417f37');
+    gr.addColorStop(0.5, '#4f9243');
+    gr.addColorStop(0.87, '#417f37');
+    gr.addColorStop(1, '#1e3f1c');
+    ctx.fillStyle = gr;
+    ctx.fillRect(0, 0, W, H);
+
+    // team territory wash
+    const tw = ctx.createLinearGradient(sx(-A.HALF_X), 0, sx(A.HALF_X), 0);
+    tw.addColorStop(0, 'rgba(46,104,196,0.5)');
+    tw.addColorStop(0.42, 'rgba(46,104,196,0.0)');
+    tw.addColorStop(0.58, 'rgba(196,58,42,0.0)');
+    tw.addColorStop(1, 'rgba(196,58,42,0.5)');
+    ctx.fillStyle = tw;
+    ctx.fillRect(0, 0, W, H);
+
+    // ---- base plateaus (ellipse: the two axes are not the same scale) ----
+    for (const side of [-1, 1]) {
+      const bx = sx(side * A.BASE_X), r = A.BASE_R - 0.6;
+      ctx.fillStyle = 'rgba(96,104,110,0.42)';
+      ctx.beginPath();
+      ctx.ellipse(bx, this.mmCy, r * s, r * sz, 0, 0, 7);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(bx, this.mmCy);
+      ctx.scale(1, sz / s);
+      const g = ctx.createRadialGradient(0, 0, 3, 0, 0, A.BASE_R * s);
+      const col = side < 0 ? '86,150,236' : '224,92,72';
+      g.addColorStop(0, `rgba(${col},0.85)`);
+      g.addColorStop(0.55, `rgba(${col},0.42)`);
+      g.addColorStop(1, `rgba(${col},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, A.BASE_R * s, 0, 7);
+      ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = side < 0 ? 'rgba(150,200,255,0.45)' : 'rgba(255,160,130,0.45)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.ellipse(bx, this.mmCy, r * s, r * sz, 0, 0, 7);
+      ctx.stroke();
+    }
+
+    // ---- lane at true width, pinched over the bridge ----
+    const lanePath = () => {
+      ctx.beginPath();
+      for (let x = -49; x <= 49.001; x += 1) {
+        const hw = A.LANE_HALF * (1 - 0.26 * (1 - sstep(Math.abs(x), A.RIVER_HALF, A.BRIDGE_HALF_X + 3.4)));
+        const px = sx(x), py = sy(-hw);
+        if (x === -49) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      for (let x = 49; x >= -49.001; x -= 1) {
+        const hw = A.LANE_HALF * (1 - 0.26 * (1 - sstep(Math.abs(x), A.RIVER_HALF, A.BRIDGE_HALF_X + 3.4)));
+        ctx.lineTo(sx(x), sy(hw));
+      }
+      ctx.closePath();
+    };
+    const lg = ctx.createLinearGradient(0, sy(-A.LANE_HALF), 0, sy(A.LANE_HALF));
+    lg.addColorStop(0, 'rgba(150,130,88,0.9)');
+    lg.addColorStop(0.5, 'rgba(203,184,136,0.94)');
+    lg.addColorStop(1, 'rgba(150,130,88,0.9)');
+    lanePath(); ctx.fillStyle = lg; ctx.fill();
+    lanePath(); ctx.strokeStyle = 'rgba(238,224,178,0.45)'; ctx.lineWidth = 1.4; ctx.stroke();
+
+    ctx.restore();
+
+    // ---- river gorge: it CUTS the island, so it is drawn outside the
+    // walkable clip (the water is not walkable and the mask has a hole there)
+    const r0 = sx(-A.RIVER_HALF - 1.5), r1 = sx(A.RIVER_HALF + 1.5);
+    const gz0 = sy(-A.WALK_Z - 1.7), gz1 = sy(A.WALK_Z + 1.7);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r0, gz0, r1 - r0, gz1 - gz0);
+    ctx.clip();
+    const rvg = ctx.createLinearGradient(r0, 0, r1, 0);
+    rvg.addColorStop(0, 'rgba(46,150,176,0)');
+    rvg.addColorStop(0.2, 'rgba(58,178,200,0.62)');
+    rvg.addColorStop(0.5, 'rgba(118,234,242,0.9)');
+    rvg.addColorStop(0.8, 'rgba(58,178,200,0.62)');
+    rvg.addColorStop(1, 'rgba(46,150,176,0)');
+    ctx.fillStyle = rvg;
+    ctx.fillRect(r0, gz0, r1 - r0, gz1 - gz0);
+    // the gorge mouths fade into the cliff instead of stopping dead
+    const rvv = ctx.createLinearGradient(0, gz0, 0, gz1);
+    rvv.addColorStop(0, 'rgba(5,13,20,0.92)');
+    rvv.addColorStop(0.24, 'rgba(5,13,20,0)');
+    rvv.addColorStop(0.76, 'rgba(5,13,20,0)');
+    rvv.addColorStop(1, 'rgba(5,13,20,0.92)');
+    ctx.fillStyle = rvv;
+    ctx.fillRect(r0, gz0, r1 - r0, gz1 - gz0);
+    ctx.restore();
+
+    ctx.save();
+    silhouette();
+    ctx.clip();
+    // bridge
+    const bz0 = sy(-A.BRIDGE_HALF_Z + 0.15), bz1 = sy(A.BRIDGE_HALF_Z - 0.15);
+    ctx.fillStyle = 'rgba(196,178,138,0.95)';
+    ctx.fillRect(sx(-A.BRIDGE_HALF_X), bz0, sx(A.BRIDGE_HALF_X) - sx(-A.BRIDGE_HALF_X), bz1 - bz0);
+    ctx.strokeStyle = 'rgba(60,46,28,0.7)';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(sx(-A.BRIDGE_HALF_X), bz0, sx(A.BRIDGE_HALF_X) - sx(-A.BRIDGE_HALF_X), bz1 - bz0);
+    ctx.strokeStyle = 'rgba(84,64,38,0.45)';
+    ctx.lineWidth = 1;
+    for (let x = -A.BRIDGE_HALF_X + 2.1; x < A.BRIDGE_HALF_X - 0.5; x += 2.1) {
+      ctx.beginPath(); ctx.moveTo(sx(x), bz0 + 1); ctx.lineTo(sx(x), bz1 - 1); ctx.stroke();
+    }
+
+    // ---- cliff shading along the rim + top/bottom falloff ----
+    const jg = ctx.createLinearGradient(0, sy(-A.WALK_Z - 1), 0, sy(A.WALK_Z + 1));
+    jg.addColorStop(0, 'rgba(2,10,8,0.45)');
+    jg.addColorStop(0.17, 'rgba(2,10,8,0)');
+    jg.addColorStop(0.83, 'rgba(2,10,8,0)');
+    jg.addColorStop(1, 'rgba(2,10,8,0.45)');
+    ctx.fillStyle = jg;
+    ctx.fillRect(0, 0, W, H);
+    // inner rim darkening reads as a cliff edge, not a cut-out
+    silhouette();
+    ctx.strokeStyle = 'rgba(10,26,14,0.55)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    // island outline
+    silhouette();
+    ctx.strokeStyle = 'rgba(160,190,130,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+    return c;
+  }
+
   drawMinimap() {
     const ctx = this.mm, sim = this.sim;
     const W = this.mmW, H = this.mmH, s = this.mmS, sz = this.mmSZ;
     const sx = (x) => this.mmCx + x * s;
     const sy = (z) => this.mmCy + z * sz;
+    const bandH = (A.WALK_Z + 1.5) * 2 * sz;
 
     ctx.clearRect(0, 0, W, H);
     ctx.save();
     this.rr(ctx, 1, 1, W - 2, H - 2, 27);
     ctx.clip();
-
-    // parchment-dark backing
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, 'rgba(24,34,54,0.96)');
-    bg.addColorStop(1, 'rgba(6,10,18,0.98)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+    if (this.mmBase) ctx.drawImage(this.mmBase, 0, 0);
 
     const x0 = sx(-A.HALF_X), x1 = sx(A.HALF_X);
-    const z0 = sy(-A.EDGE_Z), z1 = sy(A.EDGE_Z);
-    const bandH = z1 - z0;
-
-    // ---- jungle / terrain band ----
-    ctx.save();
-    this.rr(ctx, x0, z0, x1 - x0, bandH, 20);
-    ctx.clip();
-    const gr = ctx.createLinearGradient(0, z0, 0, z1);
-    gr.addColorStop(0, '#24401f');
-    gr.addColorStop(0.5, '#4b7a40');
-    gr.addColorStop(1, '#24401f');
-    ctx.fillStyle = gr;
-    ctx.fillRect(x0, z0, x1 - x0, bandH);
-
-    // team territory wash
-    const tw = ctx.createLinearGradient(x0, 0, x1, 0);
-    tw.addColorStop(0, 'rgba(46,104,196,0.5)');
-    tw.addColorStop(0.4, 'rgba(46,104,196,0.0)');
-    tw.addColorStop(0.6, 'rgba(196,58,42,0.0)');
-    tw.addColorStop(1, 'rgba(196,58,42,0.5)');
-    ctx.fillStyle = tw;
-    ctx.fillRect(x0, z0, x1 - x0, bandH);
-
-    // lane road
-    ctx.fillStyle = 'rgba(206,186,136,0.62)';
-    this.rr(ctx, sx(-49), sy(-3.2), sx(49) - sx(-49), (sy(3.2) - sy(-3.2)), 9);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(226,208,160,0.35)';
-    ctx.lineWidth = 1.4;
-    this.rr(ctx, sx(-49), sy(-3.2), sx(49) - sx(-49), (sy(3.2) - sy(-3.2)), 9);
-    ctx.stroke();
-
-    // base discs
-    for (const side of [-1, 1]) {
-      const g = ctx.createRadialGradient(sx(side * A.BASE_X), this.mmCy, 4, sx(side * A.BASE_X), this.mmCy, A.BASE_R * s);
-      const c = side < 0 ? '86,150,236' : '224,92,72';
-      g.addColorStop(0, `rgba(${c},0.5)`);
-      g.addColorStop(1, `rgba(${c},0.02)`);
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(sx(side * A.BASE_X), this.mmCy, A.BASE_R * s, 0, 7);
-      ctx.fill();
-    }
-
-    // river + bridge
-    const rvg = ctx.createLinearGradient(sx(-A.RIVER_HALF), 0, sx(A.RIVER_HALF), 0);
-    rvg.addColorStop(0, 'rgba(52,166,186,0.7)');
-    rvg.addColorStop(0.5, 'rgba(112,232,240,0.95)');
-    rvg.addColorStop(1, 'rgba(52,166,186,0.7)');
-    ctx.fillStyle = rvg;
-    ctx.fillRect(sx(-A.RIVER_HALF), z0, sx(A.RIVER_HALF) - sx(-A.RIVER_HALF), bandH);
-    ctx.fillStyle = 'rgba(206,190,150,0.9)';
-    ctx.fillRect(sx(-A.RIVER_HALF) - 2, sy(-A.BRIDGE_HALF_Z), sx(A.RIVER_HALF) - sx(-A.RIVER_HALF) + 4, sy(A.BRIDGE_HALF_Z) - sy(-A.BRIDGE_HALF_Z));
-
-    // jungle darkening top/bottom
-    const jg = ctx.createLinearGradient(0, z0, 0, z1);
-    jg.addColorStop(0, 'rgba(2,8,6,0.6)');
-    jg.addColorStop(0.32, 'rgba(2,8,6,0)');
-    jg.addColorStop(0.68, 'rgba(2,8,6,0)');
-    jg.addColorStop(1, 'rgba(2,8,6,0.6)');
-    ctx.fillStyle = jg;
-    ctx.fillRect(x0, z0, x1 - x0, bandH);
-    ctx.restore();
-
-    // band outline
-    ctx.strokeStyle = 'rgba(255,214,146,0.30)';
-    ctx.lineWidth = 2;
-    this.rr(ctx, x0, z0, x1 - x0, bandH, 20);
-    ctx.stroke();
 
     if (sim) {
       // ---- camera view bracket (drawn under the icons) ----
@@ -512,13 +800,17 @@ export class HUD {
         ctx.restore();
       }
 
-      // ---- towers ----
+      // ---- towers (+ structure health pip) ----
       for (const t of sim.towers) {
-        this.towerIcon(ctx, sx(t.pos.x), sy(t.pos.z), t.team, t.alive);
+        const tx = sx(t.pos.x), ty = sy(t.pos.z);
+        this.towerIcon(ctx, tx, ty, t.team, t.alive);
+        if (t.alive && t.maxHp) this.hpPip(ctx, tx, ty + 9, t.hp / t.maxHp, t.team);
       }
-      // ---- nexus / team crest ----
+      // ---- nexus / team crest (+ structure health pip) ----
       for (const n of sim.nexuses) {
-        this.crestIcon(ctx, sx(n.pos.x), sy(n.pos.z), n.team, n.alive);
+        const nx = sx(n.pos.x), ny = sy(n.pos.z);
+        this.crestIcon(ctx, nx, ny, n.team, n.alive);
+        if (n.alive && n.maxHp) this.hpPip(ctx, nx, ny + 14, n.hp / n.maxHp, n.team);
       }
       // ---- minions ----
       for (const m of sim.minions) {
@@ -559,6 +851,17 @@ export class HUD {
     _cam.hw = t * tanH * cam.aspect;
     _cam.hd = t * tanH / Math.max(0.3, -_dir.y);
     return true;
+  }
+
+  // structure health, framed dark so it survives against pale terrain
+  hpPip(ctx, x, y, f, team) {
+    const w = 15, h = 3.4;
+    const v = Math.max(0, Math.min(1, f));
+    if (v > 0.995) return;
+    ctx.fillStyle = 'rgba(2,4,9,0.9)';
+    ctx.fillRect(x - w * 0.5 - 1.2, y - 1.2, w + 2.4, h + 2.4);
+    ctx.fillStyle = team === 'blue' ? '#4fa8ff' : '#e0342a';
+    ctx.fillRect(x - w * 0.5, y, w * v, h);
   }
 
   towerIcon(ctx, x, y, team, alive) {
@@ -674,4 +977,245 @@ export class HUD {
     ctx.arcTo(x, y, x + w, y, rad);
     ctx.closePath();
   }
+}
+
+
+// =====================================================================
+// HERO PORTRAIT — painted bust, baked once into a data URL.
+// The shipped placeholder was a 128px two-dot-eyes vector face sitting
+// 40px from the rendered hero; this is the same character (blonde,
+// circlet + gem, white/blue/gold plate, blue cape) painted with form
+// shading, a lit/shadow split, real eyes and a rim light, so the plate
+// stops reading as a prototype at 54-108 device px.
+// =====================================================================
+function bakePortrait() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    if (!g) return null;
+    paintSeraBust(g, 256);
+    return c.toDataURL();
+  } catch (e) {
+    return null;   // context-loss / tainted canvas: fall back to tex.portraitURL
+  }
+}
+
+function paintSeraBust(g, S) {
+  const u = S / 256;                       // authored against a 256 canvas
+  const rgba = (h, a) => `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`;
+  const blob = (x, y, r, col, a, a2 = 0) => {
+    const rg = g.createRadialGradient(x * u, y * u, 0, x * u, y * u, r * u);
+    rg.addColorStop(0, rgba(col, a)); rg.addColorStop(1, rgba(col, a2));
+    g.fillStyle = rg; g.beginPath(); g.arc(x * u, y * u, r * u, 0, 7); g.fill();
+  };
+  const ell = (x, y, rx, ry, rot, col) => {
+    g.fillStyle = typeof col === 'string' ? col : rgba(col, 1);
+    g.beginPath(); g.ellipse(x * u, y * u, rx * u, ry * u, rot, 0, 7); g.fill();
+  };
+  const path = (pts, col, close = true) => {
+    g.fillStyle = typeof col === 'string' ? col : rgba(col, 1);
+    g.beginPath();
+    g.moveTo(pts[0][0] * u, pts[0][1] * u);
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.length === 6) g.bezierCurveTo(p[0] * u, p[1] * u, p[2] * u, p[3] * u, p[4] * u, p[5] * u);
+      else if (p.length === 4) g.quadraticCurveTo(p[0] * u, p[1] * u, p[2] * u, p[3] * u);
+      else g.lineTo(p[0] * u, p[1] * u);
+    }
+    if (close) g.closePath();
+    g.fill();
+  };
+
+  const SKIN = 0xf2cba6, SKIN_D = 0xc99a76, SKIN_L = 0xffe6c8;
+  const HAIR = 0xf2d79a, HAIR_D = 0xa8763a, HAIR_L = 0xfff2cf;
+  const GOLD = 0xd9a53f, GOLD_L = 0xffe7b4;
+  const BLUE = 0x2b4a86, BLUE_L = 0x5f8fd6;
+
+  // ---- backdrop -----------------------------------------------------------
+  const bg = g.createLinearGradient(0, 0, 0, S);
+  bg.addColorStop(0, '#33507f'); bg.addColorStop(0.52, '#1b2b4d'); bg.addColorStop(1, '#0a1122');
+  g.fillStyle = bg; g.fillRect(0, 0, S, S);
+  blob(196, 44, 130, 0xffd9a0, 0.34);        // warm dawn light, upper right
+  blob(44, 210, 120, 0x0a1020, 0.5);         // lower-left falloff
+  // sun disc glow behind the head
+  blob(128, 96, 92, 0xffe1ad, 0.2);
+
+  // figure is authored head-large; pull back slightly so the armour reads
+  g.save();
+  g.translate(128 * u, 150 * u); g.scale(0.93, 0.93); g.translate(-128 * u, -140 * u);
+
+  // ---- hair : back mass ---------------------------------------------------
+  path([[128, 20], [186, 26, 200, 96, 196, 148], [200, 196, 176, 214, 158, 220],
+        [140, 226, 116, 226, 98, 220], [80, 214, 56, 196, 60, 148],
+        [56, 96, 70, 26, 128, 20]], rgba(HAIR_D, 1));
+  blob(104, 92, 78, HAIR, 0.55);
+  blob(168, 150, 62, 0x8a5f2c, 0.5);
+
+  // ---- neck ---------------------------------------------------------------
+  path([[104, 150], [104, 190], [152, 190], [152, 150]], rgba(SKIN_D, 1));
+  blob(128, 176, 40, SKIN, 0.75);
+  blob(128, 158, 42, 0x8f6248, 0.55);        // jaw shadow on the neck
+
+  // ---- shoulders / armour -------------------------------------------------
+  // cape behind
+  path([[10, 256], [34, 196, 78, 182, 96, 180], [96, 256]], rgba(0x24407a, 1));
+  path([[246, 256], [222, 196, 178, 182, 160, 180], [160, 256]], rgba(0x1a3162, 1));
+  // chest plate
+  path([[74, 256], [80, 208, 104, 190, 128, 190], [152, 190, 176, 208, 182, 256]], '#e7eefb');
+  path([[100, 256], [104, 216, 114, 202, 128, 202], [142, 202, 152, 216, 156, 256]], rgba(BLUE, 1));
+  // gold collar trim
+  g.lineWidth = 7 * u; g.strokeStyle = rgba(GOLD, 1); g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(72 * u, 250 * u);
+  g.bezierCurveTo(80 * u, 206 * u, 104 * u, 186 * u, 128 * u, 186 * u);
+  g.bezierCurveTo(152 * u, 186 * u, 176 * u, 206 * u, 184 * u, 250 * u);
+  g.stroke();
+  g.lineWidth = 2.4 * u; g.strokeStyle = rgba(GOLD_L, 0.85); g.stroke();
+  // pauldrons
+  path([[16, 256], [18, 214, 44, 196, 70, 200], [82, 202, 84, 224, 82, 256]], rgba(0xdfe8f7, 1));
+  path([[240, 256], [238, 214, 212, 196, 186, 200], [174, 202, 172, 224, 174, 256]], rgba(0xc3d1e8, 1));
+  g.lineWidth = 5 * u; g.strokeStyle = rgba(GOLD, 1);
+  g.beginPath(); g.moveTo(17 * u, 250 * u); g.bezierCurveTo(20 * u, 212 * u, 44 * u, 194 * u, 72 * u, 199 * u); g.stroke();
+  g.beginPath(); g.moveTo(239 * u, 250 * u); g.bezierCurveTo(236 * u, 212 * u, 212 * u, 194 * u, 184 * u, 199 * u); g.stroke();
+  blob(40, 236, 46, 0x0a1226, 0.42);
+  blob(214, 236, 46, 0x0a1226, 0.5);
+
+  // ---- face ---------------------------------------------------------------
+  path([[128, 58], [166, 58, 180, 86, 178, 116],
+        [177, 142, 166, 166, 148, 178],
+        [138, 185, 118, 185, 108, 178],
+        [90, 166, 79, 142, 78, 116],
+        [76, 86, 90, 58, 128, 58]], rgba(SKIN, 1));
+  // silhouette contour: separates skin from hair at portrait scale
+  g.lineWidth = 2.2 * u; g.strokeStyle = rgba(0x86543a, 0.4); g.stroke();
+  // form shading — key from camera-left, deep shadow on the turned side
+  blob(100, 100, 52, SKIN_L, 0.55);           // lit temple / forehead
+  blob(174, 140, 50, 0x9a6244, 0.6);         // shadow side
+  blob(176, 100, 32, 0x8f5a3e, 0.5);
+  blob(88, 112, 26, 0x8f5a3e, 0.38);   // hairline AO, lit side
+  blob(130, 178, 38, 0x8f5c42, 0.45);        // under-chin
+  blob(126, 100, 46, 0x9a6448, 0.3);        // fringe cast shadow on the brow
+  blob(98, 150, 24, 0xff9d88, 0.22);         // blush
+  blob(162, 150, 24, 0xff9d88, 0.14);
+  // cheekbone catch
+  blob(104, 138, 22, 0xffeed6, 0.34);
+  // brow ridge shadow
+  blob(108, 124, 20, 0xb08064, 0.24);
+  blob(154, 124, 20, 0xa4714f, 0.3);
+  // nose
+  path([[132, 124], [136, 148, 140, 152, 136, 156], [129, 158, 127, 154, 128, 151]], rgba(0xc08a68, 0.46));
+  blob(137, 155, 8, 0xb37a58, 0.42);
+  blob(130, 150, 7, 0xfff0d8, 0.4);          // nose-tip highlight
+  // mouth
+  g.lineCap = 'round';
+  g.lineWidth = 4.6 * u; g.strokeStyle = rgba(0x9c4a44, 0.92);
+  g.beginPath(); g.moveTo(119 * u, 169 * u); g.quadraticCurveTo(132 * u, 176 * u, 145 * u, 167 * u); g.stroke();
+  g.lineWidth = 2.6 * u; g.strokeStyle = rgba(0xe4867c, 0.72);
+  g.beginPath(); g.moveTo(122 * u, 173 * u); g.quadraticCurveTo(132 * u, 177 * u, 142 * u, 171 * u); g.stroke();
+  blob(126, 165, 8, 0xfff0d8, 0.3);
+
+  // ---- eyes ---------------------------------------------------------------
+  for (const s of [-1, 1]) {
+    const near = s < 0;                       // camera-left eye reads larger
+    const ex = 131 + s * (near ? 25 : 22), ey = 135, k = near ? 0.94 : 0.85;
+    // socket shadow
+    blob(ex, ey - 1, 20 * k, 0xa4724e, 0.3);
+    // sclera
+    ell(ex, ey, 14.2 * k, 10.6, 0, '#f2ece6');
+    blob(ex, ey - 5, 12 * k, 0x6d5344, 0.5);  // lid shadow on the sclera
+    // iris
+    ell(ex + s * 1.2, ey + 1, 9.2 * k, 9.6, 0, '#3f93b8');
+    ell(ex + s * 1.2, ey + 3.4, 7.8 * k, 6.8, 0, '#1b5a80');
+    // pupil
+    ell(ex + s * 1.2, ey + 1.6, 4.3 * k, 4.9, 0, '#0d1826');
+    // catchlight
+    ell(ex + s * 1.2 - 3.2, ey - 3.4, 2.9 * k, 2.9, 0, 'rgba(255,255,255,0.96)');
+    ell(ex + s * 1.2 + 3.6, ey + 4.4, 1.6, 1.6, 0, 'rgba(180,230,255,0.55)');
+    // upper lash line
+    g.lineWidth = 5.2 * u; g.strokeStyle = 'rgba(52,30,24,0.95)'; g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo((ex - s * 14 * k) * u, (ey - 2) * u);
+    g.quadraticCurveTo(ex * u, (ey - 13) * u, (ex + s * 14.5 * k) * u, (ey - 4.5) * u);
+    g.stroke();
+    // outer lash flick
+    g.lineWidth = 3.6 * u;
+    g.beginPath();
+    g.moveTo((ex + s * 11 * k) * u, (ey - 6) * u);
+    g.quadraticCurveTo((ex + s * 17 * k) * u, (ey - 10) * u, (ex + s * 19.5 * k) * u, (ey - 13) * u);
+    g.stroke();
+    // lower lid
+    g.lineWidth = 2 * u; g.strokeStyle = 'rgba(120,74,56,0.5)';
+    g.beginPath();
+    g.moveTo((ex - s * 11 * k) * u, (ey + 7.5) * u);
+    g.quadraticCurveTo(ex * u, (ey + 11) * u, (ex + s * 12 * k) * u, (ey + 5.5) * u);
+    g.stroke();
+    // brow
+    g.lineWidth = 4.2 * u; g.strokeStyle = rgba(0xbb8f4a, near ? 0.88 : 0.72);
+    g.beginPath();
+    g.moveTo((ex - s * 14 * k) * u, (ey - 17.5) * u);
+    g.quadraticCurveTo((ex + s * 2) * u, (ey - 22.5) * u, (ex + s * 15 * k) * u, (ey - 18.5) * u);
+    g.stroke();
+  }
+
+  // ---- hair : fringe + locks (over the forehead) ---------------------------
+  path([[78, 106], [80, 62, 104, 42, 128, 42], [156, 42, 180, 66, 180, 108],
+        [176, 88, 170, 78, 163, 71], [161, 92, 156, 106, 150, 116],
+        [148, 96, 142, 84, 134, 78], [128, 90, 122, 96, 114, 98],
+        [110, 108, 106, 114, 102, 118], [98, 100, 94, 86, 90, 72],
+        [84, 82, 80, 94, 78, 106]], rgba(HAIR, 1));
+  // lock highlights
+  path([[92, 76], [100, 92, 112, 102, 126, 105], [116, 100, 104, 90, 98, 74]], rgba(HAIR_L, 0.8));
+  path([[160, 78], [154, 92, 146, 100, 136, 104], [148, 98, 156, 90, 162, 76]], rgba(HAIR_L, 0.4));
+  blob(110, 60, 44, HAIR_L, 0.55);
+  blob(158, 66, 30, 0xb5852f, 0.3);
+  // strand separations across the fringe
+  g.lineWidth = 1.6 * u; g.strokeStyle = rgba(0xa8763a, 0.3); g.lineCap = 'round';
+  for (const [x0, y0, cx, cy, x1, y1] of [
+    [98, 62, 98, 78, 104, 96], [116, 50, 116, 68, 118, 88],
+    [142, 50, 146, 68, 148, 84], [162, 58, 168, 76, 170, 94]]) {
+    g.beginPath(); g.moveTo(x0 * u, y0 * u); g.quadraticCurveTo(cx * u, cy * u, x1 * u, y1 * u); g.stroke();
+  }
+  // side locks — pointed elven tips
+  path([[78, 102], [62, 140, 58, 178, 62, 216], [72, 200, 80, 190, 84, 176],
+        [88, 196, 90, 208, 86, 222], [96, 200, 96, 172, 90, 146],
+        [86, 126, 80, 112, 78, 102]], rgba(HAIR, 1));
+  path([[180, 104], [196, 142, 200, 180, 196, 218], [186, 202, 178, 192, 174, 178],
+        [170, 198, 168, 210, 172, 224], [162, 202, 162, 174, 168, 148],
+        [172, 128, 178, 114, 180, 104]], rgba(0xd0ab6c, 1));
+  blob(72, 148, 28, HAIR_L, 0.45);
+  blob(190, 158, 24, HAIR_L, 0.26);
+  blob(86, 208, 26, 0x9c6c2e, 0.4);
+  blob(176, 210, 26, 0x8a5c26, 0.45);
+
+  // ---- circlet ------------------------------------------------------------
+  g.lineWidth = 6.5 * u; g.strokeStyle = rgba(GOLD, 1);
+  g.beginPath();
+  g.moveTo(80 * u, 94 * u);
+  g.quadraticCurveTo(130 * u, 117 * u, 178 * u, 98 * u);
+  g.stroke();
+  g.lineWidth = 2.2 * u; g.strokeStyle = rgba(GOLD_L, 0.9);
+  g.beginPath();
+  g.moveTo(82 * u, 92 * u);
+  g.quadraticCurveTo(130 * u, 114 * u, 176 * u, 96 * u);
+  g.stroke();
+  // centre gem
+  path([[131, 100], [139, 110], [131, 122], [123, 110]], '#bfe9ff');
+  path([[131, 106], [135, 111], [131, 117], [127, 111]], '#ffffff');
+
+  // ---- rim light ----------------------------------------------------------
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  blob(192, 124, 34, 0x9fc6ff, 0.42);
+  blob(180, 70, 30, 0xffe0b0, 0.4);
+  blob(200, 198, 34, 0x7fb0ff, 0.3);
+  blob(66, 90, 26, 0xffe8c0, 0.24);
+  g.restore();
+
+  g.restore();
+
+  // ---- vignette -----------------------------------------------------------
+  const vg = g.createRadialGradient(S * 0.5, S * 0.46, S * 0.24, S * 0.5, S * 0.5, S * 0.62);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(2,5,12,0.6)');
+  g.fillStyle = vg; g.fillRect(0, 0, S, S);
 }
