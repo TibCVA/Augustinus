@@ -52,7 +52,13 @@ const UP = new THREE.Vector3(0, 1, 0);
 const _c = new THREE.Color();
 const TAU = Math.PI * 2;
 
-// deterministic paint stream for the procedural atlases
+// Deterministic stream for the procedural atlases AND for every particle spawn.
+// DESIGN.md makes `?seed=N` fix the RNG, but 37 raw Math.random() calls in the
+// spawn paths meant the six reference presets differed run-to-run by up to 8% of
+// their pixels — enough to drown any real visual regression in noise, which is
+// exactly what a screenshot harness exists to catch. Everything random in this
+// file now comes from here. Under fixed stepping (?shot=1) the spawn order is
+// fixed, so the stream position is too, and the presets are reproducible.
 let _s = 0x9e3779b9;
 function rnd() {
   _s |= 0; _s = (_s + 0x6d2b79f5) | 0;
@@ -1745,20 +1751,20 @@ export class VFX {
     for (let i = 0; i < count; i++) {
       let ax, az;
       if (cone !== null) {
-        const a = cone + (Math.random() - 0.5) * coneWidth;
+        const a = cone + (rnd() - 0.5) * coneWidth;
         ax = Math.sin(a); az = Math.cos(a);
       } else {
-        const a = Math.random() * TAU;
+        const a = rnd() * TAU;
         ax = Math.cos(a); az = Math.sin(a);
       }
-      const r = Math.random();
-      const sp = speed * (0.4 + Math.random() * 0.6);
+      const r = rnd();
+      const sp = speed * (0.4 + rnd() * 0.6);
       P.spawn({
-        x: x + ax * r * spread * 0.4, y: y + Math.random() * 0.2, z: z + az * r * spread * 0.4,
-        vx: ax * sp * spread, vy: up * (0.5 + Math.random() * 0.8), vz: az * sp * spread,
-        life: life * (0.6 + Math.random() * 0.7), size: size * (0.7 + Math.random() * 0.6), sizeEnd,
-        col: col2 && Math.random() < 0.5 ? col2 : col, colEnd, gravity, drag,
-        rot: Math.random() * 6.28, rotV: (Math.random() - 0.5) * 6,
+        x: x + ax * r * spread * 0.4, y: y + rnd() * 0.2, z: z + az * r * spread * 0.4,
+        vx: ax * sp * spread, vy: up * (0.5 + rnd() * 0.8), vz: az * sp * spread,
+        life: life * (0.6 + rnd() * 0.7), size: size * (0.7 + rnd() * 0.6), sizeEnd,
+        col: col2 && rnd() < 0.5 ? col2 : col, colEnd, gravity, drag,
+        rot: rnd() * 6.28, rotV: (rnd() - 0.5) * 6,
         sprite, glow, alpha, stretch, fadePow,
       });
     }
@@ -1771,20 +1777,20 @@ export class VFX {
     // ground dust + sparks kicked up along the leading edge
     const n = Math.min(14, Math.max(3, Math.round(r1 * 1.6)));
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * TAU + Math.random() * 0.5;
+      const a = (i / n) * TAU + rnd() * 0.5;
       const ca = Math.cos(a), sa = Math.sin(a);
       const rr = r0 + (r1 - r0) * 0.22;
       this.pAlpha.spawn({
         x: x + ca * rr, y: y + 0.1, z: z + sa * rr,
-        vx: ca * r1 * 1.5, vy: 0.6 + Math.random() * 0.9, vz: sa * r1 * 1.5,
+        vx: ca * r1 * 1.5, vy: 0.6 + rnd() * 0.9, vz: sa * r1 * 1.5,
         life: dur * 1.9, size: 0.34 + r1 * 0.09, sizeEnd: 0.9 + r1 * 0.22,
         col: 0xbfae90, alpha: 0.3, sprite: A_SMOKE, glow: 1, drag: 3.4, fadePow: 1.5,
       });
       if (i % 2 === 0) {
         this.pAdd.spawn({
           x: x + ca * rr, y: y + 0.16, z: z + sa * rr,
-          vx: ca * r1 * 3.4, vy: 1.4 + Math.random() * 2.6, vz: sa * r1 * 3.4,
-          life: 0.26 + Math.random() * 0.18, size: 0.2, sizeEnd: 0.04,
+          vx: ca * r1 * 3.4, vy: 1.4 + rnd() * 2.6, vz: sa * r1 * 3.4,
+          life: 0.26 + rnd() * 0.18, size: 0.2, sizeEnd: 0.04,
           col, glow: 2.0, sprite: S_SPARK2, gravity: 9, drag: 2.6, stretch: 2.6,
         });
       }
@@ -1827,14 +1833,14 @@ export class VFX {
     // sparks along the cutting edge
     const cnt = Math.round(6 + size * 2.4);
     for (let i = 0; i < cnt; i++) {
-      const a = yaw + (Math.random() - 0.5) * 1.5;
-      const rr = size * (0.45 + Math.random() * 0.55);
+      const a = yaw + (rnd() - 0.5) * 1.5;
+      const rr = size * (0.45 + rnd() * 0.55);
       const sx = x + Math.sin(a) * rr, sz = z + Math.cos(a) * rr;
       this.pAdd.spawn({
-        x: sx, y: y + (Math.random() - 0.4) * 0.4, z: sz,
-        vx: Math.sin(a) * (4 + vel * 0.5), vy: 1.2 + Math.random() * 2.4, vz: Math.cos(a) * (4 + vel * 0.5),
-        life: 0.2 + Math.random() * 0.2, size: 0.17 + Math.random() * 0.1, sizeEnd: 0.02,
-        col: Math.random() < 0.4 ? 0xffffff : col, glow: 2.0, sprite: S_SPARK2,
+        x: sx, y: y + (rnd() - 0.4) * 0.4, z: sz,
+        vx: Math.sin(a) * (4 + vel * 0.5), vy: 1.2 + rnd() * 2.4, vz: Math.cos(a) * (4 + vel * 0.5),
+        life: 0.2 + rnd() * 0.2, size: 0.17 + rnd() * 0.1, sizeEnd: 0.02,
+        col: rnd() < 0.4 ? 0xffffff : col, glow: 2.0, sprite: S_SPARK2,
         gravity: 8, drag: 2.5, stretch: 2.2,
       });
     }
@@ -1890,11 +1896,11 @@ export class VFX {
     this.pAdd.spawn({
       x: from.x, y: from.y, z: from.z, life: delay + 0.02,
       size: 0.05, sizeEnd: r * 9, col: 0xffffff, glow: 1.3, alpha: 0.55, sprite: S_FLARE, fadePow: 5,
-      rot: Math.random() * 6.28,
+      rot: rnd() * 6.28,
     });
     for (let i = 0; i < 7; i++) {
-      const a = Math.random() * TAU, rr = 1.1 + Math.random() * 0.9;
-      const p = Math.random() * Math.PI - Math.PI / 2;
+      const a = rnd() * TAU, rr = 1.1 + rnd() * 0.9;
+      const p = rnd() * Math.PI - Math.PI / 2;
       const cx = Math.cos(a) * Math.cos(p) * rr, cy = Math.sin(p) * rr, cz = Math.sin(a) * Math.cos(p) * rr;
       this.pAdd.spawn({
         x: from.x + cx, y: from.y + cy, z: from.z + cz,
@@ -1936,15 +1942,15 @@ export class VFX {
       if (l > 0.05) { D.dx = mx / l; D.dz = mz / l; }
       // wind ribbon: streaks trailing back along the path
       for (let i = 0; i < 3; i++) {
-        const s = Math.random();
+        const s = rnd();
         const px = D.px + mx * s, pz = D.pz + mz * s;
-        const off = (Math.random() - 0.5) * 1.15;
+        const off = (rnd() - 0.5) * 1.15;
         this.pAdd.spawn({
-          x: px - D.dz * off, y: pos.y + 0.35 + Math.random() * 1.5, z: pz + D.dx * off,
+          x: px - D.dz * off, y: pos.y + 0.35 + rnd() * 1.5, z: pz + D.dx * off,
           vx: -D.dx * 5.5, vy: 0.25, vz: -D.dz * 5.5,
           dirX: D.dx, dirY: 0, dirZ: D.dz,
-          life: 0.24 + Math.random() * 0.12, size: 0.16, sizeEnd: 0.02,
-          col: 0xbfeeff, glow: 1.5, alpha: 0.75, sprite: S_STREAK, drag: 2.4, stretch: 7 + Math.random() * 5,
+          life: 0.24 + rnd() * 0.12, size: 0.16, sizeEnd: 0.02,
+          col: 0xbfeeff, glow: 1.5, alpha: 0.75, sprite: S_STREAK, drag: 2.4, stretch: 7 + rnd() * 5,
         });
       }
       this.pAlpha.spawn({
@@ -1989,7 +1995,7 @@ export class VFX {
           x: tip.x, y: tip.y, z: tip.z,
           vx: dx * inv * 2.2, vy: dy * inv * 2.2 + 0.6, vz: dz * inv * 2.2,
           dirX: dx * inv, dirY: dy * inv, dirZ: dz * inv,
-          life: 0.2 + Math.random() * 0.12, size: 0.13, sizeEnd: 0.02,
+          life: 0.2 + rnd() * 0.12, size: 0.13, sizeEnd: 0.02,
           col: 0xd8f6ff, glow: 1.8, alpha: 0.8, sprite: S_SPARK2, gravity: 5, drag: 3, stretch: 2.6,
         });
       }
@@ -2045,7 +2051,7 @@ export class VFX {
       col: 0xffffff, glow: 1.15, alpha: 0.62, sprite: S_GLOW, fadePow: 3, drag: 0,
     });
     this.pAdd.spawn({
-      x, y, z, life: 0.17, size: 0.6, sizeEnd: 2.1, rot: Math.random() * 6.28,
+      x, y, z, life: 0.17, size: 0.6, sizeEnd: 2.1, rot: rnd() * 6.28,
       col, glow: 1.9, alpha: 0.75, sprite: S_FLARE, fadePow: 3, drag: 0,
     });
     this.burst(x, y, z, {
@@ -2423,10 +2429,10 @@ export class VFX {
             life: 0.3, size: p.size * 1.5, sizeEnd: 0.01, col: p.col, colEnd: 0xffffff,
             gravity: 0, drag: 0.6, sprite: S_DOT, glow: 1.3, alpha: 0.7, fadePow: 1.6,
           });
-          if (Math.random() < 0.5) {
+          if (rnd() < 0.5) {
             this.pAdd.spawn({
               x: p.pos.x, y: p.pos.y, z: p.pos.z,
-              vx: (Math.random() - 0.5) * 1.2, vy: (Math.random() - 0.5) * 1.2, vz: (Math.random() - 0.5) * 1.2,
+              vx: (rnd() - 0.5) * 1.2, vy: (rnd() - 0.5) * 1.2, vz: (rnd() - 0.5) * 1.2,
               dirX: p.dx, dirY: p.dy, dirZ: p.dz,
               life: 0.24, size: p.size * 0.6, sizeEnd: 0.01, col: 0xffffff,
               gravity: 0, drag: 1.5, sprite: S_STREAK, glow: 1.4, alpha: 0.5, stretch: 3.5,

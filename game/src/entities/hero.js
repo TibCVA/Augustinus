@@ -25,6 +25,16 @@ const _m4 = new THREE.Matrix4();
 const DOWN = new THREE.Vector3(0, -1, 0);
 const clamp = THREE.MathUtils.clamp;
 const fin = (x, d = 0) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
+// Deterministic stand-in for Math.random(). Only ever drives animation phase —
+// no gameplay state — but an unseeded call inside the render frame still made
+// the ?shot=1 presets irreproducible, and DESIGN.md makes ?seed=N fix the RNG.
+let _rs = 0x2545f491;
+function rnd() {
+  _rs |= 0; _rs = (_rs + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rs ^ (_rs >>> 15), 1 | _rs);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 function sm01(x) { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); }
 function outCubic(x) { x = clamp(x, 0, 1); return 1 - Math.pow(1 - x, 3); }
@@ -323,7 +333,7 @@ class Cape {
     this.patch(mat, this.rows, this.uT, this.uR);
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.frustumCulled = false;
-    this.phase = Math.random() * 10;
+    this.phase = rnd() * 10;
   }
   reset() {
     for (let i = 0; i < this.rows; i++) {
@@ -1343,7 +1353,7 @@ export class Hero extends Unit {
       if (!e.fired && a.t >= e.t) { e.fired = true; e.fn(); }
     }
     if (a.t >= a.dur && !a.loop) {
-      this.anim = { name: this.moving ? 'run' : 'idle', t: Math.random() * 3, dur: 1e9, lock: false, events: [], loop: true, poseParams: {} };
+      this.anim = { name: this.moving ? 'run' : 'idle', t: rnd() * 3, dur: 1e9, lock: false, events: [], loop: true, poseParams: {} };
       this.blendK = 10;
     } else if (a.loop && !a.lock) {
       const want = this.moving ? 'run' : 'idle';

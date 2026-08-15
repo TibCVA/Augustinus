@@ -8,6 +8,7 @@ import { buildArena } from './world/arena.js';
 import { buildEnvironment } from './world/environment.js';
 import { buildWater } from './world/water.js';
 import { VFX } from './vfx/vfx.js';
+import { prewarmUnits } from './entities/units.js';
 import { Sim } from './game/sim.js';
 import { Controls } from './game/controls.js';
 import { HUD } from './game/hud.js';
@@ -16,6 +17,19 @@ const STEP = 1 / 60;
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _shake = new THREE.Vector3();
 
 // ------------------------------------------------------------------- boot --
+// The HUD is a DOM overlay and several of its flourishes are infinite CSS
+// animations (ability shine, ult charge, level-up pulse) driven by the wall
+// clock. ?shot=1 freezes the sim but not the CSS clock, so every preset
+// screenshot caught the ability cluster at whatever phase boot happened to take
+// that run — the last remaining reason two runs of the harness did not produce
+// identical images. Pin the CSS clock at 0 as early as possible, before boot
+// has had time to accumulate any phase. Shot mode only; play is untouched.
+if (SHOT_MODE) {
+  const s = document.createElement('style');
+  s.textContent = '*, *::before, *::after { animation-play-state: paused !important; transition: none !important; }';
+  document.head.appendChild(s);
+}
+
 const quality = (navigator.hardwareConcurrency || 8) <= 4 ? 0.65 : 1;
 initAssets(quality);
 
@@ -260,6 +274,12 @@ function prewarmShaders() {
   //    shadow type is part of the program cache key. Compiling before that first
   //    render links a variant the renderer then never uses, and every material
   //    compiles a second time anyway.
+  // 0) minion pools are built on their first spawn — the first wave, 8 s into
+  //    every match. Nothing owning `unitMat` or the caster orb material is in
+  //    the scene at boot, so step 2's compile() cannot see them and the wave
+  //    frame paid the link. Measured: programs went 68 -> 70 at sim t=8.25 s,
+  //    and the frame that did it ran 2.1x the surrounding steady state.
+  prewarmUnits(scene);
   vfx.prewarm();
   visualUpdate(STEP);
   renderFrame();

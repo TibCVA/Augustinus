@@ -482,6 +482,29 @@ function poolFor(scene, kind, team) {
   return p;
 }
 
+/**
+ * Build all four minion pools up front instead of on their first spawn.
+ *
+ * A pool — its merged rig geometry, its InstancedMeshes and, critically, the
+ * shared `unitMat` / orb materials — is created the first time a minion of that
+ * (kind, team) is added to the scene. That is the first wave, 8 s into every
+ * single match, and it costs a rig build plus the GL link for two materials on
+ * one frame. main.js's shader pre-warm could not reach those materials because
+ * nothing owning them existed in the scene yet: `renderer.compile()` walks the
+ * graph, and an object that has not been created is not in the graph.
+ *
+ * The pools sit in the scene with `count = 0` until a minion allocates a slot.
+ * three's `renderInstances()` returns early at `primcount === 0`, so an empty
+ * pool costs zero draw calls and zero triangles — but `renderBufferDirect()`
+ * still runs `setProgram()` on it, so the boot render links the program. Draw
+ * calls and triangles are therefore unchanged; only the timing moves.
+ */
+export function prewarmUnits(scene) {
+  ensureUnitMats();
+  for (const kind of ['melee', 'caster'])
+    for (const team of ['blue', 'red']) poolFor(scene, kind, team);
+}
+
 // ------------------------------------------------------------------- Unit --
 let UID = 1;
 export class Unit {
