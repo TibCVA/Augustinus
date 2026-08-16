@@ -410,6 +410,11 @@ export function addTree(b, x, z, s = 1, { pink = true, ry = RNG.f(6.28) } = {}) 
   // than one pink mass, and unlike texture detail it survives any minification.
   const shade = (k) => cCrown.clone().multiplyScalar(k);
   const shells = [];
+  // Height range the blobs will span, so their value can follow it instead of
+  // being rolled at random — a random spread is evenly noisy and reads flat.
+  let tLo = Infinity, tHi = -Infinity;
+  for (const t of tops) { tLo = Math.min(tLo, t[1]); tHi = Math.max(tHi, t[1]); }
+  const tSpan = Math.max(tHi - tLo, 0.001);
   const blobCount = 5 + (s > 1.1 ? 2 : 0);
   for (let i = 0; i < blobCount; i++) {
     const t = tops[i % tops.length];
@@ -427,7 +432,8 @@ export function addTree(b, x, z, s = 1, { pink = true, ry = RNG.f(6.28) } = {}) 
     const high = t[1] > 2.7 * s ? 1 : 0;
     b.add(g, matName, mat4(cx, cy, cz, rng.spread(0.16), rng.f(6.28), rng.spread(0.16)),
       {
-        ...cTint, base: shade(rng.f(0.76, 1.16)),
+        ...cTint,
+        base: shade(rng.f(0.92, 1.06) * (0.60 + 0.58 * Math.min(1, Math.max(0, (cy - tLo) / tSpan)))),
         topLight: cTint.topLight + high * 0.24, ao: cTint.ao - high * 0.12,
       });
     shells.push([cx, cy, cz, bs * Math.max(kx, kz) * 0.94, bs * ky, high]);
@@ -451,6 +457,18 @@ export function addTree(b, x, z, s = 1, { pink = true, ry = RNG.f(6.28) } = {}) 
   let ccx = 0, ccy = 0, ccz = 0;
   for (const sh of shells) { ccx += sh[0]; ccy += sh[1]; ccz += sh[2]; }
   ccx /= shells.length; ccy /= shells.length; ccz /= shells.length;
+
+  // Vertical extent of the whole crown. Card value is driven by height within
+  // it, not by a per-card random: a random spread gives an evenly noisy mass,
+  // which is why the crown still read as one flat saturated colour with no lit
+  // side and no shadow side. A sunlit top and a deep underside is what makes a
+  // canopy read as a volume.
+  let crownLo = Infinity, crownHi = -Infinity;
+  for (const sh of shells) {
+    crownLo = Math.min(crownLo, sh[1] - sh[4]);
+    crownHi = Math.max(crownHi, sh[1] + sh[4]);
+  }
+  const crownSpan = Math.max(crownHi - crownLo, 0.001);
 
   const cards = 16 + (s > 1.1 ? 4 : 0);
   for (let i = 0; i < cards; i++) {
@@ -476,9 +494,14 @@ export function addTree(b, x, z, s = 1, { pink = true, ry = RNG.f(6.28) } = {}) 
     const w = rng.f(0.78, 1.45) * s, h = rng.f(0.66, 1.2) * s;
     const g = leafCard(w, h, cell, rng.f(3.14), -0.3);
     setSway(g, 0.85 + rng.f(0.7));
+    // hT 0 at the crown's underside, 1 at its top; the card's own facing adds a
+    // little on top so upward-tilted cards catch more than side-on ones.
+    const hT = Math.min(1, Math.max(0, (py - crownLo) / crownSpan));
+    const face = 0.94 + 0.14 * Math.max(dy, 0);
     b.add(g, 'canopyCard', alignY(px, py, pz, dx, dy, dz), {
-      base: cardBase(rng.f(0.8, 1.18)), jitter: 0.14, ao: 0.5, aoY0: -h * 0.34, aoY1: h * 0.5,
-      topLight: sh[5] ? 0.22 : 0.04,
+      base: cardBase(rng.f(0.9, 1.08) * (0.58 + 0.66 * hT * hT) * face),
+      jitter: 0.14, ao: 0.5, aoY0: -h * 0.34, aoY1: h * 0.5,
+      topLight: (sh[5] ? 0.10 : 0.02) + 0.26 * hT,
     });
   }
   // drooping sprigs under the crown — the river camera looks up into these
