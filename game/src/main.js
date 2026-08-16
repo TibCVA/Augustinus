@@ -211,7 +211,10 @@ const PRESETS = {
     // sits off the ability cluster
     // Closer for a real close-up, with the look-at pushed along screen-right so
     // she sits in the left third and her head clears the centred scoreboard.
-    setCam(p.x + 2.35, p.y + 1.95, p.z + 4.3, p.x + 1.05, p.y + 1.0, p.z - 0.52);
+    // Pulled back and the look-at dropped: at the previous framing her crest had
+    // ~16px of headroom, which makes a raised weapon geometrically impossible to
+    // fit and forces the blade to be composed downward.
+    setCam(p.x + 2.62, p.y + 2.1, p.z + 4.82, p.x + 1.05, p.y + 0.85, p.z - 0.52);
     settle(2, 8);
   },
   ult() {

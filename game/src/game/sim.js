@@ -1648,7 +1648,14 @@ export class Sim {
     } else if (name === 'hero') {
       // forward is (sin f, cos f); camera sits at +X/+Z, so f ≈ 0.5 faces it.
       // Bias off-axis for a 3/4 hero shot rather than a flat front-on.
-      P.pos.set(-13.2, 0, 3.4); P.facing = 0.55 - 0.38;
+      // Camera azimuth is ~0.50, so facing 0.50 is dead frontal. 0.17 was only
+      // 19 degrees off; -0.30 overshot to 46 and stacked with the rig's own
+      // contrapposto yaw until the cape faced the lens. 0.28 lands the 3/4.
+      // Nudged a metre down-lane off the old mark: a banner pole stood directly
+      // behind her and ran a hard vertical through the silhouette. Moving her
+      // further (to -11.6) instead put a tower base in each third, which is
+      // worse — this keeps the open sunlit plaza behind her.
+      P.pos.set(-14.3, 0, 3.4); P.facing = 0.28;
       B.pos.set(30, 0, -2);
       P.play('showcase', { dur: 1e9, lock: true, loop: true, blend: 20 });
       P.anim.t = 1.2;

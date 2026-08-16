@@ -42,17 +42,55 @@ function outCubic(x) { x = _clamp01(x); return 1 - (1 - x) * (1 - x) * (1 - x); 
 // behind at golden hour, so heavy baked AO just turns them into silhouettes.
 const AO_SCALE = 0.58;
 
+// DETAIL CHANNELS. None of these merged rigs carries a texture — every material
+// is vertex-coloured — so the `uv` attribute is dead weight on every one of
+// them (boxUV writes tri-planar coordinates that nothing samples). It is
+// repurposed here as a two-channel detail mask, which is what lets
+// addSurfaceDetail() below put grime and edge wear on specific parts of a plate
+// with no extra attribute, no extra buffer and no extra draw call:
+//
+//   uv.x = CAVITY. Where dirt collects: the AO ramp (i.e. the bottom of every
+//          lame, the lap under a pauldron) plus every down-facing surface.
+//   uv.y = EDGE WEAR. Where the paint/lacquer is rubbed off back to bare metal:
+//          up-facing surfaces, biased toward the outside of the part, because
+//          that is what rain, sun and blows actually reach.
+//
+// EVERY call must write them, including cloth and skin — a part left carrying
+// its old boxUV values would read as cavity/wear 1.0 and turn black.
 export function paintGeo(geo, hex, opts = {}) {
-  const { to = null, y0 = 0, y1 = 1, ao: ao0 = 0, aoY0 = 0, aoY1 = 1, top = 0, jitter = 0 } = opts;
+  const {
+    to = null, y0 = 0, y1 = 1, ao: ao0 = 0, aoY0 = 0, aoY1 = 1, top = 0, jitter = 0,
+    wear = 0, grime = 1, metal = 1,
+  } = opts;
   const ao = ao0 * AO_SCALE;
   if (!geo.attributes.normal) geo.computeVertexNormals();
   const pos = geo.attributes.position, nor = geo.attributes.normal;
   const n = pos.count;
   const col = new Float32Array(n * 3);
+  const det = new Float32Array(n * 2);
   const base = new THREE.Color(hex);
   const grad = to !== null ? new THREE.Color(to) : null;
   const invY = 1 / Math.max(1e-4, y1 - y0);
   const invAo = 1 / Math.max(1e-4, aoY1 - aoY0);
+  // part-local horizontal centroid + reach + vertical span, for the outward and
+  // upward bias on edge wear
+  let cx = 0, cz = 0, rMax = 1e-4, yLo = Infinity, yHi = -Infinity;
+  if (wear) {
+    for (let i = 0; i < n; i++) {
+      cx += pos.getX(i); cz += pos.getZ(i);
+      const yy = pos.getY(i);
+      if (yy < yLo) yLo = yy;
+      if (yy > yHi) yHi = yy;
+    }
+    cx /= n; cz /= n;
+    for (let i = 0; i < n; i++) {
+      const dx = pos.getX(i) - cx, dz = pos.getZ(i) - cz;
+      const r = Math.sqrt(dx * dx + dz * dz);
+      if (r > rMax) rMax = r;
+    }
+  }
+  const invR = 1 / rMax;
+  const invYs = 1 / Math.max(1e-4, yHi - yLo);
   for (let i = 0; i < n; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     _c0.copy(base);
@@ -60,14 +98,136 @@ export function paintGeo(geo, hex, opts = {}) {
     if (jitter) _c0.multiplyScalar(1 - jitter + h3(x * 7.1, y * 9.3, z * 5.7) * jitter * 2);
     const ny = nor.getY(i);
     if (top && ny > 0) _c0.multiplyScalar(1 + top * ny);
-    if (ao) {
-      const t = THREE.MathUtils.clamp((y - aoY0) * invAo, 0, 1);
-      _c0.multiplyScalar(1 - ao * (1 - t * t));
-    }
+    const t = THREE.MathUtils.clamp((y - aoY0) * invAo, 0, 1);
+    if (ao) _c0.multiplyScalar(1 - ao * (1 - t * t));
     col[i * 3] = _c0.r; col[i * 3 + 1] = _c0.g; col[i * 3 + 2] = _c0.b;
+    const cav = grime * (ao0 * (1 - t * t) * 1.9 + (ny < 0 ? -ny * 0.34 : 0));
+    det[i * 2] = cav > 1 ? 1 : cav < 0 ? 0 : cav;
+    // uv.y < 0 is the "this part is not metal" sentinel: hands, skin and hair
+    // ride in the same merged mesh as the plate they are welded to, and without
+    // it a metalness of 0.46 turns Sera's fists into gauntlets.
+    let w = -1;
+    if (metal) {
+      w = 0;
+      if (wear) {
+        // Wear belongs on RIMS, not on faces. An up-facing ramp on its own put
+        // it across the whole top of every plate, which — once the worn areas
+        // also go metallic — turned Sera's faulds into orange chrome. Gating it
+        // on the squared distance to the part's own outer edge and on height
+        // within the part concentrates it into a band a couple of centimetres
+        // wide round each piece, which is where a real edge highlight lives.
+        const rad = Math.sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz)) * invR;
+        const ty = (y - yLo) * invYs;
+        w = wear * sm01((ny - 0.20) / 0.62) * (rad * rad * 0.85 + 0.15) * (0.30 + 0.70 * ty * ty);
+        if (w > 1) w = 1;
+      }
+    }
+    det[i * 2 + 1] = w;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(det, 2));
   return geo;
+}
+
+// ------------------------------------------------------- surface detail --
+// High-frequency micro-detail injected straight into the standard shader, so it
+// costs neither a texture fetch chain nor a draw call.
+//
+// The panel's measurement was that detail DENSITY correlates with score, and
+// that characters are the lowest-density asset class in the game: every plate
+// is a clean two-stop vertex gradient, which is the single loudest difference
+// against a hand-painted Wild Rift champion. Three things happen here, all
+// driven from object-space position so they are stable under animation:
+//
+//  1. ROUGHNESS BREAK-UP. A single plate now spans roughly 0.18-0.70 roughness.
+//     With environment.js's PMREM sky IBL in place there is finally a specular
+//     lobe to vary, and varied roughness across one surface is the entire
+//     reason real metal reads as metal rather than as a coloured gradient.
+//  2. EDGE WEAR (uv.y). Up-facing rims lose their finish to bare, more metallic,
+//     lower-roughness steel — broken up by noise so it is chipping, not an
+//     outline. Every rim in the rig gets it for free.
+//  3. GRIME (uv.x). Crevices and the underside of every lap go darker, warmer
+//     and matter, which is what separates armour "plates" from "gradients".
+//
+// Plus a stretched scratch field so overlaps carry scoring. ~20 hashes/pixel on
+// character pixels only; the shadow pass uses the depth material and is
+// untouched.
+export function addSurfaceDetail(mat, {
+  id = 'a', rough = 0.26, fine = 0.10, wearK = 1, cavK = 1, scratch = 0.16, metalW = 0.30,
+  tint = [0.78, 0.79, 0.82], floor = 0.16,
+} = {}) {
+  return patchMaterial(mat, {
+    id: `sdet${id}`,
+    apply(shader) {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vDet;\nvarying vec3 vDetP;')
+        .replace('#include <begin_vertex>',
+          '#include <begin_vertex>\n\tvDet = uv;\n\tvDetP = transformed;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec2 vDet;
+          varying vec3 vDetP;
+          float sdHash( vec3 p ) {
+            p = fract( p * 0.3183099 + vec3( 0.71, 0.113, 0.419 ) );
+            p *= 17.0;
+            return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) );
+          }
+          float sdNoise( vec3 x ) {
+            vec3 i = floor( x ), f = fract( x );
+            f = f * f * ( 3.0 - 2.0 * f );
+            return mix(
+              mix( mix( sdHash( i ), sdHash( i + vec3( 1.0, 0.0, 0.0 ) ), f.x ),
+                   mix( sdHash( i + vec3( 0.0, 1.0, 0.0 ) ), sdHash( i + vec3( 1.0, 1.0, 0.0 ) ), f.x ), f.y ),
+              mix( mix( sdHash( i + vec3( 0.0, 0.0, 1.0 ) ), sdHash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ),
+                   mix( sdHash( i + vec3( 0.0, 1.0, 1.0 ) ), sdHash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z );
+          }`)
+        .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+          {
+            vec3 dp = vDetP;
+            // Frequencies matter as much as amplitude: at 62 the broad octave
+            // was ~1.7 cm, i.e. a 5 px blotch at the hero camera, and modulating
+            // a specular lobe by that much at that scale read as mould on the
+            // faulds rather than as a forged surface. 96/340 puts the coarse
+            // octave near a centimetre and the fine one below a pixel.
+            float nA = sdNoise( dp * 96.0 );
+            float nB = sdNoise( dp * 340.0 + 11.3 );
+            float sc = sdNoise( vec3( dp.x * 330.0, dp.y * 21.0, dp.z * 330.0 ) );
+            float mk = step( -0.5, vDet.y );            // 0 = skin/cloth rider
+            float cav = clamp( vDet.x, 0.0, 1.0 ) * ${cavK.toFixed(3)};
+            float wr = clamp( vDet.y, 0.0, 1.0 ) * ${wearK.toFixed(3)} * ( 0.30 + 0.70 * nA );
+            float scr = smoothstep( 0.66, 0.97, sc ) * ( 0.3 + 0.7 * wr ) * mk;
+            // Roughness is where nearly all of the read comes from: albedo stays
+            // close to the hand-painted value the palette was tuned for, and the
+            // surface variation lives in the specular lobe instead. A grubby
+            // albedo just looks like a dirty model; a varied lobe looks forged.
+            roughnessFactor = clamp( roughnessFactor
+              + ${rough.toFixed(3)} * ( nA - 0.5 ) * 2.0
+              + ${fine.toFixed(3)} * ( nB - 0.5 ) * 2.0
+              + 0.26 * cav - 0.30 * wr - ${scratch.toFixed(3)} * scr, ${floor.toFixed(3)}, 1.0 );
+            roughnessFactor = mix( max( roughnessFactor, 0.66 ), roughnessFactor, mk );
+            metalnessFactor = mix( 0.03,
+              clamp( metalnessFactor + ${metalW.toFixed(3)} * wr - 0.18 * cav, 0.0, 1.0 ), mk );
+            // grime in the laps: a touch darker and warmer, no more. Pushed any
+            // further and painted ivory armour turns into unfired clay.
+            diffuseColor.rgb *= 1.0 - cav * 0.17;
+            diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.90, 0.86, 0.78 ), cav * 0.55 );
+            // Rubbed back to bare metal on the rims — HUE PRESERVING. Mixing
+            // toward a fixed grey turned every gold edge on the rig into mud;
+            // this desaturates a third of the way and brightens instead, so gold
+            // reads as polished gold and ivory as scuffed ivory.
+            {
+              float lum = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
+              vec3 pol = mix( diffuseColor.rgb, vec3( lum ), 0.34 ) * ( 1.10 + 0.30 * nB );
+              diffuseColor.rgb = mix( diffuseColor.rgb,
+                mix( pol, vec3( ${tint[0].toFixed(3)}, ${tint[1].toFixed(3)}, ${tint[2].toFixed(3)} ) * ( 0.62 + 0.5 * nB ), 0.30 ),
+                wr * 0.40 );
+            }
+            // micro value break-up: no surface in the rig is a clean gradient now
+            diffuseColor.rgb *= 0.955 + 0.09 * nB;
+            diffuseColor.rgb *= 1.0 - 0.10 * scr;
+          }`);
+    },
+  });
 }
 
 // Normalise attribute sets then merge into a single buffer.
@@ -198,9 +358,16 @@ export function addVertexGlow(mat) {
 let unitMat = null, orbBlueMat = null, orbRedMat = null;
 function ensureUnitMats() {
   if (unitMat) return;
-  // NOTE: no environment map in the scene, so high metalness = black. Keep it low.
-  unitMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, metalness: 0.08 });
+  // environment.js now prefilters a sky IBL through PMREM into scene.environment,
+  // so there IS a specular lobe to feed: metalness no longer resolves to black
+  // and armour can carry a real (if modest) metal read at this stylisation.
+  unitMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.22 });
   addDualRim(unitMat, { warm: 0xffd6a0, cool: 0x6fcdf0, power: 3.6, strength: 1.35, fill: 0.13, coolK: 0.09 });
+  // Minions are 30-60 px tall in play: keep the break-up broad enough to survive
+  // the mip/AA chain and skip the fine octave's cost on 26 instances per pool.
+  addSurfaceDetail(unitMat, {
+    id: 'unit', rough: 0.22, fine: 0.09, wearK: 0.85, cavK: 0.9, scratch: 0.12, metalW: 0.26, floor: 0.20,
+  });
   orbBlueMat = new THREE.MeshStandardMaterial({
     color: 0x0d2b4c, emissive: 0x5fd0ff, emissiveIntensity: 2.0, roughness: 0.24, metalness: 0,
   });
@@ -292,29 +459,53 @@ function meleeBlue(T) {
   // tan dome inside a ring — which is exactly why the panel scored the two
   // melee minions as one asset in one palette. Every UP-FACING surface is now
   // team cloth; the steel is pushed to the rims and the underside.
+  // SHOULDER LINE. At 50 px tall the panel read these as "small barrels with
+  // helmets": the caps sat at x = ±0.26 against a torso of radius 0.35, so there
+  // was no shoulder in the silhouette at all — the body just widened into a dome.
+  // The caps now break the torso outline by a clear margin (±0.345), sit on a
+  // continuous yoke bar that ties them together across the back, and each ends
+  // in a hard down-turned flange so the shoulder terminates in a corner instead
+  // of fading into the arm.
   for (const sx of [-1, 1]) {
-    body.push([chamferBox(0.25, 0.15, 0.29, 0.045).translate(0, 0.06, 0).rotateZ(sx * 0.42).translate(sx * 0.26, 0.86, 0.02),
-      0x3f8ae8, { ao: 0.22, aoY0: 0.7, aoY1: 0.95, top: 0.28, to: T.clothDark, y0: 1.0, y1: 0.76 }]);
-    body.push([chamferBox(0.27, 0.045, 0.31, 0.02).translate(0, 0.02, 0).rotateZ(sx * 0.42).translate(sx * 0.26, 0.80, 0.02),
-      T.metal, { ao: 0.2, aoY0: 0.7, aoY1: 0.9 }]);
+    body.push([chamferBox(0.30, 0.155, 0.31, 0.05).translate(0, 0.06, 0).rotateZ(sx * 0.40).translate(sx * 0.345, 0.865, 0.02),
+      0x3f8ae8, { ao: 0.22, aoY0: 0.7, aoY1: 0.95, top: 0.28, to: T.clothDark, y0: 1.0, y1: 0.76, wear: 0.5 }]);
+    body.push([chamferBox(0.315, 0.05, 0.325, 0.022).translate(0, 0.02, 0).rotateZ(sx * 0.40).translate(sx * 0.345, 0.795, 0.02),
+      T.metal, { ao: 0.2, aoY0: 0.7, aoY1: 0.9, wear: 1 }]);
+    // down-turned outer flange: the corner that makes the shoulder read
+    body.push([chamferBox(0.075, 0.155, 0.30, 0.024).translate(0, -0.02, 0).rotateZ(sx * 0.62)
+      .translate(sx * 0.475, 0.80, 0.02), T.metalDark, { ao: 0.3, aoY0: 0.6, aoY1: 0.84, wear: 1 }]);
+    // rivets along the cap rim — sub-pixel in play, but they are the difference
+    // between a plate and a gradient in any close frame
+    for (let i = 0; i < 3; i++)
+      body.push([ell(0.020, 0.016, 0.020, 5, 4).translate(sx * (0.245 + i * 0.075), 0.905 - i * 0.028, 0.115), T.trim, { ao: 0, wear: 1 }]);
   }
-  // gorget + tall crested helm
-  body.push([lathe([[0.135, 0.94], [0.20, 1.00], [0.175, 1.07]], 6, true), T.metalDark, { ao: 0.2, aoY0: 0.9, aoY1: 1.05 }]);
-  body.push([lathe([[0.06, 1.02], [0.185, 1.12], [0.195, 1.26], [0.10, 1.38]], 6, true), T.metal,
-    { ao: 0.25, aoY0: 1.0, aoY1: 1.3, top: 0.18 }]);
+  // yoke bar bridging the two caps: from the game camera this is one continuous
+  // horizontal line across the top of the unit, which is the cue that says
+  // "broad-shouldered infantry" at 50 px.
+  // team cloth, NOT steel: from the 52-degree game camera this bar is one of the
+  // few surfaces pointing straight at the lens, and in pale metal it turned the
+  // guard into a white unit with a blue hat.
+  body.push([chamferBox(0.70, 0.075, 0.19, 0.03).translate(0, 0.905, -0.055), 0x3f8ae8,
+    { ao: 0.2, aoY0: 0.8, aoY1: 0.95, top: 0.26, to: T.clothDark, y0: 0.98, y1: 0.84 }]);
+  // gorget + crested helm. The helm is deliberately SMALLER than it was
+  // (0.195 -> 0.165 crown): a small head on a wide shoulder line is the melee
+  // read, and it is what separates this class from the caster's big hood.
+  body.push([lathe([[0.135, 0.94], [0.20, 1.00], [0.175, 1.07]], 6, true), T.metalDark, { ao: 0.2, aoY0: 0.9, aoY1: 1.05, wear: 1 }]);
+  body.push([lathe([[0.055, 1.02], [0.158, 1.11], [0.165, 1.23], [0.088, 1.34]], 6, true), T.metal,
+    { ao: 0.25, aoY0: 1.0, aoY1: 1.3, top: 0.18, wear: 1 }]);
   // brush crest: a fore-aft ridge, not a needle. From directly above this is a
   // 0.21 x 0.40 solid blue bar across the crown — the strongest single team cue
   // the game camera can actually see, because it is the one surface pointing
   // straight at it.
-  body.push([new THREE.CylinderGeometry(0.105, 0.105, 0.40, 7).rotateX(Math.PI / 2)
-    .translate(0, 1.35, -0.02), 0x3f8ae8,
-  { ao: 0, to: T.accent, y0: 1.26, y1: 1.47, top: 0.34 }]);
-  body.push([chamferBox(0.036, 0.10, 0.34, 0.012).translate(0, 1.42, -0.02), T.accent,
-    { ao: 0, to: 0xffffff, y0: 1.42, y1: 1.55 }]);
-  body.push([strand(0.052, 0.28, 0.034).rotateX(0.40).translate(0, 1.44, -0.14), T.accent,
-    { ao: 0, to: 0xffffff, y0: 1.40, y1: 1.75 }]);
-  body.push([chamferBox(0.25, 0.05, 0.06, 0.012).translate(0, 1.19, 0.155), T.dark, { ao: 0 }]);
-  body.push([chamferBox(0.06, 0.14, 0.06, 0.015).translate(0, 1.06, 0.17), T.metalDark, { ao: 0 }]);
+  body.push([new THREE.CylinderGeometry(0.095, 0.095, 0.40, 7).rotateX(Math.PI / 2)
+    .translate(0, 1.315, -0.02), 0x3f8ae8,
+  { ao: 0, to: T.accent, y0: 1.22, y1: 1.44, top: 0.34 }]);
+  body.push([chamferBox(0.034, 0.10, 0.34, 0.012).translate(0, 1.385, -0.02), T.accent,
+    { ao: 0, to: 0xffffff, y0: 1.38, y1: 1.51 }]);
+  body.push([strand(0.050, 0.28, 0.032).rotateX(0.40).translate(0, 1.405, -0.14), T.accent,
+    { ao: 0, to: 0xffffff, y0: 1.36, y1: 1.71 }]);
+  body.push([chamferBox(0.215, 0.05, 0.06, 0.012).translate(0, 1.155, 0.135), T.dark, { ao: 0 }]);
+  body.push([chamferBox(0.055, 0.13, 0.06, 0.015).translate(0, 1.04, 0.15), T.metalDark, { ao: 0, wear: 1 }]);
   // banner roll strapped across the back — another blue mass from above
   body.push([chamferBox(0.30, 0.40, 0.075, 0.03).translate(0, 0.46, -0.235).rotateX(0.20), T.cloth,
     { ao: 0.34, aoY0: 0.42, aoY1: 0.84, top: 0.24, to: T.clothDark, y0: 0.42, y1: 0.9 }]);
@@ -332,16 +523,36 @@ function meleeBlue(T) {
   // The whole shoulder cap now rides on the animated node, so a swing moves a
   // real mass through the frame instead of waving a 0.078 m capsule.
   const arm = [];
-  arm.push([chamferBox(0.22, 0.14, 0.26, 0.04).translate(0, -0.02, 0).rotateZ(-0.34).translate(-0.015, 0.045, 0.01),
-    T.cloth, { ao: 0.18, aoY0: -0.14, aoY1: 0.08, top: 0.22, to: T.clothDark, y0: 0.10, y1: -0.14 }]);
+  arm.push([chamferBox(0.235, 0.145, 0.27, 0.04).translate(0, -0.02, 0).rotateZ(-0.34).translate(-0.015, 0.045, 0.01),
+    T.cloth, { ao: 0.18, aoY0: -0.14, aoY1: 0.08, top: 0.22, to: T.clothDark, y0: 0.10, y1: -0.14, wear: 0.5 }]);
   arm.push([new THREE.CapsuleGeometry(0.082, 0.21, 3, 6).translate(0, -0.13, 0), T.metalDark, { ao: 0 }]);
-  arm.push([lathe([[0.092, -0.32], [0.104, -0.23], [0.080, -0.07]], 6, true), T.metal, { ao: 0 }]);
-  arm.push([ell(0.072, 0.078, 0.084, 7, 5).translate(0, -0.35, 0.02), T.metal, { ao: 0 }]);
-  // broad sword, held blade-up
-  arm.push([chamferBox(0.038, 0.16, 0.038, 0.012).translate(0, -0.43, 0.10), T.dark, { ao: 0 }]);
-  arm.push([chamferBox(0.24, 0.05, 0.07, 0.015).translate(0, -0.43, 0.10), T.trim, { ao: 0 }]);
-  arm.push([chamferBox(0.115, 0.56, 0.036, 0.014).translate(0, -0.42, 0.10), 0xd6e2ee, { ao: 0, to: 0xffffff, y0: -0.4, y1: 0.16 }]);
-  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.30, 0.86, 0.03), orb: null };
+  arm.push([lathe([[0.092, -0.32], [0.104, -0.23], [0.080, -0.07]], 6, true), T.metal, { ao: 0, wear: 1 }]);
+  arm.push([ell(0.072, 0.078, 0.084, 7, 5).translate(0, -0.35, 0.02), T.metal, { ao: 0, wear: 1 }]);
+  // WEAPON READ. The sword used to hang straight down at x = 0 in arm space,
+  // i.e. flat against the flank: at gameplay distance it was inside the body
+  // silhouette and simply invisible, which is most of why these read as
+  // "barrels with helmets". It is now carried raised and swung out from the
+  // hip, so the blade is a separate diagonal mass with daylight between it and
+  // the torso — the one shape that tells a player this is a melee minion
+  // without reading the health bar colour.
+  {
+    const sw = [];
+    // grip + pommel run DOWN from the hand, blade runs UP: origin is the fist
+    sw.push([new THREE.CylinderGeometry(0.030, 0.034, 0.17, 6).translate(0, -0.085, 0), T.dark, { ao: 0 }]);
+    sw.push([ell(0.048, 0.042, 0.048, 6, 5).translate(0, -0.185, 0), T.trim, { ao: 0, wear: 1 }]);
+    sw.push([chamferBox(0.26, 0.055, 0.075, 0.018).translate(0, 0.028, 0), T.trim,
+      { ao: 0, to: 0xfff0c0, y0: 0.0, y1: 0.06, wear: 1 }]);
+    // broad tapered blade with a fuller: 0.70 long and 0.145 wide so it is a
+    // real shape at 4 px, not a hairline
+    sw.push([lathe([[0.072, 0.055], [0.078, 0.30], [0.062, 0.60], [0.004, 0.74]], 4, true)
+      .rotateY(Math.PI / 4).scale(1.5, 1, 0.30), 0xd6e2ee,
+    { ao: 0, to: 0xffffff, y0: 0.05, y1: 0.72, top: 0.22, wear: 1 }]);
+    sw.push([chamferBox(0.030, 0.46, 0.048, 0.008).translate(0, 0.30, 0), T.metalDark, { ao: 0 }]);
+    // out and up: away from the flank, tip clear of the crest line
+    for (const [g, c, o] of sw)
+      arm.push([g.rotateZ(-0.60).rotateX(-0.16).translate(0.02, -0.34, 0.06), c, o]);
+  }
+  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.34, 0.86, 0.03), orb: null };
 }
 
 function meleeRed(T) {
@@ -375,6 +586,21 @@ function meleeRed(T) {
   // resolved as an orange doughnut.
   body.push([lathe([[0.215, 1.00], [0.325, 0.92], [0.350, 0.83], [0.315, 0.76]], 10), T.cloth,
     { ao: 0.26, aoY0: 0.74, aoY1: 1.00, top: 0.26, to: T.clothDark, y0: 1.02, y1: 0.74, jitter: 0.06 }]);
+  // SHOULDER LINE. The brute's opposite of the guard's straight yoke: two heavy
+  // bolted spaulders slung LOW and WIDE (±0.40 against a torso of 0.395), so its
+  // shoulder reads as a sagging bar of mass rather than a smooth dome. Same
+  // information as the guard's yoke, opposite shape language, which is what
+  // keeps the two melee classes apart at 50 px.
+  for (const sx of [-1, 1]) {
+    body.push([ell(0.175, 0.115, 0.185, 8, 6).rotateZ(sx * -0.36).translate(sx * 0.395, 0.815, 0.01), 0x8f4526,
+      { ao: 0.24, aoY0: 0.68, aoY1: 0.90, top: 0.26, to: T.cloth, y0: 0.68, y1: 0.94, jitter: 0.05, wear: 0.8 }]);
+    body.push([lathe([[0.150, 0.055], [0.190, -0.02], [0.172, -0.085]], 7, true)
+      .rotateZ(sx * -0.36).translate(sx * 0.395, 0.805, 0.01), T.metalDark,
+    { ao: 0.3, aoY0: 0.66, aoY1: 0.84, wear: 1 }]);
+    for (let i = 0; i < 3; i++)
+      body.push([ell(0.024, 0.020, 0.024, 5, 4).translate(sx * (0.30 + i * 0.085), 0.855 - i * 0.03, 0.10),
+        T.trim, { ao: 0, wear: 1 }]);
+  }
   // fur ruff (dark red hide, not the old neutral brown)
   body.push([new THREE.TorusGeometry(0.285, 0.095, 6, 12).rotateX(Math.PI / 2).translate(0, 0.84, 0.06), T.clothDark,
     { ao: 0.24, aoY0: 0.72, aoY1: 0.92, jitter: 0.1 }]);
@@ -407,20 +633,30 @@ function meleeRed(T) {
     { ao: 0.18, aoY0: -0.12, aoY1: 0.10, top: 0.26, to: T.clothDark, y0: 0.12, y1: -0.12, jitter: 0.05 }]);
   arm.push([new THREE.CapsuleGeometry(0.090, 0.23, 3, 6).translate(0, -0.14, 0), T.clothDark, { ao: 0 }]);
   arm.push([ell(0.092, 0.135, 0.094, 8, 6).translate(0, -0.30, 0.01), 0x4a3325, { ao: 0 }]);
-  // chunky curved cleaver
+  // chunky curved cleaver, hefted OUT from the hip on a long haft. Same reason
+  // as the guard's sword: a weapon inside the body silhouette is not a weapon.
+  // Where the guard's blade is a straight bright spike, this is a fat crescent —
+  // the two classes now differ by weapon shape at any distance.
   {
+    const cl = [];
     const s = new THREE.Shape();
-    s.moveTo(0, -0.06);
-    s.quadraticCurveTo(0.30, -0.14, 0.40, 0.14);
-    s.quadraticCurveTo(0.35, 0.40, 0.02, 0.35);
-    s.lineTo(-0.02, 0.10);
+    s.moveTo(0, -0.10);
+    s.quadraticCurveTo(0.40, -0.20, 0.53, 0.18);
+    s.quadraticCurveTo(0.46, 0.52, 0.02, 0.46);
+    s.lineTo(-0.03, 0.13);
     s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, { depth: 0.055, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.015, bevelSegments: 1 });
-    g.rotateY(Math.PI / 2).rotateZ(-0.2).translate(0.02, -0.32, 0.26);
-    arm.push([g, 0xc9d2da, { ao: 0, to: 0xf2f7fb, y0: -0.42, y1: 0.0 }]);
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.062, bevelEnabled: true, bevelThickness: 0.018, bevelSize: 0.018, bevelSegments: 1 });
+    g.rotateY(Math.PI / 2).translate(0.03, 0.30, -0.031);
+    cl.push([g, 0xc9d2da, { ao: 0, to: 0xf2f7fb, y0: 0.0, y1: 0.55, top: 0.24, wear: 1 }]);
+    // haft below the head, butt-spike at the bottom
+    cl.push([new THREE.CylinderGeometry(0.036, 0.042, 0.56, 6).translate(0, -0.03, 0), T.dark, { ao: 0 }]);
+    for (let i = 0; i < 3; i++)
+      cl.push([new THREE.TorusGeometry(0.043, 0.011, 4, 7).rotateX(Math.PI / 2).translate(0, -0.10 + i * 0.10, 0), T.trim, { ao: 0, wear: 1 }]);
+    cl.push([new THREE.ConeGeometry(0.042, 0.13, 5).rotateX(Math.PI).translate(0, -0.34, 0), T.metalDark, { ao: 0, wear: 1 }]);
+    for (const [gg, c, o] of cl)
+      arm.push([gg.rotateZ(-0.52).rotateX(0.22).translate(0.05, -0.30, 0.14), c, o]);
   }
-  arm.push([chamferBox(0.048, 0.28, 0.048, 0.014).translate(0, -0.47, 0.10), T.dark, { ao: 0 }]);
-  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.33, 0.82, 0.04), orb: null };
+  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.37, 0.82, 0.04), orb: null };
 }
 
 function casterBlue(T) {
@@ -433,16 +669,25 @@ function casterBlue(T) {
     const a = (i / 6) * Math.PI * 2 + 0.3;
     body.push([strand(0.09, 0.18, 0.05, 0.0).rotateX(Math.PI).translate(0, 0.20, 0.275).rotateY(a), T.clothDark, { ao: 0.5, aoY0: 0, aoY1: 0.22 }]);
   }
-  body.push([new THREE.TorusGeometry(0.215, 0.03, 5, 6).rotateX(Math.PI / 2).translate(0, 0.80, 0), T.trim, { ao: 0 }]);
-  // angular mantle
-  body.push([lathe([[0.185, 1.04], [0.345, 0.90], [0.31, 0.80]], 6, true), T.clothDark, { ao: 0.25, aoY0: 0.78, aoY1: 1.04, top: 0.14 }]);
-  // tall peaked hood
-  body.push([lathe([[0.185, 1.10], [0.238, 1.26], [0.208, 1.48], [0.085, 1.74], [0.018, 1.90]], 6, true), T.clothDark,
-    { ao: 0.2, aoY0: 1.05, aoY1: 1.6, top: 0.16, to: T.cloth, y0: 1.1, y1: 1.85 }]);
-  body.push([new THREE.OctahedronGeometry(0.055, 0).scale(1, 1.5, 1).translate(0, 1.92, 0), T.accent, { ao: 0 }]);
-  body.push([ell(0.155, 0.15, 0.09, 8, 6).translate(0, 1.28, 0.115), T.dark, { ao: 0 }]);
+  body.push([new THREE.TorusGeometry(0.215, 0.03, 5, 6).rotateX(Math.PI / 2).translate(0, 0.80, 0), T.trim, { ao: 0, wear: 1 }]);
+  // HEAD-TO-BODY RATIO. The melee guard is a small helm on a 0.70 shoulder bar;
+  // the caster is deliberately the inverse — a NARROW mantle (0.345 -> 0.275, so
+  // it no longer out-spans the melee's shoulders) under an oversized hood whose
+  // cowl mouth is 0.30 across. Silhouette-wise one is a T and the other is a
+  // lollipop, which is the class read a player actually parses at 50 px.
+  body.push([lathe([[0.175, 1.04], [0.275, 0.90], [0.250, 0.80]], 6, true), T.clothDark, { ao: 0.25, aoY0: 0.78, aoY1: 1.04, top: 0.14 }]);
+  // tall peaked hood, cowl flared forward over the face
+  body.push([lathe([[0.185, 1.08], [0.300, 1.26], [0.252, 1.52], [0.098, 1.78], [0.018, 1.94]], 6, true), T.clothDark,
+    { ao: 0.2, aoY0: 1.05, aoY1: 1.6, top: 0.16, to: T.cloth, y0: 1.1, y1: 1.88 }]);
+  // cowl brim: a hard forward-projecting shelf, the shape that makes a hood a
+  // hood instead of a cone
+  body.push([lathe([[0.135, 0.10], [0.305, 0.02], [0.285, -0.06]], 6, true).scale(1, 1, 1.22)
+    .rotateX(0.30).translate(0, 1.31, 0.075), 0x3f8ae8,
+  { ao: 0.22, aoY0: 1.20, aoY1: 1.40, top: 0.26, to: T.clothDark, y0: 1.42, y1: 1.18 }]);
+  body.push([new THREE.OctahedronGeometry(0.055, 0).scale(1, 1.5, 1).translate(0, 1.96, 0), T.accent, { ao: 0 }]);
+  body.push([ell(0.150, 0.145, 0.09, 8, 6).translate(0, 1.275, 0.130), T.dark, { ao: 0 }]);
   for (const sx of [-1, 1])
-    body.push([ell(0.035, 0.028, 0.02, 6, 5).translate(sx * 0.058, 1.30, 0.185), T.accent, { ao: 0 }]);
+    body.push([ell(0.036, 0.029, 0.02, 6, 5).translate(sx * 0.058, 1.295, 0.200), T.accent, { ao: 0 }]);
   // rune band on the chest
   body.push([chamferBox(0.20, 0.05, 0.04, 0.012).translate(0, 0.92, 0.20), T.trim, { ao: 0 }]);
   // tome arm (merged)
@@ -453,19 +698,29 @@ function casterBlue(T) {
   const arm = [];
   arm.push([new THREE.CapsuleGeometry(0.068, 0.20, 3, 6).translate(0, -0.10, 0), T.clothDark, { ao: 0 }]);
   arm.push([ell(0.062, 0.07, 0.07, 7, 5).translate(0, -0.26, 0.03), T.clothDark, { ao: 0 }]);
-  arm.push([new THREE.CylinderGeometry(0.028, 0.036, 1.34, 6).translate(0.02, -0.10, 0.06), 0x6d5b45, { ao: 0 }]);
-  for (let i = 0; i < 3; i++)
-    arm.push([new THREE.TorusGeometry(0.038, 0.012, 4, 6).rotateX(Math.PI / 2).translate(0.02, -0.30 + i * 0.14, 0.06), T.trim, { ao: 0 }]);
-  // geometric crescent finial holding the orb
-  for (const sx of [-1, 1])
-    arm.push([chamferBox(0.035, 0.22, 0.035, 0.012).translate(0, 0.05, 0).rotateZ(sx * 0.55).translate(0.02 + sx * 0.07, 0.44, 0.06),
-      T.metal, { ao: 0 }]);
-  arm.push([new THREE.OctahedronGeometry(0.055, 0).translate(0.02, 0.62, 0.06), T.trim, { ao: 0 }]);
+  // The staff used to stand dead vertical at x = 0.02, hard against the robe,
+  // and vanished into it at gameplay distance. Canted OUT so the shaft is a
+  // clean diagonal with sky between it and the hood, and the orb — the brightest
+  // pixel on the unit — now sits clear of the cowl instead of behind it.
+  {
+    const st = [];
+    st.push([new THREE.CylinderGeometry(0.030, 0.038, 1.42, 6).translate(0, -0.06, 0), 0x6d5b45, { ao: 0 }]);
+    for (let i = 0; i < 3; i++)
+      st.push([new THREE.TorusGeometry(0.040, 0.013, 4, 6).rotateX(Math.PI / 2).translate(0, -0.26 + i * 0.14, 0), T.trim, { ao: 0, wear: 1 }]);
+    for (const sx of [-1, 1])
+      st.push([chamferBox(0.036, 0.24, 0.036, 0.012).translate(0, 0.05, 0).rotateZ(sx * 0.58).translate(sx * 0.075, 0.50, 0),
+        T.metal, { ao: 0, wear: 1 }]);
+    st.push([new THREE.OctahedronGeometry(0.058, 0).translate(0, 0.69, 0), T.trim, { ao: 0, wear: 1 }]);
+    for (const [g, c, o] of st)
+      arm.push([g.rotateZ(-0.26).rotateX(-0.10).translate(0.115, -0.06, 0.06), c, o]);
+  }
   return {
     body: assemble(body), arm: assemble(arm),
-    armPivot: new THREE.Vector3(0.255, 1.00, 0.04),
-    orb: new THREE.OctahedronGeometry(0.10, 0).scale(1, 1.25, 1),
-    orbPos: new THREE.Vector3(0.02, 0.50, 0.06),
+    armPivot: new THREE.Vector3(0.275, 1.00, 0.04),
+    orb: new THREE.OctahedronGeometry(0.108, 0).scale(1, 1.25, 1),
+    // the crescent's local (0, 0.50, 0) carried through rotateZ(-0.26),
+    // rotateX(-0.10) and the staff offset — i.e. still cradled in the finial
+    orbPos: new THREE.Vector3(0.244, 0.421, 0.108),
   };
 }
 
@@ -479,16 +734,22 @@ function casterRed(T) {
     body.push([strand(0.085, 0.10 + (i % 4) * 0.07, 0.05, 0.2).rotateX(Math.PI + 0.12).translate(0, 0.16, 0.30).rotateY(a),
       T.clothDark, { ao: 0.5, aoY0: 0, aoY1: 0.2 }]);
   }
-  // hunched mantle of pelts
-  body.push([shear(lathe([[0.20, 1.00], [0.375, 0.86], [0.335, 0.74]], 10), 0.12, 0.7), T.metalDark,
+  // hunched mantle of pelts — narrowed to 0.30 for the same reason as the blue
+  // caster's: the caster classes must not out-span the melee shoulder line.
+  body.push([shear(lathe([[0.20, 1.00], [0.300, 0.86], [0.272, 0.74]], 10), 0.12, 0.7), T.metalDark,
     { ao: 0.25, aoY0: 0.7, aoY1: 1.0, jitter: 0.1 }]);
-  // wide, forward-bent hood
-  body.push([shear(lathe([[0.215, 1.02], [0.305, 1.18], [0.265, 1.38], [0.12, 1.54]], 10), 0.30, 1.02), T.clothDark,
-    { ao: 0.2, aoY0: 1.0, aoY1: 1.45, top: 0.14, jitter: 0.06 }]);
-  body.push([ell(0.165, 0.135, 0.10, 8, 6).translate(0, 1.20, 0.22), T.dark, { ao: 0 }]);
+  // oversized forward-bent hood: a big head on a narrow body, the inverse of the
+  // brute standing next to it
+  body.push([shear(lathe([[0.225, 1.00], [0.360, 1.18], [0.310, 1.42], [0.135, 1.62]], 10), 0.30, 1.00), T.clothDark,
+    { ao: 0.2, aoY0: 1.0, aoY1: 1.50, top: 0.14, jitter: 0.06 }]);
+  // heavy cowl brim over the face
+  body.push([lathe([[0.150, 0.10], [0.345, 0.02], [0.320, -0.07]], 8).scale(1, 1, 1.20)
+    .rotateX(0.36).translate(0, 1.245, 0.10), T.cloth,
+  { ao: 0.24, aoY0: 1.14, aoY1: 1.34, top: 0.26, to: T.clothDark, y0: 1.38, y1: 1.12, jitter: 0.05 }]);
+  body.push([ell(0.160, 0.130, 0.10, 8, 6).translate(0, 1.185, 0.235), T.dark, { ao: 0 }]);
   for (const sx of [-1, 1]) {
-    body.push([ell(0.035, 0.028, 0.02, 6, 5).translate(sx * 0.06, 1.22, 0.29), T.accent, { ao: 0 }]);
-    body.push([new THREE.ConeGeometry(0.042, 0.19, 5).rotateX(-0.5).rotateZ(sx * 0.6).translate(sx * 0.19, 1.32, 0.12), 0xd9cbb0, { ao: 0 }]);
+    body.push([ell(0.036, 0.029, 0.02, 6, 5).translate(sx * 0.06, 1.205, 0.305), T.accent, { ao: 0 }]);
+    body.push([new THREE.ConeGeometry(0.044, 0.21, 5).rotateX(-0.5).rotateZ(sx * 0.6).translate(sx * 0.225, 1.32, 0.10), 0xd9cbb0, { ao: 0, wear: 1 }]);
   }
   // bone charms
   for (let i = 0; i < 3; i++)
@@ -500,20 +761,21 @@ function casterRed(T) {
   const arm = [];
   arm.push([new THREE.CapsuleGeometry(0.072, 0.20, 3, 6).translate(0, -0.10, 0), T.clothDark, { ao: 0 }]);
   arm.push([ell(0.066, 0.075, 0.075, 7, 5).translate(0, -0.26, 0.03), T.metalDark, { ao: 0 }]);
-  // gnarled bent staff (two kinked segments)
-  arm.push([new THREE.CylinderGeometry(0.032, 0.042, 0.80, 6).translate(0.02, -0.32, 0.06), 0x5a4632, { ao: 0, jitter: 0.08 }]);
-  arm.push([new THREE.CylinderGeometry(0.026, 0.034, 0.62, 6).rotateX(0.02).rotateZ(-0.24).translate(0.10, 0.34, 0.06), 0x5a4632, { ao: 0, jitter: 0.08 }]);
+  // gnarled bent staff, canted out from the robe (two kinked segments) so the
+  // kink and the claw finial are both against sky rather than against the hood
+  arm.push([new THREE.CylinderGeometry(0.034, 0.045, 0.82, 6).rotateZ(-0.14).translate(0.10, -0.30, 0.06), 0x5a4632, { ao: 0, jitter: 0.08 }]);
+  arm.push([new THREE.CylinderGeometry(0.027, 0.036, 0.66, 6).rotateZ(-0.44).translate(0.30, 0.34, 0.06), 0x5a4632, { ao: 0, jitter: 0.08 }]);
   // claw finial
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2;
-    arm.push([new THREE.TorusGeometry(0.075, 0.019, 4, 7, Math.PI * 0.7).rotateY(a).rotateZ(0.9)
-      .translate(0.165, 0.60, 0.06), 0xd9cbb0, { ao: 0 }]);
+    arm.push([new THREE.TorusGeometry(0.078, 0.020, 4, 7, Math.PI * 0.7).rotateY(a).rotateZ(0.9)
+      .translate(0.425, 0.60, 0.06), 0xd9cbb0, { ao: 0, wear: 1 }]);
   }
   return {
     body: assemble(body), arm: assemble(arm),
-    armPivot: new THREE.Vector3(0.26, 0.94, 0.06),
-    orb: new THREE.SphereGeometry(0.115, 10, 8),
-    orbPos: new THREE.Vector3(0.165, 0.66, 0.06),
+    armPivot: new THREE.Vector3(0.285, 0.94, 0.06),
+    orb: new THREE.SphereGeometry(0.118, 10, 8),
+    orbPos: new THREE.Vector3(0.425, 0.655, 0.06),
   };
 }
 
