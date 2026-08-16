@@ -1047,6 +1047,12 @@ export class BlobShadows {
     geo.instanceCount = cap;
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
+      // The paving is not a plane — tiles carry per-tile height variation of a
+      // few cm — and sim.js posts the blob at only ground + 0.03, so without a
+      // depth bias the quad was being eaten tile by tile and survived as
+      // triangular slivers. Offset in depth rather than in Y so it still hugs
+      // sloped ground and is still occluded by real geometry standing in front.
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -10,
       uniforms: { uSunG: { value: SUN_GROUND } },
       vertexShader: `
         attribute vec4 aPos;
@@ -1058,22 +1064,30 @@ export class BlobShadows {
           vec2 perp = vec2(-uSunG.y, uSunG.x);
           float s = aPos.w;
           // the quad is offset down-sun so the contact end sits at the feet
-          vec2 off = uSunG * (position.x * 2.30 * s + 0.62 * s) + perp * (position.z * 1.34 * s);
+          vec2 off = uSunG * (position.x * 2.05 * s + 0.56 * s) + perp * (position.z * 1.26 * s);
           vL = vec2(position.x, position.z) * 2.0;
-          gl_Position = projectionMatrix * viewMatrix * vec4(aPos.xyz + vec3(off.x, 0.0, off.y), 1.0);
+          gl_Position = projectionMatrix * viewMatrix
+            * vec4(aPos.xyz + vec3(off.x, 0.045, off.y), 1.0);
         }`,
       fragmentShader: `
         varying vec2 vL; varying float vOn;
         void main() {
-          // soft penumbra over the whole ellipse, weighted toward the near end
+          // Soft-edged ellipse, full value across the inner half. NB every
+          // smoothstep here keeps edge0 < edge1: reversed edges are undefined
+          // in GLSL ES and SwiftShader returns 0, which silently deleted the
+          // whole penumbra in an earlier pass.
           float e = length(vL);
-          float pen = 1.0 - smoothstep(0.10, 1.0, e);
-          pen *= pen * (0.50 + 0.50 * smoothstep(0.85, -0.85, vL.x));
+          float pen = 1.0 - smoothstep(0.28, 1.0, e);
+          // dense at the feet, opening out toward the tip of the shadow
+          pen *= 0.52 + 0.48 * (1.0 - smoothstep(-0.9, 0.9, vL.x));
           // hard contact core clamped under the feet (vL.x = -0.54 is the body)
-          float c = length(vec2((vL.x + 0.54) * 2.45, vL.y * 1.75));
-          float core = 1.0 - smoothstep(0.0, 1.0, c);
-          float a = pen * 0.30 + core * core * 0.46;
-          gl_FragColor = vec4(0.028, 0.052, 0.072, min(a, 0.72) * vOn);
+          float c = length(vec2((vL.x + 0.54) * 2.30, vL.y * 1.65));
+          float core = 1.0 - smoothstep(0.10, 1.0, c);
+          // 0.8 at the contact, ~0.45 through the body of the penumbra. A real
+          // shadow here is ~45% of the lit paving, and ACES's shoulder eats
+          // anything gentler: at alpha 0.4 the measured darkening was 3 luma.
+          float a = pen * 0.60 + core * 0.40;
+          gl_FragColor = vec4(0.024, 0.048, 0.068, min(a, 0.86) * vOn);
         }`,
     });
     this.mesh = new THREE.Mesh(geo, mat);

@@ -2707,15 +2707,29 @@ export class VFX {
     // OPAQUE stone chunks thrown UP THROUGH the core, drawn after the additive
     // plume. These are the silhouettes the frame had none of: hard dark shapes
     // with a lit facet, reading against the white-hot centre.
-    for (let i = 0; i < 17; i++) {
+    for (let i = 0; i < 21; i++) {
       const a = rf(0, TAU), sp0 = rf(5, 15);
       o = pRec();
       o.x = x + Math.cos(a) * rf(0.2, r * 0.7); o.y = gy + rf(0.3, 1.0); o.z = z + Math.sin(a) * rf(0.2, r * 0.7);
       o.vx = Math.cos(a) * sp0; o.vy = rf(10, 22); o.vz = Math.sin(a) * sp0;
-      o.life = rf(0.7, 1.5); o.size = rf(0.26, 0.68); o.sizeEnd = rf(0.22, 0.55);
+      o.life = rf(0.7, 1.5); o.size = rf(0.26, 0.78); o.sizeEnd = rf(0.22, 0.62);
       o.col = 0x453a2f; o.colEnd = 0x1e1a17; o.alpha = 0.97; o.glow = 1; o.glowEnd = 1;
       o.sprite = A_CHUNK; o.gravity = 21; o.drag = 0.35;
       o.rot = rf(0, 6.28); o.rotV = rf(-11, 11); o.fadePow = 5;
+      this.pSoot.spawn(o);
+    }
+    // fine ash flakes tumbling THROUGH the incandescent zone. Small, opaque and
+    // numerous: at judging resolution these are the pepper of dark speckle that
+    // tells the eye there is matter inside the light.
+    for (let i = 0; i < 16; i++) {
+      const a = rf(0, TAU), sp0 = rf(2, 9);
+      o = pRec();
+      o.x = x + Math.cos(a) * rf(0.1, r * 0.55); o.y = gy + rf(0.6, 2.6); o.z = z + Math.sin(a) * rf(0.1, r * 0.55);
+      o.vx = Math.cos(a) * sp0; o.vy = rf(6, 16); o.vz = Math.sin(a) * sp0;
+      o.life = rf(1.0, 1.9); o.size = rf(0.10, 0.24); o.sizeEnd = rf(0.06, 0.16);
+      o.col = 0x3a3128; o.colEnd = 0x16130f; o.alpha = 0.92; o.glow = 1; o.glowEnd = 1;
+      o.sprite = A_ROCK; o.gravity = 9; o.drag = 1.1;
+      o.rot = rf(0, 6.28); o.rotV = rf(-14, 14); o.fadePow = 4;
       this.pSoot.spawn(o);
     }
 

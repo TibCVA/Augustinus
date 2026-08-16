@@ -12,6 +12,7 @@ import { prewarmUnits } from './entities/units.js';
 import { Sim } from './game/sim.js';
 import { Controls } from './game/controls.js';
 import { HUD } from './game/hud.js';
+import { createMenu } from './ui/menu.js';
 
 const STEP = 1 / 60;
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _shake = new THREE.Vector3();
@@ -89,6 +90,9 @@ function updateCamera(dt) {
 
 // ------------------------------------------------------------ frame logic --
 let paused = SHOT_MODE;
+// Distinct from `paused`: the world keeps rendering behind the title screen,
+// only the simulation is held.
+let simFrozen = false;
 let running = false;
 let acc = 0;
 let last = performance.now();
@@ -113,6 +117,7 @@ function frame(now) {
   let dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   if (!paused) {
+    if (simFrozen) { acc = 0; visualUpdate(dt); renderFrame(); return; }
     acc += dt;
     let n = 0;
     while (acc >= STEP && n++ < 5) {
@@ -300,8 +305,22 @@ if (SHOT_MODE) {
   visualUpdate(STEP);
   renderFrame();
 } else {
-  CAM.snap = true;
+  // Hold the sim on the title screen but keep rendering, so the live arena is
+  // the menu's backdrop. Park the camera on the cinematic overview rather than
+  // the follow camera's close base view, and hand it back on PLAY.
+  simFrozen = true;
+  CAM.mode = 'fixed';
+  CAM.pos.set(-58, 42, 52);
+  CAM.look.set(2, -2, -3);
   startLoop();
-  hud.announce('AETHER RIFT', 'Destroy the Ember nexus!', 'kill');
+  createMenu({
+    onPlay() {
+      simFrozen = false;
+      acc = 0;
+      CAM.mode = 'follow';
+      CAM.snap = true;
+      hud.announce('AETHER RIFT', 'Destroy the Ember nexus!', 'kill');
+    },
+  }).show();
 }
 window.__WR_READY = true;
