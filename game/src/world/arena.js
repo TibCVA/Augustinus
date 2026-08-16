@@ -6,7 +6,7 @@ import { mats, PAL, cpuNoise } from '../core/assets.js';
 import {
   Bucket, mat4, addColumn, addRock, addTree, addBush, addCrystals, addStatue,
   addTorch, addBanner, addBridge, addGateRuins, addFountain, addRuneDecal,
-  buildNexusPlatform, makeFlames, makeGrassBlades, fixNormals,
+  buildNexusPlatform, makeFlames, makeGrassBlades, fixNormals, jitterGeo,
 } from './props.js';
 
 export const A = {
@@ -208,6 +208,28 @@ export function buildArena(scene) {
     [A.NEXUS_X, 0, 0.62, 7.5],
   ]);
 
+  // Verge pebbles straddling the lane edge. The dirt ramp fixes the COLOUR
+  // transition; only geometry sitting across the line breaks the dead-straight
+  // silhouette of the paving. Merged into the existing stoneProp bucket, so the
+  // whole scatter costs zero extra draw calls. No Poisson disc — the band is a
+  // 1.7u ribbon and clumping reads as natural rubble.
+  {
+    for (let x = -A.HALF_X + 3; x < A.HALF_X - 3; x += RNG.f(0.55, 1.5)) {
+      if (Math.abs(x) < A.RIVER_HALF + 1.4) continue;   // river gap
+      for (const sz of [-1, 1]) {
+        if (!RNG.chance(0.78)) continue;
+        const z = sz * (A.LANE_HALF + RNG.f(-0.55, 1.25));
+        const s = RNG.f(0.06, 0.2);
+        const g = new THREE.IcosahedronGeometry(s, 0);
+        jitterGeo(g, s * 0.32, RNG);
+        g.scale(RNG.f(1.1, 1.9), RNG.f(0.5, 0.85), RNG.f(1.0, 1.7));
+        B.add(g, 'stoneProp',
+          mat4(x, groundHeight(x, z) + s * 0.34, z, RNG.spread(0.3), RNG.f(6.28), RNG.spread(0.3)),
+          { base: 0xbcae96, jitter: 0.16, moss: 0.55, ao: 0.4, aoY0: -s, aoY1: s * 0.6 });
+      }
+    }
+  }
+
   // cliff-lip dressing: overhanging slabs, draping vines and grass tufts that
   // break the hard grass→rock transition. Merged into existing buckets, so the
   // whole fringe costs zero extra draw calls.
@@ -271,13 +293,18 @@ export function buildArena(scene) {
   // =============================================================== TERRAIN ==
   // ground (painterly grass w/ riverbed + baked prop AO)
   {
-    const segX = 160, segZ = 52;
+    // segZ doubled: the verge ramp below is a ~1.7u ribbon, and at 52 segments
+    // (0.77u per row) it had barely two vertices to gradate across.
+    const segX = 160, segZ = 104;
     const g = new THREE.PlaneGeometry(150, 40, segX, segZ);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
     const col = new Float32Array(pos.count * 3);
     const cA = new THREE.Color(PAL.grassLo), cB = new THREE.Color(PAL.grassHi);
     const cMoss = new THREE.Color(0x4a7a52), cSand = new THREE.Color(0xc9b98a);
+    // Trodden dirt: the value that has to exist BETWEEN grass and paving. The
+    // old cSand blend peaked under the deck and never reached the screen.
+    const cDirt = new THREE.Color(0x6b5a3e);
     const cRiverBed = new THREE.Color(0x3d6b5c), tmp = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       let x = pos.getX(i), z = pos.getZ(i);
@@ -310,8 +337,16 @@ export function buildArena(scene) {
       }
       // rail-side gentle occlusion + lane-edge warm wear
       ao *= 1 - 0.22 * smooth(Math.abs(z), 10.5, 15.5);
-      const laneEdge = 1 - smooth(Math.abs(Math.abs(z) - A.LANE_HALF), 0, 2.2);
-      tmp.lerp(cSand, laneEdge * 0.28);
+      // Dirt verge. Grass and paving are two separate opaque meshes, so no
+      // single-mesh vertex blend can soften their shared polygon edge — the only
+      // fix is to put a real trodden band on the grass side, so the eye reads
+      // grass -> worn dirt -> stone instead of a hue flip in four pixels.
+      const dEdge = Math.abs(Math.abs(z) - A.LANE_HALF);
+      const wob = (cpuNoise.fbm(x * 0.85 + 19, z * 0.85 + 4, 3) - 0.5) * 0.55;
+      const verge = 1 - smooth(dEdge + wob, 0.15, 1.9);
+      if (verge > 0) tmp.lerp(cDirt, verge * THREE.MathUtils.lerp(0.62, 0.85, verge));
+      const laneEdge = 1 - smooth(dEdge, 0, 2.2);
+      tmp.lerp(cSand, laneEdge * 0.16);
       tmp.multiplyScalar(ao);
       col[i * 3] = tmp.r; col[i * 3 + 1] = tmp.g; col[i * 3 + 2] = tmp.b;
     }
