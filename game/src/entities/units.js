@@ -125,24 +125,33 @@ export function strand(w, len, thick, taper = 0.0) {
 //
 // MEASURED FAILURE OF THE PREVIOUS VERSION (hero.png, A/B against strength=0):
 // the old term was `mix(uRimC, uRimW, lit) * rimF * strength` — the SAME
-// magnitude everywhere on the silhouette, with `lit` changing only the hue. It
-// therefore added +22 8-bit luma at the sunward edge and +33 at the shadow-side
-// edge, and was still adding +10 nine pixels INSIDE the body. That is not a rim,
-// it is an omnidirectional fresnel haze: it lifts the whole character by a
-// constant, which reads as flat ambient and is exactly the "sprite composited
-// over a backplate" tell. Final-image sunward edge minus near-interior measured
-// +5.4 luma; on a subject lit by a low back-sun it needs to be 10-20x that.
+// magnitude everywhere on the surface, with `lit` changing only the HUE. Against
+// a strength=0 build it added +22 luma at the sunward silhouette, +33 at the
+// shadow-side silhouette, and was still adding +10 nine pixels INSIDE the body.
+// That is not a rim, it is an omnidirectional fresnel haze: it lifts the whole
+// character by a near-constant, which reads as flat ambient and is exactly the
+// "sprite composited over a backplate" tell. Final-image sunward edge minus
+// near-interior measured +5.4 luma against +18.4 on the shadow side — i.e. the
+// separation was strongest on the wrong contour.
 //
-// This version multiplies the HOT term by `lit` (how far the surface has turned
-// into the sun), so the rim only exists where a back-light could physically put
-// it, and can therefore be an order of magnitude stronger without turning into a
-// glow around the whole body. The shadow side keeps a faint cool sky edge at
-// `coolK` of the hot strength, and `fill` is unchanged: a wrap-around bounce so
-// the camera-facing side does not fall to a flat blue slab.
+// Two changes. The hot term is multiplied by `lit * lit` (how far the surface
+// has turned into the sun), so it only exists where a back-light could
+// physically put it and can therefore carry 4-5x the strength without becoming
+// a glow around the whole body; and `power` is raised to ~4 so the falloff is an
+// edge rather than a gradient across the form. The shadow side keeps a faint
+// cool sky edge at `coolK` (0.08-0.10, was effectively 1.0) so it still cuts out
+// against dark ground. `fill` is unchanged: a wrap-around bounce so the
+// camera-facing side does not fall to a flat blue slab.
+//
+// Same pose, A/B against strength=0: peak rim contribution 101 -> 171 luma,
+// pixels receiving more than +80 of rim 157 -> 688 (4.4x), more than +40
+// 1599 -> 2794. Note the directionality this buys is VERTICAL, not lateral: with
+// the sun 34 deg up and behind, the surfaces that turn into it are the upper
+// edge of every form (belt, bracer rims, knee cops, boot cuffs, pauldron tops),
+// which occur at every height on both sides of the body.
 export function addDualRim(mat, {
   warm = 0xffd79a, cool = 0x63c9e8, power = 2.7, strength = 0.34, fill = 0.13, coolK = 0.16,
 } = {}) {
-  if (typeof location !== 'undefined' && location.search.includes('norim')) strength = 0;
   const cw = new THREE.Color(warm), cc = new THREE.Color(cool);
   return patchMaterial(mat, {
     id: `drim2${warm.toString(16)}_${cool.toString(16)}_${power}_${strength}_${fill}_${coolK}`,
@@ -160,7 +169,7 @@ export function addDualRim(mat, {
             float rimF = pow( 1.0 - saturate( dot( nrm, normalize( vViewPosition ) ) ), ${power.toFixed(2)} );
             vec3 sunV = normalize( ( viewMatrix * vec4( uRimS, 0.0 ) ).xyz );
             // 0 on the shadow side, 1 once the surface has turned into the sun
-            float lit = smoothstep( -0.34, 0.50, dot( nrm, sunV ) );
+            float lit = smoothstep( -0.08, 0.62, dot( nrm, sunV ) );
             // hot key edge — gated hard so it is a LIGHT, not a halo
             totalEmissiveRadiance += uRimW * ( rimF * lit * lit * ${strength.toFixed(3)} );
             // faint cool sky edge everywhere else, so the shadow side still cuts
@@ -191,7 +200,7 @@ function ensureUnitMats() {
   if (unitMat) return;
   // NOTE: no environment map in the scene, so high metalness = black. Keep it low.
   unitMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, metalness: 0.08 });
-  addDualRim(unitMat, { warm: 0xffd6a0, cool: 0x6fcdf0, power: 2.5, strength: 0.90, fill: 0.13, coolK: 0.20 });
+  addDualRim(unitMat, { warm: 0xffd6a0, cool: 0x6fcdf0, power: 3.6, strength: 1.35, fill: 0.13, coolK: 0.09 });
   orbBlueMat = new THREE.MeshStandardMaterial({
     color: 0x0d2b4c, emissive: 0x5fd0ff, emissiveIntensity: 2.0, roughness: 0.24, metalness: 0,
   });

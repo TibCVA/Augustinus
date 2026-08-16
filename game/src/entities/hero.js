@@ -578,9 +578,9 @@ function buildRig(spec) {
   // addDualRim in units.js. The old un-gated 0.28 measured +22 luma on the
   // sunward silhouette and +33 on the shadow silhouette, i.e. no light direction
   // at all; these numbers put ~+90 on the sunward contour and ~+12 elsewhere.
-  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 2.9, strength: 0.82, fill: 0.20, coolK: 0.17 });
-  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.6, strength: 0.98, fill: 0.17, coolK: 0.16 });
-  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.2, strength: 0.86, fill: 0.16, coolK: 0.18 });
+  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 4.2, strength: 1.30, fill: 0.20, coolK: 0.09 });
+  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 4.0, strength: 1.45, fill: 0.17, coolK: 0.08 });
+  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 3.4, strength: 1.20, fill: 0.16, coolK: 0.10 });
   addVertexGlow(mGlow);
   rig.mats.push(mBody, mPlate, mGlow, mCape, mFace);
   for (const mm of rig.mats) mm.userData.baseEmissive = mm.emissive.clone();
@@ -1061,7 +1061,6 @@ function buildRig(spec) {
   }
   grip.add(wG);
   rig.weapon = wG;
-  if (location.search.includes('hidehero')) root.visible = false;
   return rig;
 }
 

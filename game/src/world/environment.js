@@ -201,7 +201,10 @@ export function buildEnvironment(scene, quality = 1) {
   sun.shadow.camera.top = 46; sun.shadow.camera.bottom = -46;
   sun.shadow.camera.near = 18; sun.shadow.camera.far = 200;
   sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.55;
+  // Seed at the clamp ceiling, not 0.55: the per-frame refit below overwrites
+  // this before the first render, but 0.55 is ~0.2 m of peter-panning and
+  // leaving it here invites someone to copy it as the intended value.
+  sun.shadow.normalBias = 0.09;
   scene.add(sun);
   scene.add(sun.target);
   // Cool sky fill, lifted: ACES + the grade were crushing every shadow to an

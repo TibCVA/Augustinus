@@ -1502,14 +1502,14 @@ export class Sim {
     for (const m of this.minions) {
       bars.set(m.barIdx, m.pos.x, m.pos.y + m.hpY, m.pos.z, m.hp / m.maxHp, m.hpW,
         m.team === 'blue' ? 0x4fa8ff : 0xe0342a, 0);
-      blobs.set(m.shadowIdx, m.pos.x, m.pos.y + 0.03, m.pos.z, 1.0);
+      blobs.set(m.shadowIdx, m.pos.x, m.pos.y + 0.06, m.pos.z, 1.0);
     }
     for (let i = 0; i < 2; i++) {
       const h = this.heroes[i];
       if (h.alive) {
         bars.set(h.barIdx, h.pos.x, h.pos.y + h.hpY + h.airY, h.pos.z, h.hp / h.maxHp, h.hpW,
           h === this.player ? 0x5ce87a : 0xe0342a, h === this.player ? 1 : 0);
-        blobs.set(h.shadowIdx, h.pos.x, h.pos.y + 0.03, h.pos.z, 1.35);
+        blobs.set(h.shadowIdx, h.pos.x, h.pos.y + 0.06, h.pos.z, 1.35);
       } else {
         bars.set(h.barIdx, 0, -99, 0, 0, 0.1, 0, 0);
         blobs.set(h.shadowIdx, 0, -99, 0, 0);
