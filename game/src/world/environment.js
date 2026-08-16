@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tex, mats, uTime, uSunDir, PAL } from '../core/assets.js';
+import { getRenderer } from '../core/renderer.js';
 import { SEED, makeRng } from '../core/rng.js';
 import { Bucket, mat4, lathe, jitterGeo, boxUV, bakeTint, chamferBox, puffNormals } from './props.js';
 import { A } from './arena.js';
@@ -22,13 +23,13 @@ const SKY_DEEP = new THREE.Vector3(0.135, 0.160, 0.275); // below-horizon chasm 
 const SUN_TINT = new THREE.Vector3(1.000, 0.600, 0.255);
 // Desaturated warm grey so distant geometry loses *chroma* into the haze instead
 // of blowing out to the same cream as the sky (near/far read identical otherwise).
-const HAZE_HEX = 0xdcc0ad; // scene fog / horizon haze
+const HAZE_HEX = 0xdcae8c; // scene fog / horizon haze
 // Aerial perspective: eye-level frames dissolve if the deck is over-hazed, aerial
 // frames read flat without it — so density is driven by how far above the deck the
 // camera sits (see fitShadowAndHaze()).
 // Aerial haze sells depth but eats chroma; 0.0050 dissolved the far half of the
 // overview. Depth separation survives the pull-back (measured Δlum still ~+11).
-const FOG_EYE = 0.0032, FOG_AERIAL = 0.0042;
+const FOG_EYE = 0.0032, FOG_AERIAL = 0.0036;
 
 // ============================================================ DYNAMIC LIGHTS ==
 // The scene shipped with ZERO dynamic lights: every emissive was unlit geometry
@@ -95,15 +96,104 @@ const SKY_FN_GLSL = `
   }
 `;
 
+// ======================================================= image-based light ==
+// Nothing in this build was ever allowed to be bright: p99 luminance measured
+// 213-220 in four of six beauty frames, and both hero.js:527 and units.js:167
+// carry the same comment — "no env map in the scene, so metalness above ~0.3
+// reads as black, keep it low". That is the root cause of the milky read. With
+// no IBL there is no specular lobe anywhere in the world: gold, crystal, armour
+// trim and lamp glass are all pure Lambert, so nothing can reach white and every
+// surface lands in the same narrow value band as the diffuse albedo behind it.
+//
+// This builds a small equirect of *the same sky the dome draws* — identical
+// stops, identical sun azimuth — with a real sun disc in it, and prefilters it
+// through PMREM. Costs zero draw calls (it is a texture lookup inside the
+// standard shader), ~0.5 MB, and one prefilter at boot. It buys two things:
+//   1. specular. A GGX lobe now has something to reflect, so gold rims, the
+//      nexus crystal, armour plate and wet stone punch past 245 in small areas.
+//   2. directional ambient. The hemisphere light was a flat 1.25 of untinted
+//      fill on every surface in the frame — the single biggest reason key:fill
+//      measured ~1.3:1. IBL replaces most of it with fill that has a direction,
+//      so a surface turned away from the sky actually goes darker.
+const SUN_DISC_POW = 1200, SUN_DISC_R = 95;   // tight + hot: specular source
+const SUN_GLOW_POW = 70, SUN_GLOW_R = 2.0;    // the soft halo around it
+// Warm bounce off the lit cloud deck below the arena, replacing the hemisphere
+// light's flat ground colour with something that falls off toward the nadir.
+const BOUNCE_HI = [0.44, 0.31, 0.205];
+const BOUNCE_LO = [0.20, 0.155, 0.125];
+
+function buildSkyIBL(scene, sunDir, intensity) {
+  const renderer = getRenderer();
+  if (!renderer) return null;                 // headless/unit context: skip IBL
+  const W = 256, H = 128;
+  const data = new Float32Array(W * H * 4);
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const saLen = Math.hypot(sunDir.x, sunDir.z) || 1;
+  const sax = sunDir.x / saLen, saz = sunDir.z / saLen;
+  const Z = SKY_ZEN, M = SKY_MID, HO = SKY_HOR, ST = SUN_TINT;
+  for (let j = 0; j < H; j++) {
+    const lat = ((j + 0.5) / H - 0.5) * Math.PI;
+    const dy = Math.sin(lat), cl = Math.cos(lat);
+    for (let i = 0; i < W; i++) {
+      const lon = ((i + 0.5) / W - 0.5) * Math.PI * 2;
+      const dx = Math.cos(lon) * cl, dz = Math.sin(lon) * cl;
+      // same three-stop ramp as skyRay(), so a reflection agrees with the sky
+      const t1 = ss(0.08, 0.72, dy), t2 = ss(0.0, 0.19, dy), t3 = ss(-0.46, 0.004, dy);
+      const bl = Math.min(1, Math.max(0, -dy / 0.85));
+      let r = HO.x + (M.x + (Z.x - M.x) * t1 - HO.x) * t2;
+      let g = HO.y + (M.y + (Z.y - M.y) * t1 - HO.y) * t2;
+      let b = HO.z + (M.z + (Z.z - M.z) * t1 - HO.z) * t2;
+      const bx = BOUNCE_HI[0] + (BOUNCE_LO[0] - BOUNCE_HI[0]) * bl;
+      const by = BOUNCE_HI[1] + (BOUNCE_LO[1] - BOUNCE_HI[1]) * bl;
+      const bz = BOUNCE_HI[2] + (BOUNCE_LO[2] - BOUNCE_HI[2]) * bl;
+      r = bx + (r - bx) * t3; g = by + (g - by) * t3; b = bz + (b - bz) * t3;
+      // horizon warms toward the sun azimuth
+      const hl = Math.hypot(dx, dz) || 1;
+      let az = (dx / hl) * sax + (dz / hl) * saz;
+      az = az * 0.5 + 0.5;
+      const hw = Math.exp(-Math.abs(dy) * 7.5) * az * az * 0.30;
+      // sun: forward scatter + the disc itself. The disc is what a GGX lobe
+      // actually reflects, so it carries most of the specular energy.
+      const d = Math.max(dx * sunDir.x + dy * sunDir.y + dz * sunDir.z, 0);
+      const k = hw + Math.pow(d, 3) * 0.16 + Math.pow(d, 24) * 0.42
+              + Math.pow(d, SUN_GLOW_POW) * SUN_GLOW_R + Math.pow(d, SUN_DISC_POW) * SUN_DISC_R;
+      const o = (j * W + i) * 4;
+      data[o] = r + ST.x * k; data[o + 1] = g + ST.y * k; data[o + 2] = b + ST.z * k; data[o + 3] = 1;
+    }
+  }
+  const src = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.FloatType);
+  src.mapping = THREE.EquirectangularReflectionMapping;
+  src.magFilter = THREE.LinearFilter;
+  src.minFilter = THREE.LinearFilter;
+  src.generateMipmaps = false;
+  src.needsUpdate = true;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const rt = pmrem.fromEquirectangular(src);
+  pmrem.dispose();
+  src.dispose();
+  scene.environment = rt.texture;
+  scene.environmentIntensity = intensity;
+  return rt;
+}
+
 export function buildEnvironment(scene, quality = 1) {
   const group = new THREE.Group();
   scene.add(group);
 
   // ----------------------------------------------------------------- light --
+  // THREE-POINT RIG. The previous setup was one 3.15 key against a 1.25 flat
+  // hemisphere — a measured key:fill near 1.3:1, which is why "sky, grass, stone
+  // and VFX all sit around 0.6-0.85 with the same peach cast". The fill has to
+  // come *from somewhere* for a surface to be able to turn away from it.
+  //
+  //   key   sun, warm, casts the only shadow map      5.60
+  //   fill  cool, camera-anchored, never shadows        0.92
+  //   amb   sky IBL (directional) + a trace of hemi   0.66 / 0.40
+  //
   // Lower, warmer key = long golden-hour shadows and real contrast.
   const sunDir = new THREE.Vector3(-0.44, 0.50, -0.60).normalize();
   uSunDir.value.copy(sunDir);   // shared with foliage/grass shaders in other modules
-  const sun = new THREE.DirectionalLight(PAL.sun, 3.15);
+  const sun = new THREE.DirectionalLight(PAL.sun, 5.60);
   sun.position.copy(sunDir).multiplyScalar(150);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -116,8 +206,39 @@ export function buildEnvironment(scene, quality = 1) {
   scene.add(sun.target);
   // Cool sky fill, lifted: ACES + the grade were crushing every shadow to an
   // untinted near-black, in violation of the doc's own "cool teal shadows".
-  const hemi = new THREE.HemisphereLight(0x8fd4ff, 0x8f7450, 1.25);
+  // Cut hard now that the IBL below carries ambient with a direction to it —
+  // this is the term that was flattening every frame into one luminance band.
+  const hemi = new THREE.HemisphereLight(0x8fd4ff, 0x8f7450, 0.40);
   scene.add(hemi);
+  // Fill: cool bounce off the lit cloud deck. Never casts a shadow. Its only
+  // job is to stop backlit geometry from going to an untinted hole — the
+  // right-hand pillar in hero.png measured a median of 22/255 at RGB
+  // (33,32,28), i.e. black with no hue at all — while leaving the *sunlit*
+  // side of everything alone, which a hemisphere light structurally cannot do.
+  //
+  // Re-aimed per frame from the camera azimuth (see aimFill) rather than
+  // pinned opposite the sun: a fixed anti-sun fill still leaves a whole
+  // quadrant of the world unlit, and which quadrant that is changes with every
+  // preset. Swung FILL_YAW off the view axis so it models the form instead of
+  // flattening it, and kept at ~1/8 of the key so it can never compete.
+  const fill = new THREE.DirectionalLight(0x6fb2e8, 0.92);
+  fill.castShadow = false;
+  fill.position.set(-sunDir.x * 140, 60, -sunDir.z * 140);
+  scene.add(fill);
+  scene.add(fill.target);
+  const FILL_YAW = -0.92, FILL_EL = 0.40;
+  const _fillDir = new THREE.Vector3();
+  function aimFill(cp, ctr) {
+    const az = Math.atan2(cp.x - ctr.x, cp.z - ctr.z) + FILL_YAW;
+    const ce = Math.cos(FILL_EL);
+    _fillDir.set(Math.sin(az) * ce, Math.sin(FILL_EL), Math.cos(az) * ce);
+    fill.target.position.copy(ctr);
+    fill.position.copy(ctr).addScaledVector(_fillDir, 140);
+    fill.updateMatrixWorld(true);
+    fill.target.updateMatrixWorld(true);
+  }
+  // Sky IBL: specular for every standard material + directional ambient.
+  buildSkyIBL(scene, sunDir, 0.66);
 
   // -------------------------------------------------- dynamic light pool ---
   // Created ONCE, here, so the shader recompile happens at boot and never again.
@@ -230,14 +351,17 @@ export function buildEnvironment(scene, quality = 1) {
     sc.near = Math.max(2, D - pad);
     sc.far = D + pad;
     sc.updateProjectionMatrix();
-    // depth + normal bias must track the texel or a tight frustum peter-pans
-    sun.shadow.normalBias = texel * 8.5;
+    // depth + normal bias must track the texel or a tight frustum peter-pans.
+    // Clamped (LIT-2b): at the widest fit texel*8.5 is ~0.2 m, which peter-pans
+    // a 1 m minion clean off its own contact shadow.
+    sun.shadow.normalBias = Math.min(texel * 8.5, 0.09);
     sun.shadow.bias = -(texel * 1.13) / (sc.far - sc.near);
 
     sun.target.position.copy(_ctr);
     sun.position.copy(_ctr).addScaledVector(sunDir, D);
     sun.updateMatrixWorld(true);
     sun.target.updateMatrixWorld(true);
+    aimFill(cp, _ctr);
 
     // ---- aerial haze, gated by how high the camera flies -------------------
     const t = THREE.MathUtils.smoothstep(cp.y, 6, 26);
@@ -499,20 +623,27 @@ export function buildEnvironment(scene, quality = 1) {
     return mesh;
   }
   // deepest → nearest (drawn back to front)
+  // Sunlit cloud crests are the one thing in a golden-hour frame that is
+  // *supposed* to be the brightest object in it, and the deck fills a third of
+  // the overview and river frames. It was topping out at 1.42 linear, i.e. the
+  // same display value as lit stone, which is a large part of why "sky, grass
+  // and stone all sit in one band". The crests now run hot enough to clear the
+  // grade's highlight knee while the valleys stay where they were, so the deck
+  // gains internal range instead of just getting brighter.
   cloudLayer({
     y: -58, scale: 0.00086, thresh: 0.505, opacity: 0.95, drift: [0.40, -0.36],
     hazeK: 0.0068, warp: 0.055, sunOff: 0.20, order: -9,
-    lit: [0.235, 0.215, 0.245], mid: [0.070, 0.085, 0.150], shadow: [0.026, 0.034, 0.072],
+    lit: [0.290, 0.262, 0.290], mid: [0.062, 0.078, 0.142], shadow: [0.022, 0.030, 0.068],
   });
   cloudLayer({
     y: -29, scale: 0.00128, thresh: 0.495, opacity: 0.94, drift: [-0.78, 0.55],
     hazeK: 0.0048, warp: 0.065, sunOff: 0.20, order: -8,
-    lit: [0.62, 0.40, 0.23], mid: [0.098, 0.115, 0.200], shadow: [0.034, 0.045, 0.098],
+    lit: [0.92, 0.60, 0.33], mid: [0.090, 0.108, 0.192], shadow: [0.030, 0.040, 0.092],
   });
   cloudLayer({
     y: -11, scale: 0.00178, thresh: 0.488, opacity: 0.96, drift: [1.15, 0.32],
     hazeK: 0.0034, warp: 0.075, sunOff: 0.20, order: -7,
-    lit: [1.42, 0.92, 0.47], mid: [0.175, 0.200, 0.320], shadow: [0.058, 0.080, 0.185],
+    lit: [2.15, 1.42, 0.74], mid: [0.165, 0.192, 0.312], shadow: [0.050, 0.072, 0.178],
   });
 
   // ------------------------------------------------ distant cumulus band ----
@@ -540,8 +671,10 @@ export function buildEnvironment(scene, quality = 1) {
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
       uniforms: shareSky({
         tMap: { value: tex.cloud },
-        uWarm: { value: new THREE.Vector3(1.30, 0.92, 0.60) },
-        uCool: { value: new THREE.Vector3(0.26, 0.30, 0.48) },
+        // sunlit tops hot, shaded flanks deep — the band is a skyline, it needs
+        // a value range of its own or it reads as one flat cream shape
+        uWarm: { value: new THREE.Vector3(1.95, 1.36, 0.86) },
+        uCool: { value: new THREE.Vector3(0.20, 0.24, 0.42) },
       }),
       vertexShader: `
         varying vec3 vWorld; varying vec2 vUv;
@@ -566,8 +699,8 @@ export function buildEnvironment(scene, quality = 1) {
           vec3 dir = rv / dist;
           float az = dot(normalize(vWorld.xz + vec2(1e-5)), normalize(uSunDir.xz + vec2(1e-5)));
           vec3 col = t.rgb * mix(uCool, uWarm, smoothstep(-0.7, 0.8, az));
-          col *= mix(1.0, 0.24, smoothstep(0.72, 0.08, vUv.y));   // shaded undersides
-          col += uSunTint * smoothstep(0.28, 0.88, vUv.y) * smoothstep(-0.2, 0.9, az) * 0.55;
+          col *= mix(1.0, 0.17, smoothstep(0.72, 0.08, vUv.y));   // shaded undersides
+          col += uSunTint * smoothstep(0.28, 0.88, vUv.y) * smoothstep(-0.2, 0.9, az) * 0.86;
           col = mix(col, skyRay(dir), haze);
           float av = smoothstep(0.10, 0.46, t.a);                 // crisper silhouette
           gl_FragColor = vec4(col, av * 0.94 * (1.0 - haze * 0.40));
@@ -683,7 +816,7 @@ export function buildEnvironment(scene, quality = 1) {
         varying vec2 vUv; varying float vFade; varying float vSeed;
         void main() {
           vec4 t = texture2D(tMap, vUv);
-          float a = t.a * vFade * 0.34;
+          float a = t.a * vFade * 0.27;
           if (a < 0.003) discard;
           vec3 warm = vec3(1.05, 0.82, 0.62);
           vec3 cool = vec3(0.34, 0.42, 0.62);
@@ -1070,12 +1203,30 @@ export function buildEnvironment(scene, quality = 1) {
         add(new THREE.ConeGeometry(sr * 1.0, sh * 0.34, 7), sub(M, mat4(Math.cos(a) * r * 1.9, sh * 1.15, Math.sin(a) * r * 1.9)),
           { ...T_STONE, ao: 0.2, moss: 0.5, aoY0: -sh * 0.17, aoY1: sh * 0.17 });
       }
-      const ring = new THREE.TorusGeometry(r * 1.15, r * 0.07, 5, 16);
+      // Finial. These used to be two bare torii at r*1.15 and r*0.75 floating a
+      // clear 4-8 m above the spire tip with nothing under them: at river and
+      // base camera height they read as gold hoops hanging in an empty sky, and
+      // the panel called them out as geometry with no world logic. They are real
+      // geometry, not a lighting artefact. Fixed by giving them something to be
+      // mounted ON — a slender mast rising out of the cone tip, rings shrunk to
+      // finial scale so they read as banded ornament rather than orbital debris,
+      // and a bead capping the mast.
+      const tipY = h * 1.11;
+      add(new THREE.CylinderGeometry(r * 0.045, r * 0.075, h * 0.20, 6),
+        sub(M, mat4(0, tipY + h * 0.10, 0)), T_GOLD);
+      const ring = new THREE.TorusGeometry(r * 0.30, r * 0.055, 5, 14);
       ring.rotateX(Math.PI / 2);
-      add(ring, sub(M, mat4(0, h * 1.15, 0)), T_GOLD);
-      const ring2 = new THREE.TorusGeometry(r * 0.75, r * 0.055, 5, 14);
+      add(ring, sub(M, mat4(0, tipY + h * 0.055, 0)), T_GOLD);
+      const ring2 = new THREE.TorusGeometry(r * 0.20, r * 0.042, 5, 12);
       ring2.rotateX(Math.PI / 2);
-      add(ring2, sub(M, mat4(0, h * 1.23, 0)), T_GOLD);
+      add(ring2, sub(M, mat4(0, tipY + h * 0.135, 0)), T_GOLD);
+      add(new THREE.IcosahedronGeometry(r * 0.085, 0), sub(M, mat4(0, tipY + h * 0.205, 0)), T_GOLD);
+      // A wide collar low on the shaft keeps the gold accent reading at distance
+      // now that the crown ornament is small — and it hugs the stone, so it can
+      // never look detached.
+      const collar = new THREE.TorusGeometry(r * 0.92, r * 0.05, 5, 16);
+      collar.rotateX(Math.PI / 2);
+      add(collar, sub(M, mat4(0, h * 0.585, 0)), T_GOLD);
       // root, so the tower stands on a piece of the world rather than on nothing
       if (root) {
         const rk = lathe([
@@ -1353,7 +1504,7 @@ export function buildEnvironment(scene, quality = 1) {
             float hd = dist * uHazeK;
             float haze = 1.0 - exp(-hd * hd);
             col = mix(col, skyRay(dir), haze);
-            gl_FragColor = vec4(col, smoothstep(0.10, 0.62, t.a) * 0.40 * (1.0 - haze * 0.45));
+            gl_FragColor = vec4(col, smoothstep(0.10, 0.62, t.a) * 0.32 * (1.0 - haze * 0.45));
           }`,
       });
       const mesh = new THREE.Mesh(g, mat);

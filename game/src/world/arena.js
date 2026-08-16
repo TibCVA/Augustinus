@@ -260,7 +260,13 @@ export function buildArena(scene) {
     }
   }
 
-  const staticMeshes = B.build(group, { shadows: ['stoneProp', 'bark', 'canopyPink', 'trim'] });
+  // canopyCard and canopyGreen must cast too: the alpha-test leaf cards are what
+  // define the crown's visible outline, so leaving them out makes every tree's
+  // ground shadow tighter than the tree — and the green-variant trees would cast
+  // nothing but a trunk.
+  const staticMeshes = B.build(group, {
+    shadows: ['stoneProp', 'bark', 'canopyPink', 'canopyGreen', 'canopyCard', 'trim'],
+  });
 
   // =============================================================== TERRAIN ==
   // ground (painterly grass w/ riverbed + baked prop AO)

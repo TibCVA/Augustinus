@@ -79,13 +79,24 @@ export function fixNormals(geo) {
 }
 
 // Radial "puff" normals: makes low-poly canopy blobs read soft, not faceted.
-export function puffNormals(geo) {
+// `mix` < 1 keeps some of the faceted normal, which is what stops a canopy blob
+// from shading as a perfect sphere with a texture pasted on it.
+export function puffNormals(geo, mix = 1) {
   const pos = geo.attributes.position;
   const nor = geo.attributes.normal;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const l = Math.sqrt(x * x + y * y + z * z) || 1;
-    nor.setXYZ(i, x / l, y / l, z / l);
+    let nx = x / l, ny = y / l, nz = z / l;
+    if (mix < 1) {
+      const k = 1 - mix;
+      nx = nx * mix + nor.getX(i) * k;
+      ny = ny * mix + nor.getY(i) * k;
+      nz = nz * mix + nor.getZ(i) * k;
+      const m = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      nx /= m; ny /= m; nz /= m;
+    }
+    nor.setXYZ(i, nx, ny, nz);
   }
   return geo;
 }
@@ -157,6 +168,74 @@ export function setSway(geo, v) {
   } else a.fill(v);
   geo.setAttribute('aSway', new THREE.BufferAttribute(a, 1));
   return geo;
+}
+
+// ----------------------------------------------------------- foliage cards --
+// Alpha-tested cutout cards. The crown blobs are opaque icosahedra, so however
+// many of them you stack the outline stays a smooth mathematical curve. These
+// break it: a ragged alpha edge riding the crown surface, reading at both the
+// overview pitch and the near river/base framing.
+//
+// tex.leaf is a 2x2 atlas — 0 dense clump, 1 open lacy clump, 2 twig sprig,
+// 3 blade tuft (trunk skirt / bush fringe).
+const _UP = new THREE.Vector3(0, 1, 0);
+const _dir = new THREE.Vector3();
+const _qa = new THREE.Quaternion();
+const LEAF_INSET = 0.006;
+
+function leafUV(cell) {
+  const cx = cell & 1, cy = (cell >> 1) & 1;              // cy 0 = TOP canvas row
+  return [
+    cx * 0.5 + LEAF_INSET, (cx + 1) * 0.5 - LEAF_INSET,   // u0, u1
+    1 - (cy + 1) * 0.5 + LEAF_INSET, 1 - cy * 0.5 - LEAF_INSET, // v0, v1
+  ];
+}
+
+// Crossed quad pair. Local +Y is the growth direction; pivot sits `base` of the
+// way down so the card can be planted on a surface and stick outward from it.
+// Both windings are emitted with a single +Y normal, which lets the material
+// stay FrontSide: THREE flips the normal per gl_FrontFacing on DoubleSide, and
+// on a crossed card that blackens roughly half the leaves.
+export function leafCard(w, h, cell, spin = 0, base = -0.3) {
+  const [u0, u1, v0, v1] = leafUV(cell);
+  const hw = w * 0.5, y0 = h * base, y1 = h * (1 + base);
+  const pos = [], uv = [], nor = [], idx = [];
+  // Normals splay outward from the growth axis instead of all pointing +Y, so a
+  // card shades like a rounded clump rather than a flat billboard, and the
+  // specular term lands as a moving highlight across it rather than a flat
+  // blown-out sheet.
+  const K = 0.85, NL = Math.hypot(1, K);
+  const push = (px, py, pz, pu, pv, sx, ca, sa) => {
+    pos.push(px, py, pz); uv.push(pu, pv);
+    nor.push(sx * ca * K / NL, 1 / NL, sx * sa * K / NL);
+  };
+  for (let k = 0; k < 2; k++) {
+    const a = spin + k * Math.PI * 0.5;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const o = pos.length / 3;
+    push(-hw * ca, y0, -hw * sa, u0, v0, -1, ca, sa);
+    push(hw * ca, y0, hw * sa, u1, v0, 1, ca, sa);
+    push(hw * ca, y1, hw * sa, u1, v1, 1, ca, sa);
+    push(-hw * ca, y1, -hw * sa, u0, v1, -1, ca, sa);
+    idx.push(o, o + 1, o + 2, o, o + 2, o + 3,   // front winding
+      o, o + 2, o + 1, o, o + 3, o + 2);         // back winding, same normal
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+// Matrix that rotates local +Y onto `dir`.
+export function alignY(x, y, z, dx, dy, dz, s = 1) {
+  _dir.set(dx, dy, dz);
+  if (_dir.lengthSq() < 1e-8) _dir.set(0, 1, 0);
+  _dir.normalize();
+  _qa.setFromUnitVectors(_UP, _dir);
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z), _qa.clone(), new THREE.Vector3(s, s, s));
 }
 
 // ------------------------------------------------------------------ bucket --
@@ -242,78 +321,229 @@ export function addRock(b, x, z, s = 1, opts = {}) {
 export function addTree(b, x, z, s = 1, { pink = true, ry = RNG.f(6.28) } = {}) {
   const rng = RNG;
   const lean = rng.spread(0.09);
-  // roots + trunk (lathe w/ flare)
+
+  // ---- species / hue roll -------------------------------------------------
+  // arena.js hands every tree `pink: true`; a rail of ~25 identical magenta
+  // pom-poms is the overview's loudest tell. Roll a stable per-position variant
+  // here so the grove has coral / magenta / cream / green in it.
+  const hA = hash2(Math.round(x * 8.7), Math.round(z * 12.3));
+  const hB = hash2(Math.round(z * 5.1) + 91, Math.round(x * 9.9) - 17);
+  let kind = pink ? 'pink' : 'green';
+  if (pink) { if (hA < 0.14) kind = 'white'; else if (hA < 0.25) kind = 'green'; }
+  const green = kind === 'green';
+  const matName = green ? 'canopyGreen' : 'canopyPink';
+  const cCrown = new THREE.Color(
+    green ? 0x7fae54 : kind === 'white' ? 0xffe7e2 : 0xffb2c6);
+  if (kind === 'pink') cCrown.offsetHSL((hB - 0.5) * 0.115, -hA * 0.32, (hB - 0.5) * 0.15);
+  if (green) cCrown.offsetHSL((hB - 0.5) * 0.05, 0, (hB - 0.5) * 0.1);
+  const crownHex = cCrown.getHex();
+  const cardBase = (k = 1) => cCrown.clone().multiplyScalar(0.85 * k);
+
+  // ---- trunk: real root flare, not a cylinder punched into the grass ------
   const trunk = lathe([
-    [0.56, 0], [0.36, 0.3], [0.26, 1.0], [0.22, 1.9], [0.26, 2.45], [0.06, 2.85],
-  ], 9);
+    [0.94, 0], [0.68, 0.13], [0.46, 0.38], [0.31, 1.0], [0.23, 1.9],
+    [0.27, 2.45], [0.07, 2.9],
+  ], 10);
   jitterGeo(trunk, 0.05, rng);
-  b.add(trunk, 'bark', mat4(x, 0, z, lean, ry, lean * 0.7, s), { base: 0xa78a68, jitter: 0.15, ao: 0.45, aoY1: 1 });
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + rng.f(0.7);
-    const root = new THREE.ConeGeometry(0.16, 0.8, 5);
-    root.translate(0, 0.28, 0); root.rotateZ(1.25);
-    b.add(root, 'bark', mat4(x + Math.cos(a) * 0.4 * s, 0.03, z + Math.sin(a) * 0.4 * s, 0, -a, 0, s),
-      { base: 0x977c5e, ao: 0.4, aoY1: 0.6 });
+  b.add(trunk, 'bark', mat4(x, -0.06, z, lean, ry, lean * 0.7, s),
+    { base: 0xa78a68, jitter: 0.15, ao: 0.5, aoY1: 1.1 });
+  // splayed root spurs that run out along the ground instead of stopping dead
+  const ROOTS = 6;
+  for (let i = 0; i < ROOTS; i++) {
+    const a = (i / ROOTS) * Math.PI * 2 + rng.f(0.55);
+    const len = rng.f(0.9, 1.5);
+    const root = new THREE.ConeGeometry(rng.f(0.15, 0.23), len, 5);
+    root.translate(0, len * 0.36, 0);
+    root.rotateZ(1.32 + rng.spread(0.14));
+    root.scale(1, 1, 0.62);                       // flatten against the ground
+    b.add(root, 'bark', mat4(x + Math.cos(a) * 0.34 * s, -0.02, z + Math.sin(a) * 0.34 * s, 0, -a, 0, s),
+      { base: 0x977c5e, jitter: 0.16, moss: 0.5, ao: 0.45, aoY1: 0.5 });
   }
-  // branches
+
+  // ---- branches ------------------------------------------------------------
+  // Two of these deliberately overshoot the crown radius: a bare tip crossing
+  // the sky is the cheapest hard break in a blossom outline.
   const tops = [];
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 + rng.f(0.8);
-    const br = new THREE.CylinderGeometry(0.04, 0.1, 1.2, 5);
-    br.translate(0, 0.6, 0); br.rotateZ(0.8 + rng.f(0.3));
-    br.rotateY(-a);
-    const bm = mat4(x, 2.5 * s, z, 0, 0, 0, s);
-    b.add(br, 'bark', bm, { base: 0x9c8161, ao: 0.2 });
-    tops.push([x + Math.cos(a) * 1.05 * s, (2.5 + 0.75) * s, z + Math.sin(a) * 1.05 * s]);
+  const tips = [];
+  const BR = 5;
+  // one tapered cylinder from (px,py,pz) heading out along azimuth `a` at
+  // `pitch` from vertical; returns the far end
+  const limb = (px, py, pz, a, pitch, len, r0, r1, tint) => {
+    const g = new THREE.CylinderGeometry(r0, r1, len, 5);
+    g.translate(0, len * 0.5, 0); g.rotateZ(pitch); g.rotateY(-a);
+    b.add(g, 'bark', mat4(px, py, pz, 0, 0, 0, s), tint);
+    const rad = Math.sin(pitch) * len * s;
+    return [px + Math.cos(a) * rad, py + Math.cos(pitch) * len * s, pz + Math.sin(a) * rad];
+  };
+  for (let i = 0; i < BR; i++) {
+    const a = (i / BR) * Math.PI * 2 + rng.f(0.8);
+    if (i < 2) {
+      // Long climbing twig whose bare tip clears the TOP of the crown against
+      // sky. Built in two bending segments and tinted light: a dead-straight
+      // dark pin reads as a TV aerial at the overview pitch.
+      const L = rng.f(2.3, 2.95);
+      const p0 = rng.f(0.5, 0.74), p1 = p0 - rng.f(0.24, 0.42);
+      const l0 = L * 0.58, l1 = L * 0.42;
+      const e0 = limb(x, 2.5 * s, z, a, p0, l0, 0.055, 0.12,
+        { base: 0xc0a37e, jitter: 0.2, ao: 0.14 });
+      const e1 = limb(e0[0], e0[1], e0[2], a, p1, l1, 0.022, 0.055,
+        { base: 0xd0b891, jitter: 0.22, ao: 0 });
+      tips.push([e0, e1, Math.cos(a), Math.sin(a)]);
+    } else {
+      // spread the pitch hard: equal-pitch branches put every blob at the same
+      // height and the crown reads as a pancake instead of a dome
+      const len = rng.f(1.0, 1.7), pitch = rng.f(0.52, 1.22);
+      const e = limb(x, 2.5 * s, z, a, pitch, len, 0.04, 0.11,
+        { base: 0x9c8161, jitter: 0.18, ao: 0.2 });
+      tops.push([e[0], e[1] + 0.2 * s, e[2]]);
+    }
   }
   tops.push([x, 3.3 * s, z]);
-  // canopy blobs
-  const matName = pink ? 'canopyPink' : 'canopyGreen';
-  const cTint = pink
-    ? { base: 0xffb2c6, jitter: 0.09, ao: 0.5, aoY0: -1.5, aoY1: 1.3, topLight: 0.42, mossColor: 0xb0507e }
-    : { base: 0x7fae54, jitter: 0.14, ao: 0.5, aoY0: -1.2, aoY1: 1.1, topLight: 0.26 };
+  tops.push([x + rng.spread(0.3) * s, 4.0 * s, z + rng.spread(0.3) * s]);   // apex
+
+  // ---- canopy blobs (shrunk ~12% so the cards read as the outer surface) ---
+  const cTint = green
+    ? { base: crownHex, jitter: 0.18, ao: 0.52, aoY0: -1.2, aoY1: 1.1, topLight: 0.26 }
+    : { base: crownHex, jitter: 0.18, ao: 0.54, aoY0: -1.5, aoY1: 1.3, topLight: 0.42, mossColor: 0xb0507e };
+  // Per-blob value offset. Lighting alone cannot separate blobs that all share
+  // one flat albedo — this is what makes a crown read as stacked clumps rather
+  // than one pink mass, and unlike texture detail it survives any minification.
+  const shade = (k) => cCrown.clone().multiplyScalar(k);
+  const shells = [];
   const blobCount = 5 + (s > 1.1 ? 2 : 0);
   for (let i = 0; i < blobCount; i++) {
     const t = tops[i % tops.length];
-    const bs = rng.f(0.7, 1.35) * s;
+    const bs = rng.f(0.7, 1.35) * s * 0.88;
     const g = new THREE.IcosahedronGeometry(bs, 2);
-    jitterGeo(g, bs * 0.17, rng);
+    jitterGeo(g, bs * 0.19, rng);
     // per-blob squash/stretch: a crown should read as one sculpted mass, not
     // a stack of identical spheres
-    g.scale(rng.f(1.15, 1.5), rng.f(0.64, 0.94), rng.f(1.1, 1.45));
-    puffNormals(g);
+    const kx = rng.f(1.12, 1.46), ky = rng.f(0.72, 1.02), kz = rng.f(1.08, 1.42);
+    g.scale(kx, ky, kz);
+    puffNormals(g, 0.66);
     setSway(g, 0.35 + rng.f(0.5));
+    const cx = t[0] + rng.spread(0.42), cy = t[1] + rng.f(-0.1, 0.4), cz = t[2] + rng.spread(0.42);
     // blobs riding high on the crown catch the sun; inner/low ones sit in shade
     const high = t[1] > 2.7 * s ? 1 : 0;
-    b.add(g, matName,
-      mat4(t[0] + rng.spread(0.42), t[1] + rng.f(-0.1, 0.4), t[2] + rng.spread(0.42),
-        rng.spread(0.16), rng.f(6.28), rng.spread(0.16)),
-      { ...cTint, topLight: cTint.topLight + high * 0.24, ao: cTint.ao - high * 0.12 });
+    b.add(g, matName, mat4(cx, cy, cz, rng.spread(0.16), rng.f(6.28), rng.spread(0.16)),
+      {
+        ...cTint, base: shade(rng.f(0.76, 1.16)),
+        topLight: cTint.topLight + high * 0.24, ao: cTint.ao - high * 0.12,
+      });
+    shells.push([cx, cy, cz, bs * Math.max(kx, kz) * 0.94, bs * ky, high]);
   }
   // small outlier tufts so the crown silhouette isn't a clean bubble outline
   for (let i = 0; i < 3; i++) {
     const t = tops[(i * 2 + 1) % tops.length];
     const bs = rng.f(0.3, 0.56) * s;
     const g = new THREE.IcosahedronGeometry(bs, 1);
-    jitterGeo(g, bs * 0.26, rng);
+    jitterGeo(g, bs * 0.28, rng);
     g.scale(1.35, 0.78, 1.2);
-    puffNormals(g);
+    puffNormals(g, 0.6);
     setSway(g, 0.8 + rng.f(0.5));
-    b.add(g, matName,
-      mat4(t[0] + rng.spread(1.4) * s, t[1] + rng.f(-0.45, 0.75) * s, t[2] + rng.spread(1.4) * s, 0, rng.f(6.28)),
-      { ...cTint, topLight: cTint.topLight + 0.26 });
+    const cx = t[0] + rng.spread(1.4) * s, cy = t[1] + rng.f(-0.45, 0.75) * s, cz = t[2] + rng.spread(1.4) * s;
+    b.add(g, matName, mat4(cx, cy, cz, 0, rng.f(6.28)),
+      { ...cTint, base: shade(rng.f(0.95, 1.22)), topLight: cTint.topLight + 0.26 });
+    shells.push([cx, cy, cz, bs * 1.3, bs * 0.78, 1]);
+  }
+
+  // ---- alpha-cutout cards on the crown surface ----------------------------
+  let ccx = 0, ccy = 0, ccz = 0;
+  for (const sh of shells) { ccx += sh[0]; ccy += sh[1]; ccz += sh[2]; }
+  ccx /= shells.length; ccy /= shells.length; ccz /= shells.length;
+
+  const cards = 16 + (s > 1.1 ? 4 : 0);
+  for (let i = 0; i < cards; i++) {
+    const sh = shells[i % shells.length];
+    let dx, dy, dz;
+    if (i % 3 === 2) {                             // up: breaks the overview outline
+      const a = rng.f(6.28), ty = rng.f(0.42, 0.98), rr = Math.sqrt(1 - ty * ty);
+      dx = Math.cos(a) * rr; dy = ty; dz = Math.sin(a) * rr;
+    } else {                                       // out: breaks the river/base outline
+      const a = rng.f(6.28);
+      dy = rng.f(-0.3, 0.4);
+      const rr = Math.sqrt(Math.max(0.04, 1 - dy * dy));
+      dx = Math.cos(a) * rr; dz = Math.sin(a) * rr;
+    }
+    // bias away from the crown centroid so cards land on the actual silhouette
+    dx += (sh[0] - ccx) * 0.55 / s; dy += (sh[1] - ccy) * 0.45 / s; dz += (sh[2] - ccz) * 0.55 / s;
+    const L = Math.hypot(dx, dy, dz) || 1; dx /= L; dy /= L; dz /= L;
+    // shells: [cx, cy, cz, horizontal radius, vertical radius, sunlit]
+    const px = sh[0] + dx * sh[3] * 0.9;
+    const py = sh[1] + dy * sh[4] * 0.9;
+    const pz = sh[2] + dz * sh[3] * 0.9;
+    const cell = i % 5 === 4 ? 2 : i % 2;
+    const w = rng.f(0.78, 1.45) * s, h = rng.f(0.66, 1.2) * s;
+    const g = leafCard(w, h, cell, rng.f(3.14), -0.3);
+    setSway(g, 0.85 + rng.f(0.7));
+    b.add(g, 'canopyCard', alignY(px, py, pz, dx, dy, dz), {
+      base: cardBase(rng.f(0.8, 1.18)), jitter: 0.14, ao: 0.5, aoY0: -h * 0.34, aoY1: h * 0.5,
+      topLight: sh[5] ? 0.22 : 0.04,
+    });
+  }
+  // drooping sprigs under the crown — the river camera looks up into these
+  for (let i = 0; i < 4; i++) {
+    const sh = shells[(i * 3 + 1) % shells.length];
+    const a = rng.f(6.28);
+    const dxs = Math.cos(a) * 0.55, dzs = Math.sin(a) * 0.55, dys = -0.82;
+    const g = leafCard(rng.f(0.6, 1.0) * s, rng.f(0.9, 1.55) * s, 2, rng.f(3.14), -0.12);
+    setSway(g, 1.35 + rng.f(0.8));
+    b.add(g, 'canopyCard',
+      alignY(sh[0] + dxs * sh[3] * 0.8, sh[1] - sh[4] * 0.72, sh[2] + dzs * sh[3] * 0.8, dxs, dys, dzs),
+      { base: cardBase(rng.f(0.78, 1.05)), jitter: 0.16, ao: 0.42, aoY0: 0, aoY1: s * 0.8, topLight: 0 });
+  }
+  // blossom sprigs at the elbow and low on the outer twig; the last ~45% of the
+  // twig stays bare so a hard woody tip crosses the sky
+  for (const [e0, e1, ca, sa] of tips) {
+    for (let k = 0; k < 2; k++) {
+      const t = k ? 0.42 : 0.72;
+      const bx = e0[0] + (e1[0] - e0[0]) * (k ? t : 0) + (k ? 0 : (e0[0] - x) * (t - 1));
+      const by = k ? e0[1] + (e1[1] - e0[1]) * t : 2.5 * s + (e0[1] - 2.5 * s) * t;
+      const bz = e0[2] + (e1[2] - e0[2]) * (k ? t : 0) + (k ? 0 : (e0[2] - z) * (t - 1));
+      const g = leafCard(rng.f(0.55, 0.95) * s, rng.f(0.55, 0.95) * s, k ? 2 : 1, rng.f(3.14), -0.24);
+      setSway(g, 1.5 + rng.f(0.6));
+      b.add(g, 'canopyCard', alignY(bx, by, bz, ca * 0.55, 0.7, sa * 0.55),
+        { base: cardBase(rng.f(0.9, 1.15)), jitter: 0.16, ao: 0.3, aoY0: -0.2, aoY1: 0.5, topLight: 0.1 });
+    }
+  }
+
+  // ---- ground skirt: grass + root litter where the trunk meets the terrain -
+  const skirt = 9 + (s > 1.15 ? 3 : 0);
+  for (let i = 0; i < skirt; i++) {
+    const a = (i / skirt) * Math.PI * 2 + rng.f(0.6);
+    const rr = rng.f(0.42, 1.5) * s;
+    const tilt = rng.f(0.1, 0.42);
+    const g = leafCard(rng.f(0.6, 1.1) * s, rng.f(0.4, 0.78) * s, 3, rng.f(3.14), 0);
+    setSway(g, 0.28 + rng.f(0.3));
+    b.add(g, 'canopyCard',
+      alignY(x + Math.cos(a) * rr, -0.07, z + Math.sin(a) * rr,
+        Math.cos(a) * Math.sin(tilt), Math.cos(tilt), Math.sin(a) * Math.sin(tilt)),
+      { base: rng.chance(0.72) ? 0x74a04a : cardBase(0.85), jitter: 0.2, ao: 0.55, aoY0: 0, aoY1: 0.5 * s, topLight: 0.2 });
   }
   return { x, z, r: 0.7 * s };
 }
 
 export function addBush(b, x, z, s = 1) {
+  const rng = RNG;
   const g = new THREE.IcosahedronGeometry(s * 0.7, 2);
-  jitterGeo(g, s * 0.13, RNG);
+  jitterGeo(g, s * 0.13, rng);
   g.scale(1.35, 0.72, 1.35);
-  puffNormals(g);
+  puffNormals(g, 0.7);
   setSway(g, 0.3);
-  b.add(g, 'canopyGreen', mat4(x, s * 0.36, z, 0, RNG.f(6.28)),
+  b.add(g, 'canopyGreen', mat4(x, s * 0.36, z, 0, rng.f(6.28)),
     { base: 0x74a84e, jitter: 0.16, ao: 0.5, aoY0: -s * 0.6, aoY1: s * 0.4, topLight: 0.25 });
+  // cutout fringe so the bush isn't a smooth squashed sphere either
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + rng.f(1.1);
+    const up = rng.f(0.15, 0.85);
+    const rr = Math.sqrt(Math.max(0.05, 1 - up * up));
+    const dx = Math.cos(a) * rr, dz = Math.sin(a) * rr;
+    const card = leafCard(rng.f(0.5, 0.95) * s, rng.f(0.45, 0.8) * s, rng.chance(0.55) ? 3 : 1, rng.f(3.14), -0.3);
+    setSway(card, 0.55 + rng.f(0.5));
+    b.add(card, 'canopyCard',
+      alignY(x + dx * s * 0.85, s * 0.36 + up * s * 0.4, z + dz * s * 0.85, dx, up, dz),
+      { base: 0x7fb050, jitter: 0.2, ao: 0.45, aoY0: -s * 0.2, aoY1: s * 0.4, topLight: 0.2 });
+  }
   return { x, z, r: s * 0.8 };
 }
 

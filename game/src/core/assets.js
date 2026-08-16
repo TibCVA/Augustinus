@@ -289,38 +289,296 @@ function texGrass() {
   return toTex(c);
 }
 
-// -- bark --
+// -- bark: deep fissures, raised ridges, lichen. 512 so the trunk still has
+// detail at river-camera height where it fills ~200px. --
 function texBark() {
-  const S = 256, [c, ctx] = mkCanvas(S);
-  ctx.fillStyle = '#5b4636'; ctx.fillRect(0, 0, S, S);
-  for (let i = 0; i < 46; i++) {
+  const S = 512, [c, ctx] = mkCanvas(S);
+  ctx.fillStyle = '#8a6c50'; ctx.fillRect(0, 0, S, S);
+  // broad tonal bands so the trunk isn't one flat brown cylinder
+  for (let i = 0; i < 26; i++) {
+    const x = TR.f(S), w = TR.f(18, 70);
+    ctx.fillStyle = css(mixh(0x6b5340, 0xb59573, TR.next()), 0.3);
+    ctx.fillRect(x, 0, w, S);
+  }
+  // fissures: dark crack + bright ridge lip on one side (fake relief)
+  for (let i = 0; i < 78; i++) {
     const x = TR.f(S);
-    ctx.strokeStyle = css(mixh(0x3d2e22, 0x7a604a, TR.next()), TR.f(0.4, 0.85));
-    ctx.lineWidth = TR.f(2, 8);
-    ctx.beginPath();
-    ctx.moveTo(x, -8);
-    for (let y = 0; y <= S + 8; y += 22) ctx.lineTo(x + TR.spread(7), y);
+    const dark = mixh(0x3b2c20, 0x664e3a, TR.next());
+    const lip = mixh(0xa88a67, 0xdcbe93, TR.next());
+    const pts = [];
+    for (let y = -10; y <= S + 10; y += 16) pts.push([x + TR.spread(9), y]);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = css(dark, TR.f(0.3, 0.62));
+    ctx.lineWidth = TR.f(1.2, 4.5);
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts) ctx.lineTo(p[0], p[1]);
+    ctx.stroke();
+    ctx.strokeStyle = css(lip, TR.f(0.3, 0.7));
+    ctx.lineWidth = TR.f(1, 2.8);
+    ctx.beginPath(); ctx.moveTo(pts[0][0] + 3.5, pts[0][1]);
+    for (const p of pts) ctx.lineTo(p[0] + 3.5, p[1]);
     ctx.stroke();
   }
-  for (let i = 0; i < 60; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(4, 16), 0x8a9a5a, 0.2); // moss
-  for (let i = 0; i < 24; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(6, 22), 0x2c211a, 0.3);
+  // short horizontal lenticels — breaks the pure vertical grain
+  for (let i = 0; i < 130; i++) {
+    ctx.fillStyle = css(mixh(0x3d2d21, 0xa8896a, TR.next()), TR.f(0.2, 0.5));
+    ctx.fillRect(TR.f(S), TR.f(S), TR.f(4, 15), TR.f(1, 2.5));
+  }
+  for (let i = 0; i < 110; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(5, 24), 0x93a166, 0.2); // moss
+  for (let i = 0; i < 40; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(8, 34), 0x40301f, 0.2);
+  for (let i = 0; i < 46; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(10, 40), 0xd8b586, 0.16);
+  // pale lichen crust — small hard-edged patches, the only bright bark value
+  for (let i = 0; i < 70; i++) {
+    const x = TR.f(S), y = TR.f(S), r = TR.f(2.5, 9);
+    ctx.fillStyle = css(mixh(0xa8ae8c, 0xd8dcc2, TR.next()), TR.f(0.3, 0.75));
+    ctx.beginPath();
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2, rr = r * TR.f(0.6, 1.25);
+      const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
+      k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+  }
   splat(ctx, S * 0.3, S * 0.3, S * 0.5, 0xffd9a0, 0.08);
   return toTex(c);
 }
 
+// ------------------------------------------------------------- foliage art --
+// Wrap-aware stamp: a tileable texture must draw anything touching an edge
+// again on the opposite side or the repeat shows a hard seam.
+function wrapStamp(S, x, y, r, fn) {
+  const xs = x < r ? [0, S] : x > S - r ? [0, -S] : [0];
+  const ys = y < r ? [0, S] : y > S - r ? [0, -S] : [0];
+  for (const dx of xs) for (const dy of ys) fn(x + dx, y + dy);
+}
+
+// One hard-edged n-petal blossom with a darker keyline. This is the shape that
+// gives foliage an actual leaf EDGE instead of an airbrushed dot — the single
+// thing the old 900-soft-circle canopy had none of.
+function blossom(ctx, x, y, r, col, line, { a = 1, petals = 5, key = 1, rot = 0 } = {}) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  // The keyline is a SCALED-UP fill behind the shape, not a stroke: stroking
+  // this path outlines every interior petal circle too and the sheet turns into
+  // lace. A back-fill leaves one clean hard rim, which is the whole point.
+  const path = (k) => {
+    ctx.beginPath();
+    for (let p = 0; p < petals; p++) {
+      const th = (p / petals) * Math.PI * 2;
+      const px = Math.cos(th) * r * 0.5 * k, py = Math.sin(th) * r * 0.5 * k;
+      ctx.moveTo(px + r * 0.52 * k, py);
+      ctx.arc(px, py, r * 0.52 * k, 0, Math.PI * 2);
+    }
+  };
+  if (key > 0) {
+    path(1 + Math.max(0.075, 1.5 / Math.max(r, 2)));
+    ctx.fillStyle = css(line, Math.min(1, a * key));
+    ctx.fill();
+  }
+  path(1);
+  ctx.fillStyle = css(col, a);
+  ctx.fill();
+  if (r > 7) {   // stamen pip: cheap high-frequency detail on the big blossoms
+    ctx.fillStyle = css(mixh(col, line, 0.5), a * 0.85);
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.17, 0, 7); ctx.fill();
+    ctx.fillStyle = css(mixh(col, 0xffffff, 0.75), a * 0.9);
+    for (let p = 0; p < 3; p++) {
+      const th = p * 2.1 + 0.4;
+      ctx.beginPath();
+      ctx.arc(Math.cos(th) * r * 0.26, Math.sin(th) * r * 0.26, Math.max(0.9, r * 0.06), 0, 7);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 // -- canopy speckle (drawn neutral-bright, tinted by material+vertex color) --
+// Value range is deliberately huge: `deep` shadow pockets under a mid mass,
+// hard blossom clusters over it, and a handful of near-white specular petals
+// that the leaf-glint shader term picks out.
 function texCanopy(hiA, hiB, gap) {
-  const S = 256, [c, ctx] = mkCanvas(S);
-  ctx.fillStyle = css(gap); ctx.fillRect(0, 0, S, S);
-  for (let i = 0; i < 240; i++) splat(ctx, TR.f(S), TR.f(S), TR.f(6, 26), mixh(hiA, gap, TR.f(0.5)), 0.5);
-  for (let i = 0; i < 900; i++) {
-    const x = TR.f(S), y = TR.f(S), r = TR.f(2.2, 7);
-    ctx.fillStyle = css(mixh(hiA, hiB, TR.next()), TR.f(0.5, 0.95));
+  const S = 512, [c, ctx] = mkCanvas(S);
+  const deep = mixh(gap, 0x1c0a12, 0.34);
+  const spec = mixh(hiA, 0xffffff, 0.4);
+  const line = mixh(gap, 0x140609, 0.42);
+  ctx.fillStyle = css(deep); ctx.fillRect(0, 0, S, S);
+
+  // Clump hierarchy. Painting only fine detail is a trap: at the overview pitch
+  // a crown is ~55px and every high-frequency mark averages back to flat. So
+  // the sheet carries LARGE hard-edged blossom clumps that survive minification,
+  // with medium and fine passes layered on for the near cameras.
+
+  // 1. soft under-mass — just enough to keep the deep base from reading as holes
+  for (let i = 0; i < 90; i++) {
+    const x = TR.f(S), y = TR.f(S), r = TR.f(34, 100);
+    const col = mixh(gap, hiB, TR.f(0.05, 0.5));
+    wrapStamp(S, x, y, r, (px, py) => splat(ctx, px, py, r, col, 0.5));
+  }
+  // 2. BIG clumps: 11 packed blossom masses, each with its own value. These are
+  //    the shapes that still read as clumping when the crown is 50px wide.
+  for (let i = 0; i < 11; i++) {
+    const x = TR.f(S), y = TR.f(S), R = TR.f(44, 72);
+    const v = TR.next();
+    const core = mixh(hiB, hiA, 0.25 + v * 0.75);
+    const edge = mixh(gap, hiB, 0.35 + v * 0.4);
+    wrapStamp(S, x, y, R * 1.3, (px, py) => {
+      // drop shadow first so clumps stack instead of blending into a wash
+      splat(ctx, px + R * 0.12, py + R * 0.22, R * 1.02, deep, 0.32);
+      for (let k = 0; k < 26; k++) {
+        const a = k * 2.399963;
+        const rad = R * Math.pow((k + 0.6) / 26, 0.55);
+        const t = 1 - rad / R;
+        blossom(ctx,
+          px + Math.cos(a) * rad * 0.92, py + Math.sin(a) * rad * 0.86,
+          R * TR.f(0.17, 0.30), mixh(edge, core, Math.min(1, t * 1.5 + 0.15)), line,
+          { a: 1, rot: k * 1.37, key: 0.9, petals: k % 4 === 0 ? 4 : 5 });
+      }
+    });
+  }
+  // 3. interior shadow pockets punched back through the clumps
+  for (let i = 0; i < 60; i++) {
+    const x = TR.f(S), y = TR.f(S), r = TR.f(14, 46);
+    wrapStamp(S, x, y, r, (px, py) => splat(ctx, px, py, r, deep, 0.45));
+  }
+  // 4. medium clusters — the mid-range leaf edge
+  for (let i = 0; i < 170; i++) {
+    const x = TR.f(S), y = TR.f(S), R = TR.f(14, 30);
+    const col = mixh(hiB, hiA, TR.next());
+    const n = 3 + ((TR.f(4)) | 0);
+    wrapStamp(S, x, y, R * 2, (px, py) => {
+      for (let k = 0; k < n; k++) {
+        blossom(ctx, px + TR.spread(R * 0.85), py + TR.spread(R * 0.85), TR.f(R * 0.5, R * 0.9),
+          col, line, { a: TR.f(0.82, 1), rot: TR.f(6.28), key: 0.9 });
+      }
+    });
+  }
+  // 5. fine bright blossoms over the sunlit tops of the clumps
+  for (let i = 0; i < 260; i++) {
+    const x = TR.f(S), y = TR.f(S), r = TR.f(5, 13);
+    const col = mixh(hiB, hiA, TR.f(0.4, 1));
+    wrapStamp(S, x, y, r * 1.4, (px, py) =>
+      blossom(ctx, px, py, r, col, line, { a: TR.f(0.75, 1), rot: TR.f(6.28), key: 0.7 }));
+  }
+  // 6. specular petals — the only near-white values in the sheet, kept sparse
+  //    and small so the leaf-glint term fires in specks, not sheets
+  for (let i = 0; i < 60; i++) {
+    const x = TR.f(S), y = TR.f(S), r = TR.f(2.6, 5.5);
+    wrapStamp(S, x, y, r * 1.4, (px, py) =>
+      blossom(ctx, px, py, r, spec, spec, { a: TR.f(0.75, 1), petals: 4, rot: TR.f(6.28), key: 0 }));
+  }
+  // 7. dark notches — high-frequency bite, reads as gaps to sky
+  for (let i = 0; i < 170; i++) {
+    const x = TR.f(S), y = TR.f(S), r = TR.f(1.8, 6);
+    ctx.fillStyle = css(deep, TR.f(0.35, 0.8));
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-    ctx.fillStyle = css(0xffffff, 0.22);
-    ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.35, r * 0.45, 0, 7); ctx.fill();
   }
   return toTex(c);
+}
+
+// -- alpha-cutout foliage atlas (2x2 cells, neutral-bright, vertex tinted) --
+// cell 0 dense clump | 1 open lacy clump
+// cell 2 sprig on a twig | 3 blade tuft (ground skirt / bush fringe)
+// Everything is drawn with HARD edges: this texture exists purely to punch a
+// ragged alpha outline through the smooth mathematical curve of the blobs.
+function texLeaf() {
+  const S = 512, C = S / 2, [c, ctx] = mkCanvas(S);
+  ctx.clearRect(0, 0, S, S);
+  const PALE = 0xfff2f5, MID = 0xdcc4cc, DARK = 0x9c8089, KEY = 0x543d45;
+
+  // cell 0 — dense clump, near-solid core, ragged rim
+  // cell 1 — open clump: fewer, bigger, deliberate holes to sky
+  const clump = (ox, oy, n, spread, rMin, rMax, open) => {
+    for (let i = 0; i < n; i++) {
+      const a = i * 2.399963;                        // golden-angle spiral
+      const rad = C * spread * Math.pow((i + 0.6) / n, open ? 0.40 : 0.58);
+      const x = ox + C * 0.5 + Math.cos(a) * rad * (0.72 + ((i * 37) % 11) / 16);
+      const y = oy + C * 0.5 + Math.sin(a) * rad * (0.62 + ((i * 53) % 13) / 18);
+      const r = (rMin + ((i * 29) % 17) / 17 * (rMax - rMin)) * C;
+      const t = 1 - rad / (C * spread);              // 1 core → 0 rim
+      const col = mixh(mixh(DARK, MID, Math.min(1, t * 1.3 + 0.45)), PALE, t * t * 0.95);
+      blossom(ctx, x, y, r, col, KEY, {
+        rot: i * 1.37, key: 0.9, petals: i % 4 === 0 ? 4 : 5,
+      });
+    }
+  };
+  clump(0, 0, 30, 0.40, 0.06, 0.125, false);
+  clump(C, 0, 17, 0.44, 0.065, 0.135, true);
+
+  // cell 2 — sprig: bare twig with blossoms clustered on the inner half
+  {
+    const ox = 0, oy = C;
+    ctx.save();
+    ctx.strokeStyle = css(0x6b5347, 0.98);
+    ctx.lineCap = 'round';
+    for (let br = 0; br < 3; br++) {
+      const x0 = ox + C * 0.5, y0 = oy + C * 0.95;
+      ctx.lineWidth = C * (0.03 - br * 0.006);
+      ctx.beginPath(); ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(
+        x0 + (br - 1) * C * 0.18, oy + C * 0.5,
+        x0 + (br - 1) * C * 0.34, oy + C * (0.09 + br * 0.05));
+      ctx.stroke();
+    }
+    ctx.restore();
+    for (let i = 0; i < 17; i++) {
+      const br = i % 3, t = 0.14 + (i / 17) * 0.8;
+      const x0 = ox + C * 0.5;
+      const x = x0 + (br - 1) * C * 0.34 * t * t + ((i * 41) % 9 - 4) * C * 0.017;
+      const y = oy + C * (0.95 - 0.86 * t) + ((i * 23) % 7 - 3) * C * 0.015;
+      const r = C * (0.05 + ((i * 31) % 11) / 11 * 0.055) * (1.1 - t * 0.45);
+      const col = mixh(mixh(DARK, MID, 0.65), PALE, ((i * 17) % 10) / 12);
+      blossom(ctx, x, y, r, col, KEY, { rot: i * 2.1, key: 0.95 });
+    }
+  }
+
+  // cell 3 — blade tuft: hard tapered blades for the trunk skirt / bush fringe
+  {
+    const ox = C, oy = C;
+    for (let i = 0; i < 40; i++) {
+      const f = (i / 39) * 2 - 1;
+      const back = i % 3 === 0;                       // a darker layer behind
+      const bx = ox + C * (0.5 + f * 0.44) + ((i * 17) % 9 - 4) * C * 0.008;
+      const by = oy + C * 0.995;
+      const h = C * (0.36 + ((i * 43) % 13) / 13 * 0.5) * (1 - Math.abs(f) * 0.34);
+      const bw = C * 0.013 * (0.7 + ((i * 19) % 7) / 8);
+      const lean = (f * 0.26 + ((i * 29) % 11 - 5) * 0.028) * C;
+      const t = ((i * 13) % 9) / 9;
+      ctx.fillStyle = css(back ? mixh(KEY, DARK, 0.55)
+        : mixh(mixh(DARK, MID, 0.6), PALE, t * 0.85), 1);
+      ctx.beginPath();
+      ctx.moveTo(bx - bw, by);
+      ctx.quadraticCurveTo(bx - bw + lean * 0.35, by - h * 0.6, bx + lean, by - h);
+      ctx.quadraticCurveTo(bx + bw + lean * 0.35, by - h * 0.6, bx + bw, by);
+      ctx.closePath(); ctx.fill();
+    }
+    // fallen petals / litter at the very base
+    for (let i = 0; i < 9; i++) {
+      blossom(ctx, ox + C * (0.14 + ((i * 37) % 13) / 13 * 0.72), oy + C * (0.9 + ((i * 7) % 5) / 50),
+        C * 0.04, mixh(MID, PALE, ((i * 11) % 7) / 7), KEY, { rot: i, key: 0.85 });
+    }
+  }
+
+  // Colour halo. Bilinear/mip filtering averages RGB across the cutout border,
+  // and transparent black there shows up as a dark fringe on every leaf edge.
+  // Re-composite each cell scaled up, UNDER what is already there, at an alpha
+  // well below alphaTest: the RGB is now correct outside the cutout while the
+  // halo itself never survives the alpha test.
+  const [hc, hctx] = mkCanvas(S);
+  hctx.drawImage(c, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.globalAlpha = 0.3;
+  for (let cell = 0; cell < 4; cell++) {
+    const ox = (cell & 1) * C, oy = ((cell >> 1) & 1) * C;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ox, oy, C, C); ctx.clip();
+    const k = 1.22, d = C * (k - 1) * 0.5;
+    ctx.drawImage(hc, ox, oy, C, C, ox - d, oy - d, C * k, C * k);
+    ctx.restore();
+  }
+  ctx.restore();
+  return toTex(c, { wrap: THREE.ClampToEdgeWrapping, aniso: 8 });
 }
 
 // -- banner cloth with team emblem --
@@ -775,11 +1033,51 @@ export function addTranslucency(mat, {
             float back = pow(saturate(dot(-sunV, V)), ${power.toFixed(2)});
             // strongest where the surface faces away from the sun
             float away = saturate(0.5 - dot(N, sunV) * 0.5);
-            totalEmissiveRadiance += uSssColor * (back * away * ${strength.toFixed(3)});
+            // Modulated by the ALBEDO: a flat additive term erases the sheet's
+            // clump structure exactly where the crown is backlit (river camera),
+            // which is the one framing where the canopy fills the most screen.
+            vec3 alb = diffuseColor.rgb * 1.45 + 0.16;
+            totalEmissiveRadiance += uSssColor * alb * (back * away * ${strength.toFixed(3)});
             // soft warm wrap so shaded foliage keeps its hue
-            totalEmissiveRadiance += uWrapColor * (away * ${wrap.toFixed(3)});
+            totalEmissiveRadiance += uWrapColor * alb * (away * ${wrap.toFixed(3)});
           }`)
         .replace('void main() {', 'uniform vec3 uSssColor;\nuniform vec3 uWrapColor;\nuniform vec3 uSunDir;\nvoid main() {');
+    },
+  });
+}
+
+// Narrow specular glint for foliage. The whole build sits under p99≈215 — no
+// surface is allowed to be bright — and a broad roughness drop just makes
+// leaves look like plastic. Instead: a tight Blinn lobe gated on the ALBEDO's
+// own bright petals, so only the few near-white texels in texCanopy/texLeaf
+// punch past 245, in small high-frequency specks that also read as detail.
+export function addLeafGlint(mat, {
+  color = 0xfff2e2, power = 30, strength = 1.35, lo = 0.56, hi = 0.88,
+} = {}) {
+  const col = new THREE.Color(color);
+  return patchMaterial(mat, {
+    id: `glint${color.toString(16)}${power}${strength}${lo}`,
+    apply(shader) {
+      shader.uniforms.uGlintColor = { value: col };
+      // Own uniform name: addTranslucency may already have declared uSunDir on
+      // the same material and GLSL rejects the redefinition. Same object, so
+      // environment.js still drives both.
+      shader.uniforms.uGlintSun = uSunDir;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          {
+            vec3 sunG = normalize((viewMatrix * vec4(uGlintSun, 0.0)).xyz);
+            vec3 Vg = normalize(vViewPosition);
+            vec3 Hg = normalize(sunG + Vg);
+            vec3 Ng = normalize(normal);
+            float sp = pow(saturate(dot(Ng, Hg)), ${power.toFixed(1)});
+            float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+            float m = smoothstep(${lo.toFixed(3)}, ${hi.toFixed(3)}, lum);
+            totalEmissiveRadiance += uGlintColor * (sp * m * ${strength.toFixed(3)}
+              * saturate(dot(Ng, sunG) * 2.0));
+          }`)
+        .replace('void main() {', 'uniform vec3 uGlintColor;\nuniform vec3 uGlintSun;\nvoid main() {');
     },
   });
 }
@@ -843,22 +1141,46 @@ function buildMaterials() {
     emissive: 0x2a1503, emissiveIntensity: 0.4,
   });
   addRim(mats.trim, { color: 0xffe9b0, power: 3.0, strength: 0.35 });
-  mats.bark = new THREE.MeshStandardMaterial({ map: T.bark, roughness: 0.95, vertexColors: true });
+  mats.bark = new THREE.MeshStandardMaterial({ map: T.bark, roughness: 0.86, vertexColors: true });
+  addRim(mats.bark, { color: 0xffd9a0, power: 3.0, strength: 0.2 });
+
+  // Canopy sheets are projected at ~1.9 repeats so the new hard-edged blossom
+  // clusters land at a visible screen frequency instead of one 256px sheet
+  // smeared over a whole 3m crown.
+  T.canopyPink.repeat.set(1.62, 1.62);
+  T.canopyGreen.repeat.set(1.62, 1.62);
   mats.canopyPink = new THREE.MeshStandardMaterial({
-    map: T.canopyPink, roughness: 0.9, vertexColors: true,
+    map: T.canopyPink, roughness: 0.74, metalness: 0, vertexColors: true,
   });
   addWindSway(mats.canopyPink, { amp: 0.16, freq: 1.2 });
   addRim(mats.canopyPink, { color: 0xffdce8, power: 2.4, strength: 0.28 });
   addTranslucency(mats.canopyPink, {
-    color: 0xff9ec4, power: 3.0, strength: 0.78, wrap: 0.085, wrapColor: 0xffc0a2,
+    color: 0xffcbbe, power: 3.2, strength: 0.44, wrap: 0.055, wrapColor: 0xffd6b4,
   });
+  addLeafGlint(mats.canopyPink, { color: 0xfff0e6, power: 34, strength: 0.6, lo: 0.76, hi: 0.96 });
   mats.canopyGreen = new THREE.MeshStandardMaterial({
-    map: T.canopyGreen, roughness: 0.95, vertexColors: true,
+    map: T.canopyGreen, roughness: 0.8, metalness: 0, vertexColors: true,
   });
   addWindSway(mats.canopyGreen, { amp: 0.12, freq: 1.35 });
   addTranslucency(mats.canopyGreen, {
-    color: 0xa8e05a, power: 3.0, strength: 0.62, wrap: 0.06, wrapColor: 0xcbbe78,
+    color: 0xc6e08a, power: 3.0, strength: 0.6, wrap: 0.07, wrapColor: 0xd8cf9a,
   });
+  addLeafGlint(mats.canopyGreen, { color: 0xf6ffdc, power: 34, strength: 0.5, lo: 0.66, hi: 0.9 });
+
+  // Alpha-tested foliage cards. alphaTest (not blending) so they still write
+  // depth: no sort order, no overdraw blow-up, shadow receive stays correct.
+  // FrontSide — the card geometry emits both windings with a single outward
+  // normal, which shades far better than DoubleSide's per-face normal flip.
+  mats.canopyCard = new THREE.MeshStandardMaterial({
+    map: T.leaf, alphaTest: 0.42, transparent: false, side: THREE.FrontSide,
+    roughness: 0.76, metalness: 0, vertexColors: true,
+  });
+  addWindSway(mats.canopyCard, { amp: 0.26, freq: 1.45 });
+  addRim(mats.canopyCard, { color: 0xffe6ec, power: 2.2, strength: 0.18 });
+  addTranslucency(mats.canopyCard, {
+    color: 0xffc8cf, power: 2.6, strength: 0.6, wrap: 0.06, wrapColor: 0xffd2b4,
+  });
+  addLeafGlint(mats.canopyCard, { color: 0xfff4e8, power: 30, strength: 0.5, lo: 0.78, hi: 0.97 });
   mats.stoneFloat = new THREE.MeshStandardMaterial({
     map: T.rock, roughness: 0.9, metalness: 0.03, vertexColors: true,
   });
@@ -900,8 +1222,12 @@ export function initAssets() {
   tex.rock = texRock();
   tex.grassT = texGrass();
   tex.bark = texBark();
-  tex.canopyPink = texCanopy(0xffd9e4, 0xffa9c4, 0xc9748e);
-  tex.canopyGreen = texCanopy(0x9cc45e, 0x6da33f, 0x39632c);
+  // Pulled off magenta: the mid stop was 0xf59ab9 and, multiplied by the
+  // backlight transmission, the river crowns read as hot fuchsia rather than
+  // blossom. Warmer and less saturated in the mid, warmer in the shadow gap.
+  tex.canopyPink = texCanopy(0xffe6e6, 0xf0a8ad, 0x6f3b46);
+  tex.canopyGreen = texCanopy(0xd2e884, 0x7cb247, 0x33552a);
+  tex.leaf = texLeaf();
   tex.clothBlue = texCloth('blue');
   tex.clothRed = texCloth('red');
   tex.faceSera = texFace('sera');
