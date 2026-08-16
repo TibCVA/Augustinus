@@ -7,14 +7,19 @@
 // as a transform rig; its world matrices are copied into the instance buffers.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { tex, uTime, patchMaterial } from '../core/assets.js';
+import { uTime, patchMaterial } from '../core/assets.js';
 import { chamferBox, lathe } from '../world/props.js';
 
 // ---------------------------------------------------------------- helpers --
 const _c0 = new THREE.Color(), _c1 = new THREE.Color();
 const _mtmp = new THREE.Matrix4();
 
-export const SUN_DIR = new THREE.Vector3(-0.42, 0.62, -0.55).normalize();
+// Must match environment.js's `sunDir` exactly — the rim is keyed to it, and a
+// rim keyed 8 degrees off the key light puts the hot edge on the wrong contour.
+export const SUN_DIR = new THREE.Vector3(-0.44, 0.50, -0.60).normalize();
+// The sun's shadow direction projected on the ground (unit, XZ). Contact
+// shadows stretch along it.
+export const SUN_GROUND = new THREE.Vector2(-SUN_DIR.x, -SUN_DIR.z).normalize();
 
 function h3(x, y, z) {
   const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
@@ -116,16 +121,31 @@ export function strand(w, len, thick, taper = 0.0) {
   return g;
 }
 
-// Fresnel rim: warm gold on the sun-facing side, cool teal from ambient. This is
-// what lifts characters off the ground plane at MOBA camera distance.
-// `fill` is a wrap-around bounce on the shadow side. The sun sits behind the
-// play area at golden hour, so without it every character's *face* — the side
-// the camera actually sees — falls into flat blue shadow and the silhouette is
-// all the player gets. A few percent of cool fill keeps the read.
-export function addDualRim(mat, { warm = 0xffd79a, cool = 0x63c9e8, power = 2.7, strength = 0.34, fill = 0.13 } = {}) {
+// Directional back-light rim + ambient wrap.
+//
+// MEASURED FAILURE OF THE PREVIOUS VERSION (hero.png, A/B against strength=0):
+// the old term was `mix(uRimC, uRimW, lit) * rimF * strength` — the SAME
+// magnitude everywhere on the silhouette, with `lit` changing only the hue. It
+// therefore added +22 8-bit luma at the sunward edge and +33 at the shadow-side
+// edge, and was still adding +10 nine pixels INSIDE the body. That is not a rim,
+// it is an omnidirectional fresnel haze: it lifts the whole character by a
+// constant, which reads as flat ambient and is exactly the "sprite composited
+// over a backplate" tell. Final-image sunward edge minus near-interior measured
+// +5.4 luma; on a subject lit by a low back-sun it needs to be 10-20x that.
+//
+// This version multiplies the HOT term by `lit` (how far the surface has turned
+// into the sun), so the rim only exists where a back-light could physically put
+// it, and can therefore be an order of magnitude stronger without turning into a
+// glow around the whole body. The shadow side keeps a faint cool sky edge at
+// `coolK` of the hot strength, and `fill` is unchanged: a wrap-around bounce so
+// the camera-facing side does not fall to a flat blue slab.
+export function addDualRim(mat, {
+  warm = 0xffd79a, cool = 0x63c9e8, power = 2.7, strength = 0.34, fill = 0.13, coolK = 0.16,
+} = {}) {
+  if (typeof location !== 'undefined' && location.search.includes('norim')) strength = 0;
   const cw = new THREE.Color(warm), cc = new THREE.Color(cool);
   return patchMaterial(mat, {
-    id: `drim${warm.toString(16)}_${cool.toString(16)}_${power}_${strength}_${fill}`,
+    id: `drim2${warm.toString(16)}_${cool.toString(16)}_${power}_${strength}_${fill}_${coolK}`,
     apply(shader) {
       shader.uniforms.uRimW = { value: cw };
       shader.uniforms.uRimC = { value: cc };
@@ -139,8 +159,13 @@ export function addDualRim(mat, { warm = 0xffd79a, cool = 0x63c9e8, power = 2.7,
             vec3 nrm = normalize( normal );
             float rimF = pow( 1.0 - saturate( dot( nrm, normalize( vViewPosition ) ) ), ${power.toFixed(2)} );
             vec3 sunV = normalize( ( viewMatrix * vec4( uRimS, 0.0 ) ).xyz );
-            float lit = smoothstep( -0.5, 0.62, dot( nrm, sunV ) );
-            totalEmissiveRadiance += mix( uRimC, uRimW, lit ) * ( rimF * ${strength.toFixed(3)} );
+            // 0 on the shadow side, 1 once the surface has turned into the sun
+            float lit = smoothstep( -0.34, 0.50, dot( nrm, sunV ) );
+            // hot key edge — gated hard so it is a LIGHT, not a halo
+            totalEmissiveRadiance += uRimW * ( rimF * lit * lit * ${strength.toFixed(3)} );
+            // faint cool sky edge everywhere else, so the shadow side still cuts
+            // out against dark ground instead of merging with it
+            totalEmissiveRadiance += uRimC * ( rimF * ( 1.0 - lit ) * ${(strength * coolK).toFixed(4)} );
             totalEmissiveRadiance += diffuseColor.rgb * mix( uRimC, uRimW, 0.35 )
               * ( ${fill.toFixed(3)} * ( 1.0 - lit ) );
           }`);
@@ -166,7 +191,7 @@ function ensureUnitMats() {
   if (unitMat) return;
   // NOTE: no environment map in the scene, so high metalness = black. Keep it low.
   unitMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, metalness: 0.08 });
-  addDualRim(unitMat, { warm: 0xffd08a, cool: 0x6fcdf0, power: 2.4, strength: 0.34 });
+  addDualRim(unitMat, { warm: 0xffd6a0, cool: 0x6fcdf0, power: 2.5, strength: 0.90, fill: 0.13, coolK: 0.20 });
   orbBlueMat = new THREE.MeshStandardMaterial({
     color: 0x0d2b4c, emissive: 0x5fd0ff, emissiveIntensity: 2.0, roughness: 0.24, metalness: 0,
   });
@@ -198,17 +223,50 @@ const MINION_SCALE = { melee: 1.02, caster: 0.93 };
 // hard points, tall crest, straight kite shield, symmetric. RED reads as ember
 // raider — round organic volumes, heavy hunch, horns, jagged spiked buckler.
 
+// A pair of legs in a braced stance, merged into the body mesh.
+//
+// Both melee minions used to end at the waist in a single conical "greaves"
+// lathe, which is why the panel read them as "a lidded barrel with a floating
+// shield, no arms and no legs" — and why last round's fight poses were
+// invisible: there were no limbs to pose. These are static (the body mesh is
+// one instanced draw and a third animated mesh per pool would cost four more
+// draw calls against a six-call headroom), but the body node already leans,
+// rolls, yaws and bobs about the feet, so a staggered stance under it reads as
+// a braced fighter shifting weight rather than a barrel sliding.
+// `fwd` staggers the right foot forward, `out` splays the stance.
+function legPair(T, {
+  hipY = 0.50, thighR = 0.100, shinR = 0.090, out = 0.118, fwd = 0.11,
+  bootW = 0.135, bootD = 0.235, thighC, shinC, bootC, bow = 0,
+}) {
+  const parts = [];
+  for (const sx of [-1, 1]) {
+    const z = sx > 0 ? fwd : -fwd * 0.85;
+    const x = sx * (out + bow);
+    parts.push([lathe([[thighR * 0.94, hipY + 0.04], [thighR * 1.14, hipY - 0.10],
+      [thighR * 1.02, hipY * 0.52]], 6, true).translate(x, 0, z * 0.42), thighC,
+    { ao: 0.34, aoY0: hipY * 0.4, aoY1: hipY + 0.05 }]);
+    parts.push([lathe([[shinR * 1.10, hipY * 0.58], [shinR * 1.22, hipY * 0.42],
+      [shinR * 0.94, 0.085]], 6, true).translate(sx * out, 0, z * 0.80), shinC,
+    { ao: 0.42, aoY0: 0.02, aoY1: hipY * 0.6, top: 0.14 }]);
+    // boot: a wedge with a raised toe so the foot has a direction
+    parts.push([chamferBox(bootW, 0.088, bootD, 0.026).translate(sx * out, 0, z - 0.035), bootC,
+      { ao: 0.46, aoY0: 0, aoY1: 0.11, top: 0.20 }]);
+    parts.push([chamferBox(bootW * 0.80, 0.055, bootD * 0.36, 0.02)
+      .translate(sx * out, 0.070, z + bootD * 0.28), T.trim, { ao: 0.1, aoY0: 0.05, aoY1: 0.13 }]);
+  }
+  return parts;
+}
+
 function meleeBlue(T) {
   const body = [];
-  // greaves + boots
-  body.push([lathe([[0.235, 0.03], [0.30, 0.13], [0.275, 0.28], [0.245, 0.44]], 6, true), T.metalDark,
-    { ao: 0.5, aoY0: 0, aoY1: 0.5, to: T.metal, y0: 0.1, y1: 0.44 }]);
-  for (const sx of [-1, 1])
-    body.push([chamferBox(0.165, 0.115, 0.29, 0.03).translate(sx * 0.115, 0, 0.05), T.dark, { ao: 0.35, aoY0: 0, aoY1: 0.2 }]);
+  // ---------------------------------------------------------------- legs --
+  for (const p of legPair(T, {
+    hipY: 0.50, out: 0.120, fwd: 0.115, thighC: T.clothDark, shinC: T.metalDark, bootC: T.dark,
+  })) body.push(p);
   // faceted torso, slight forward hunch
   body.push([shear(lathe([[0.245, 0.44], [0.325, 0.60], [0.35, 0.82], [0.285, 0.96]], 6, true), 0.14, 0.44),
     T.metal, { ao: 0.42, aoY0: 0.3, aoY1: 0.95, top: 0.1 }]);
-  // tassets: four angular plates overlapping the greaves
+  // tassets: four angular plates overlapping the thighs
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     body.push([chamferBox(0.20, 0.20, 0.055, 0.02).translate(0, -0.20, 0).rotateX(-0.15).translate(0, 0.55, 0.20).rotateY(a),
@@ -217,19 +275,40 @@ function meleeBlue(T) {
   // tabard plate + trim
   body.push([chamferBox(0.26, 0.34, 0.07, 0.025).translate(0, 0.50, 0.235).rotateX(-0.06), T.cloth, { ao: 0.3, aoY0: 0.45, aoY1: 0.8 }]);
   body.push([chamferBox(0.06, 0.30, 0.03, 0.012).translate(0, 0.52, 0.28), T.trim, { ao: 0 }]);
-  // pauldrons (angular wedges, inset into the torso)
-  for (const sx of [-1, 1])
-    body.push([chamferBox(0.24, 0.16, 0.28, 0.045).translate(0, 0.08, 0).rotateZ(sx * 0.42).translate(sx * 0.26, 0.86, 0.02),
-      T.metal, { ao: 0.22, aoY0: 0.7, aoY1: 0.95, top: 0.16 }]);
+  // ---- pauldrons -----------------------------------------------------------
+  // TEAM READ. At the 52-degree game camera almost nothing of a minion's flank
+  // is visible: the frame is filled by helm crown, shoulder caps and whatever
+  // sits on the back. Those were all T.metal (0xdbe4f2) here and T.metal
+  // (0xb99a78) on the red brute, and under a warm key both resolve to the same
+  // tan dome inside a ring — which is exactly why the panel scored the two
+  // melee minions as one asset in one palette. Every UP-FACING surface is now
+  // team cloth; the steel is pushed to the rims and the underside.
+  for (const sx of [-1, 1]) {
+    body.push([chamferBox(0.25, 0.15, 0.29, 0.045).translate(0, 0.06, 0).rotateZ(sx * 0.42).translate(sx * 0.26, 0.86, 0.02),
+      0x3f8ae8, { ao: 0.22, aoY0: 0.7, aoY1: 0.95, top: 0.28, to: T.clothDark, y0: 1.0, y1: 0.76 }]);
+    body.push([chamferBox(0.27, 0.045, 0.31, 0.02).translate(0, 0.02, 0).rotateZ(sx * 0.42).translate(sx * 0.26, 0.80, 0.02),
+      T.metal, { ao: 0.2, aoY0: 0.7, aoY1: 0.9 }]);
+  }
   // gorget + tall crested helm
-  body.push([lathe([[0.135, 0.94], [0.20, 1.00], [0.175, 1.07]], 6, true), T.trim, { ao: 0.2, aoY0: 0.9, aoY1: 1.05 }]);
+  body.push([lathe([[0.135, 0.94], [0.20, 1.00], [0.175, 1.07]], 6, true), T.metalDark, { ao: 0.2, aoY0: 0.9, aoY1: 1.05 }]);
   body.push([lathe([[0.06, 1.02], [0.185, 1.12], [0.195, 1.26], [0.10, 1.38]], 6, true), T.metal,
     { ao: 0.25, aoY0: 1.0, aoY1: 1.3, top: 0.18 }]);
-  body.push([strand(0.062, 0.44, 0.040).rotateX(0.30).translate(0, 1.26, -0.02), T.accent,
-    { ao: 0, to: 0xffffff, y0: 1.2, y1: 1.7 }]);
-  body.push([strand(0.042, 0.24, 0.028).rotateX(0.60).translate(0, 1.20, -0.10), T.cloth, { ao: 0 }]);
+  // brush crest: a fore-aft ridge, not a needle. From directly above this is a
+  // 0.21 x 0.40 solid blue bar across the crown — the strongest single team cue
+  // the game camera can actually see, because it is the one surface pointing
+  // straight at it.
+  body.push([new THREE.CylinderGeometry(0.105, 0.105, 0.40, 7).rotateX(Math.PI / 2)
+    .translate(0, 1.35, -0.02), 0x3f8ae8,
+  { ao: 0, to: T.accent, y0: 1.26, y1: 1.47, top: 0.34 }]);
+  body.push([chamferBox(0.036, 0.10, 0.34, 0.012).translate(0, 1.42, -0.02), T.accent,
+    { ao: 0, to: 0xffffff, y0: 1.42, y1: 1.55 }]);
+  body.push([strand(0.052, 0.28, 0.034).rotateX(0.40).translate(0, 1.44, -0.14), T.accent,
+    { ao: 0, to: 0xffffff, y0: 1.40, y1: 1.75 }]);
   body.push([chamferBox(0.25, 0.05, 0.06, 0.012).translate(0, 1.19, 0.155), T.dark, { ao: 0 }]);
   body.push([chamferBox(0.06, 0.14, 0.06, 0.015).translate(0, 1.06, 0.17), T.metalDark, { ao: 0 }]);
+  // banner roll strapped across the back — another blue mass from above
+  body.push([chamferBox(0.30, 0.40, 0.075, 0.03).translate(0, 0.46, -0.235).rotateX(0.20), T.cloth,
+    { ao: 0.34, aoY0: 0.42, aoY1: 0.84, top: 0.24, to: T.clothDark, y0: 0.42, y1: 0.9 }]);
   // shield arm braced forward (merged: it doesn't animate)
   body.push([new THREE.CapsuleGeometry(0.078, 0.20, 3, 6).rotateZ(1.15).translate(-0.27, 0.75, 0.06), T.metalDark, { ao: 0 }]);
   body.push([chamferBox(0.36, 0.52, 0.075, 0.04).translate(-0.42, 0.80, 0.20).rotateY(-0.28), T.cloth,
@@ -240,24 +319,29 @@ function meleeBlue(T) {
   body.push([chamferBox(0.34, 0.045, 0.02, 0.008).translate(-0.42, 0.94, 0.245).rotateY(-0.28), T.trim, { ao: 0 }]);
   body.push([new THREE.OctahedronGeometry(0.082, 0).scale(1, 1, 0.6).translate(-0.42, 0.62, 0.26).rotateY(-0.28), T.accent, { ao: 0 }]);
 
-  // sword arm (animated)
+  // ---- sword arm (animated) -------------------------------------------------
+  // The whole shoulder cap now rides on the animated node, so a swing moves a
+  // real mass through the frame instead of waving a 0.078 m capsule.
   const arm = [];
-  arm.push([new THREE.CapsuleGeometry(0.078, 0.20, 3, 6).translate(0, -0.11, 0), T.metalDark, { ao: 0 }]);
-  arm.push([lathe([[0.085, -0.30], [0.095, -0.22], [0.075, -0.06]], 6, true), T.metal, { ao: 0 }]);
-  arm.push([ell(0.07, 0.075, 0.08, 7, 5).translate(0, -0.33, 0.02), T.metal, { ao: 0 }]);
-  // stubby broad sword, held blade-up
-  arm.push([chamferBox(0.035, 0.15, 0.035, 0.012).translate(0, -0.40, 0.10), T.dark, { ao: 0 }]);
-  arm.push([chamferBox(0.20, 0.045, 0.065, 0.015).translate(0, -0.40, 0.10), T.trim, { ao: 0 }]);
-  arm.push([chamferBox(0.105, 0.46, 0.035, 0.014).translate(0, -0.39, 0.10), 0xd6e2ee, { ao: 0, to: 0xffffff, y0: -0.4, y1: 0.1 }]);
-  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.30, 0.84, 0.03), orb: null };
+  arm.push([chamferBox(0.22, 0.14, 0.26, 0.04).translate(0, -0.02, 0).rotateZ(-0.34).translate(-0.015, 0.045, 0.01),
+    T.cloth, { ao: 0.18, aoY0: -0.14, aoY1: 0.08, top: 0.22, to: T.clothDark, y0: 0.10, y1: -0.14 }]);
+  arm.push([new THREE.CapsuleGeometry(0.082, 0.21, 3, 6).translate(0, -0.13, 0), T.metalDark, { ao: 0 }]);
+  arm.push([lathe([[0.092, -0.32], [0.104, -0.23], [0.080, -0.07]], 6, true), T.metal, { ao: 0 }]);
+  arm.push([ell(0.072, 0.078, 0.084, 7, 5).translate(0, -0.35, 0.02), T.metal, { ao: 0 }]);
+  // broad sword, held blade-up
+  arm.push([chamferBox(0.038, 0.16, 0.038, 0.012).translate(0, -0.43, 0.10), T.dark, { ao: 0 }]);
+  arm.push([chamferBox(0.24, 0.05, 0.07, 0.015).translate(0, -0.43, 0.10), T.trim, { ao: 0 }]);
+  arm.push([chamferBox(0.115, 0.56, 0.036, 0.014).translate(0, -0.42, 0.10), 0xd6e2ee, { ao: 0, to: 0xffffff, y0: -0.4, y1: 0.16 }]);
+  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.30, 0.86, 0.03), orb: null };
 }
 
 function meleeRed(T) {
   const body = [];
-  body.push([lathe([[0.27, 0.03], [0.325, 0.13], [0.30, 0.28], [0.265, 0.42]], 9), T.metalDark,
-    { ao: 0.5, aoY0: 0, aoY1: 0.5, jitter: 0.05 }]);
-  for (const sx of [-1, 1])
-    body.push([ell(0.115, 0.075, 0.17, 7, 5).translate(sx * 0.125, 0.06, 0.06), T.dark, { ao: 0.3, aoY0: 0, aoY1: 0.15 }]);
+  // bowed, heavy-set legs, wider stance than the guard
+  for (const p of legPair(T, {
+    hipY: 0.48, out: 0.150, fwd: 0.095, bootW: 0.165, bootD: 0.245,
+    thighR: 0.115, shinR: 0.105, thighC: T.clothDark, shinC: 0x4a3325, bootC: T.dark,
+  })) body.push(p);
   // ragged hide kilt
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2;
@@ -268,51 +352,66 @@ function meleeRed(T) {
   // heavy hunched barrel torso
   body.push([shear(lathe([[0.265, 0.42], [0.375, 0.60], [0.395, 0.80], [0.30, 0.90]], 10), 0.30, 0.42),
     T.cloth, { ao: 0.42, aoY0: 0.3, aoY1: 0.9, top: 0.1, jitter: 0.04 }]);
-  // spine spikes
-  for (let i = 0; i < 4; i++)
-    body.push([new THREE.ConeGeometry(0.056 - i * 0.007, 0.20 + i * 0.035, 5).rotateX(-0.85)
-      .translate(0, 0.52 + i * 0.13, -0.30 + i * 0.05), T.accent,
-    { ao: 0, to: 0xffd8a8, y0: 0.5, y1: 1.1 }]);
-  // fur ruff
-  body.push([new THREE.TorusGeometry(0.28, 0.10, 6, 12).rotateX(Math.PI / 2).translate(0, 0.86, 0.06), T.metalDark,
-    { ao: 0.2, aoY0: 0.75, aoY1: 0.92, jitter: 0.1 }]);
-  // low forward-jutting head + horns
-  body.push([ell(0.20, 0.185, 0.21, 10, 8).translate(0, 0.99, 0.12), T.metal, { ao: 0.25, aoY0: 0.85, aoY1: 1.05, top: 0.16 }]);
-  body.push([ell(0.145, 0.09, 0.10, 8, 6).translate(0, 0.93, 0.25), T.dark, { ao: 0 }]);
-  for (const sx of [-1, 1]) {
-    body.push([new THREE.TorusGeometry(0.165, 0.045, 5, 9, Math.PI * 0.86).rotateY(sx > 0 ? 0.4 : Math.PI - 0.4)
-      .rotateZ(sx * -0.55).translate(sx * 0.18, 1.10, 0.02), 0xe4d6ba,
-    { ao: 0, to: 0xfff0d4, y0: 0.95, y1: 1.35 }]);
-    body.push([new THREE.ConeGeometry(0.030, 0.10, 5).rotateZ(sx * 0.5).translate(sx * 0.10, 1.20, -0.04), T.trim, { ao: 0 }]);
+  // spine spikes — fanned wide so from the game camera the back reads as an
+  // ember starburst, not a smooth lid
+  for (let i = 0; i < 4; i++) {
+    for (const sx of (i < 2 ? [0] : [-1, 1])) {
+      body.push([new THREE.ConeGeometry(0.058 - i * 0.006, 0.24 + i * 0.045, 5).rotateX(-0.95)
+        .rotateY(sx * 0.5).translate(sx * (0.10 + i * 0.05), 0.52 + i * 0.13, -0.30 + i * 0.05), T.accent,
+      { ao: 0, to: 0xffe0b0, y0: 0.5, y1: 1.15, top: 0.24 }]);
+    }
   }
-  // spiked round buckler
+  // ember pelt over the shoulders: the up-facing team surface. Kept inside the
+  // torso radius — at 0.435 it out-read the head and horns and the brute
+  // resolved as an orange doughnut.
+  body.push([lathe([[0.215, 1.00], [0.325, 0.92], [0.350, 0.83], [0.315, 0.76]], 10), T.cloth,
+    { ao: 0.26, aoY0: 0.74, aoY1: 1.00, top: 0.26, to: T.clothDark, y0: 1.02, y1: 0.74, jitter: 0.06 }]);
+  // fur ruff (dark red hide, not the old neutral brown)
+  body.push([new THREE.TorusGeometry(0.285, 0.095, 6, 12).rotateX(Math.PI / 2).translate(0, 0.84, 0.06), T.clothDark,
+    { ao: 0.24, aoY0: 0.72, aoY1: 0.92, jitter: 0.1 }]);
+  // low forward-jutting head + horns. The skull was T.metal (0xb99a78) — the
+  // exact tan that made the top-down read identical to the blue guard's helm.
+  body.push([ell(0.215, 0.205, 0.225, 10, 8).translate(0, 1.03, 0.11), 0x8f4526,
+    { ao: 0.25, aoY0: 0.88, aoY1: 1.10, top: 0.22, to: T.cloth, y0: 0.88, y1: 1.22 }]);
+  body.push([ell(0.150, 0.095, 0.105, 8, 6).translate(0, 0.97, 0.25), T.dark, { ao: 0 }]);
+  body.push([chamferBox(0.21, 0.038, 0.05, 0.012).translate(0, 1.04, 0.26), T.accent, { ao: 0 }]);
+  for (const sx of [-1, 1]) {
+    body.push([new THREE.TorusGeometry(0.205, 0.052, 5, 9, Math.PI * 0.90).rotateY(sx > 0 ? 0.4 : Math.PI - 0.4)
+      .rotateZ(sx * -0.62).translate(sx * 0.215, 1.14, 0.02), 0xe4d6ba,
+    { ao: 0, to: 0xfff0d4, y0: 0.95, y1: 1.40 }]);
+    body.push([new THREE.ConeGeometry(0.032, 0.11, 5).rotateZ(sx * 0.5).translate(sx * 0.10, 1.25, -0.04), T.trim, { ao: 0 }]);
+  }
+  // spiked round buckler, tipped so its face catches the game camera
   body.push([new THREE.CapsuleGeometry(0.082, 0.18, 3, 6).rotateZ(1.25).translate(-0.26, 0.70, 0.08), T.clothDark, { ao: 0 }]);
-  body.push([new THREE.CylinderGeometry(0.245, 0.225, 0.09, 10).rotateZ(Math.PI / 2).translate(-0.40, 0.62, 0.16), T.metalDark,
-    { ao: 0.25, aoY0: 0.4, aoY1: 0.8, jitter: 0.05 }]);
-  body.push([ell(0.06, 0.10, 0.10, 7, 5).translate(-0.46, 0.62, 0.16), T.trim, { ao: 0 }]);
+  body.push([new THREE.CylinderGeometry(0.245, 0.225, 0.09, 10).rotateZ(Math.PI / 2 - 0.30).translate(-0.40, 0.64, 0.16), T.cloth,
+    { ao: 0.25, aoY0: 0.4, aoY1: 0.8, jitter: 0.05, top: 0.26, to: T.clothDark, y0: 0.9, y1: 0.4 }]);
+  body.push([ell(0.06, 0.10, 0.10, 7, 5).translate(-0.46, 0.64, 0.16), T.trim, { ao: 0 }]);
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
     body.push([new THREE.ConeGeometry(0.035, 0.13, 5).rotateZ(Math.PI / 2)
-      .translate(-0.50, 0.62 + Math.sin(a) * 0.15, 0.16 + Math.cos(a) * 0.15), T.metal, { ao: 0 }]);
+      .translate(-0.50, 0.64 + Math.sin(a) * 0.15, 0.16 + Math.cos(a) * 0.15), T.metal, { ao: 0 }]);
   }
 
   const arm = [];
-  arm.push([new THREE.CapsuleGeometry(0.085, 0.22, 3, 6).translate(0, -0.12, 0), T.clothDark, { ao: 0 }]);
-  arm.push([ell(0.088, 0.13, 0.09, 8, 6).translate(0, -0.28, 0.01), T.metalDark, { ao: 0 }]);
+  // shoulder mass rides with the swing
+  arm.push([ell(0.155, 0.135, 0.165, 8, 6).translate(-0.005, 0.03, 0.01), T.cloth,
+    { ao: 0.18, aoY0: -0.12, aoY1: 0.10, top: 0.26, to: T.clothDark, y0: 0.12, y1: -0.12, jitter: 0.05 }]);
+  arm.push([new THREE.CapsuleGeometry(0.090, 0.23, 3, 6).translate(0, -0.14, 0), T.clothDark, { ao: 0 }]);
+  arm.push([ell(0.092, 0.135, 0.094, 8, 6).translate(0, -0.30, 0.01), 0x4a3325, { ao: 0 }]);
   // chunky curved cleaver
   {
     const s = new THREE.Shape();
     s.moveTo(0, -0.06);
-    s.quadraticCurveTo(0.26, -0.12, 0.34, 0.12);
-    s.quadraticCurveTo(0.30, 0.34, 0.02, 0.30);
+    s.quadraticCurveTo(0.30, -0.14, 0.40, 0.14);
+    s.quadraticCurveTo(0.35, 0.40, 0.02, 0.35);
     s.lineTo(-0.02, 0.10);
     s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, { depth: 0.05, bevelEnabled: true, bevelThickness: 0.014, bevelSize: 0.014, bevelSegments: 1 });
-    g.rotateY(Math.PI / 2).rotateZ(-0.2).translate(0.02, -0.30, 0.24);
-    arm.push([g, 0xc9d2da, { ao: 0, to: 0xf2f7fb, y0: -0.4, y1: 0.0 }]);
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.055, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.015, bevelSegments: 1 });
+    g.rotateY(Math.PI / 2).rotateZ(-0.2).translate(0.02, -0.32, 0.26);
+    arm.push([g, 0xc9d2da, { ao: 0, to: 0xf2f7fb, y0: -0.42, y1: 0.0 }]);
   }
-  arm.push([chamferBox(0.045, 0.26, 0.045, 0.014).translate(0, -0.44, 0.10), T.dark, { ao: 0 }]);
-  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.32, 0.80, 0.04), orb: null };
+  arm.push([chamferBox(0.048, 0.28, 0.048, 0.014).translate(0, -0.47, 0.10), T.dark, { ao: 0 }]);
+  return { body: assemble(body), arm: assemble(arm), armPivot: new THREE.Vector3(0.33, 0.82, 0.04), orb: null };
 }
 
 function casterBlue(T) {
@@ -920,7 +1019,19 @@ export class HPBars {
   }
 }
 
-// ------------------------------------------------------------ blob shadows --
+// --------------------------------------------------------- contact shadows --
+// One instanced draw for every character's ground contact.
+//
+// This used to be a centred, circular, airbrushed dot at alpha 0.5 — which is a
+// generic AO puddle, not a shadow: it has no light direction, and its softest
+// value is exactly where the foot meets the floor, so the foot never gets an
+// anchor. Combined with environment.js's `sun.shadow.normalBias = 0.55` (about
+// 0.2 m of peter-panning on a 1 m caster) the result was characters hovering
+// over their own shadow maps.
+//
+// The replacement is a real contact shadow: a hard, near-opaque core clamped to
+// the feet, plus a soft penumbra stretched along the sun's ground direction and
+// fading with distance. Same one draw call, no texture fetch.
 export class BlobShadows {
   constructor(scene, cap = 40) {
     this.cap = cap;
@@ -936,21 +1047,33 @@ export class BlobShadows {
     geo.instanceCount = cap;
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { tMap: { value: tex.dot } },
+      uniforms: { uSunG: { value: SUN_GROUND } },
       vertexShader: `
         attribute vec4 aPos;
-        varying vec2 vUv; varying float vOn;
+        uniform vec2 uSunG;
+        varying vec2 vL; varying float vOn;
         void main() {
-          vUv = uv; vOn = step(0.01, aPos.w);
-          vec3 wp = aPos.xyz + position * aPos.w;
-          gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+          vOn = step(0.01, aPos.w);
+          // local frame: +x runs down-sun (where the shadow falls), +y across
+          vec2 perp = vec2(-uSunG.y, uSunG.x);
+          float s = aPos.w;
+          // the quad is offset down-sun so the contact end sits at the feet
+          vec2 off = uSunG * (position.x * 2.30 * s + 0.62 * s) + perp * (position.z * 1.34 * s);
+          vL = vec2(position.x, position.z) * 2.0;
+          gl_Position = projectionMatrix * viewMatrix * vec4(aPos.xyz + vec3(off.x, 0.0, off.y), 1.0);
         }`,
       fragmentShader: `
-        uniform sampler2D tMap;
-        varying vec2 vUv; varying float vOn;
+        varying vec2 vL; varying float vOn;
         void main() {
-          float a = texture2D(tMap, vUv).a;
-          gl_FragColor = vec4(0.02, 0.03, 0.05, a * a * 0.5 * vOn);
+          // soft penumbra over the whole ellipse, weighted toward the near end
+          float e = length(vL);
+          float pen = 1.0 - smoothstep(0.10, 1.0, e);
+          pen *= pen * (0.50 + 0.50 * smoothstep(0.85, -0.85, vL.x));
+          // hard contact core clamped under the feet (vL.x = -0.54 is the body)
+          float c = length(vec2((vL.x + 0.54) * 2.45, vL.y * 1.75));
+          float core = 1.0 - smoothstep(0.0, 1.0, c);
+          float a = pen * 0.30 + core * core * 0.46;
+          gl_FragColor = vec4(0.028, 0.052, 0.072, min(a, 0.72) * vOn);
         }`,
     });
     this.mesh = new THREE.Mesh(geo, mat);

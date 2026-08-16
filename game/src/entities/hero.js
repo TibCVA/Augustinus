@@ -22,6 +22,7 @@ const _v1 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion();
 const _e1 = new THREE.Euler();
 const _m4 = new THREE.Matrix4();
+const _vFoot = new THREE.Vector3();
 const DOWN = new THREE.Vector3(0, -1, 0);
 const clamp = THREE.MathUtils.clamp;
 const fin = (x, d = 0) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
@@ -184,19 +185,28 @@ function buildGroundRing(hex) {
     [0.775, 1.00, 0.92], [0.825, 0.10, 0.50], [0.98, 0.00, 0.00],
   ]);
   // The hot band is ~0.7 screen px at the overview camera; this inner wash is
-  // what actually finds the player from 60 units up.
-  const fill = ringGeo(hex, [[0.0, 0.75, 0.15], [0.44, 0.80, 0.22], [0.665, 1.00, 0.40], [0.71, 0.0, 0.0]]);
-  const shade = ringGeo(dark, [[0.60, 1, 0], [0.70, 1, 0.30], [0.86, 1, 0.28], [1.02, 1, 0]]);
+  // what finds the player from 60 units up.
+  //
+  // Alphas here used to be 0.15/0.22/0.40 on a plane at y = 0.07 with
+  // polygonOffset -6. Sera's boots occupy y -0.04..0.07, so the disc sat ON them
+  // and, winning the depth test by the polygon offset, composited an
+  // unshadowable cyan wash over both feet: in hero.png her right leg visibly
+  // terminated in the ankle band with no boot below it. That is a large part of
+  // the "floats above the tiles" read — the character literally had no feet
+  // touching anything. Dropped to y = 0.015 with a third of the fill so the disc
+  // is a marker under the boots, not a lightbox in front of them.
+  const fill = ringGeo(hex, [[0.0, 0.75, 0.05], [0.44, 0.80, 0.08], [0.665, 1.00, 0.17], [0.71, 0.0, 0.0]]);
+  const shade = ringGeo(dark, [[0.60, 1, 0], [0.70, 1, 0.34], [0.86, 1, 0.30], [1.02, 1, 0]]);
   const parts = [shade, fill, band];
   for (let i = 0; i < 3; i++) parts.push(ringTick(hex, 0.80, 1.00, 0.085, i * (Math.PI * 2 / 3) + 0.4));
   const geo = mergeGeos4(parts);
   const mat = new THREE.MeshBasicMaterial({
     vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    toneMapped: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+    toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
   });
   const m = new THREE.Mesh(geo, mat);
   m.renderOrder = 3;
-  m.position.y = 0.07;
+  m.position.y = 0.015;
   m.frustumCulled = false;
   return m;
 }
@@ -264,22 +274,37 @@ function bladeGeo({ len = 1.05, w = 0.058, th = 0.022, steps = 8 }) {
 // that is all a hand needs, and at close range it is the difference between a
 // character and a mannequin.
 function gripFist(sx, sk, ss) {
-  // wraps a hilt running along local +Y through the origin
+  // Wraps a hilt of radius ~0.030 running along local +Y through the origin.
+  //
+  // The fingers used to be four straight chamfered boxes 0.142 wide centred at
+  // x = +0.014: the hilt occupies x -0.030..0.030, so every finger ran clean
+  // THROUGH the grip and stuck 0.055 out the far side. That is the "sword
+  // passing through the fist" read, and no amount of posing hides it, because
+  // the intersection is in the rest geometry. They are now partial tori that
+  // actually curl round the hilt and close on the palm, so the grip is a
+  // closed loop from every angle.
   const p = [];
-  p.push([chamferBox(0.082, 0.215, 0.128, 0.032).translate(0, -0.108, 0).translate(-sx * 0.058, 0.028, 0), sk,
-    { ao: 0.20, aoY0: -0.10, aoY1: 0.09, top: 0.14 }]);
+  // palm heel, on the far side of the hilt from the fingertips
+  p.push([chamferBox(0.076, 0.205, 0.124, 0.030).translate(0, -0.102, 0).translate(-sx * 0.060, 0.020, 0), sk,
+    { ao: 0.20, aoY0: -0.07, aoY1: 0.11, top: 0.14 }]);
+  // gap in the curl faces the palm, so finger tips and palm heel close on each
+  // other instead of the fingers spearing out the far side of the grip
+  const gapRot = Math.PI * 0.6 + (sx < 0 ? Math.PI : 0);
   for (let i = 0; i < 4; i++) {
-    const y = 0.082 - i * 0.047;
-    const w = 0.142 - i * 0.008;
-    p.push([chamferBox(w, 0.042, 0.112 - i * 0.005, 0.016).translate(0, -0.021, 0)
-      .rotateZ(sx * 0.05).translate(sx * 0.014, y, 0.004), sk,
-    { ao: 0.20, aoY0: y - 0.028, aoY1: y + 0.020, top: 0.24 }]);
+    const y = 0.072 - i * 0.045;
+    const r = 0.052 - i * 0.002;
+    const f = new THREE.TorusGeometry(r, 0.0215 - i * 0.0008, 4, 7, Math.PI * 1.20)
+      .rotateX(Math.PI / 2).rotateY(gapRot).scale(1, 1, 1.06).translate(0, y, 0.004);
+    p.push([f, sk, { ao: 0.20, aoY0: y - 0.030, aoY1: y + 0.022, top: 0.26 }]);
   }
+  // knuckle ridge across the outside of the curled fingers
+  p.push([chamferBox(0.040, 0.185, 0.104, 0.018).translate(0, -0.093, 0)
+    .translate(sx * 0.056, 0.018, 0.010), sk, { ao: 0.14, aoY0: -0.03, aoY1: 0.09, top: 0.22 }]);
   // thumb laid diagonally over the fingers
-  p.push([chamferBox(0.050, 0.125, 0.055, 0.02).translate(0, -0.125, 0).rotateZ(sx * 1.20).rotateX(-0.30)
-    .translate(-sx * 0.046, 0.086, 0.056), sk, { ao: 0.1, aoY0: 0.0, aoY1: 0.09, top: 0.16 }]);
+  p.push([chamferBox(0.048, 0.122, 0.052, 0.02).translate(0, -0.122, 0).rotateZ(sx * 1.22).rotateX(-0.32)
+    .translate(-sx * 0.050, 0.082, 0.055), sk, { ao: 0.1, aoY0: 0.0, aoY1: 0.09, top: 0.16 }]);
   // wrist plug so the cuff never shows a gap
-  p.push([ell(0.062, 0.05, 0.062, 8, 5).translate(0, 0.115, 0), ss, { ao: 0 }]);
+  p.push([ell(0.062, 0.05, 0.062, 8, 5).translate(0, 0.118, 0), ss, { ao: 0 }]);
   return p;
 }
 function openHand(sx, sk, ss) {
@@ -518,6 +543,9 @@ const KARGATH = {
 // ------------------------------------------------------------- rig builder --
 function buildRig(spec) {
   const rig = { joints: {}, mats: [], spec, bias: spec.bias || {} };
+  // Lowest point of the boot in knee-local space (heel ellipsoid bottom). Used
+  // by the per-frame foot plant — see Hero.update.
+  rig.sole = new THREE.Vector3(0, -spec.shin - 0.108, 0.02);
   const root = new THREE.Group();
   rig.root = root;
   root.scale.setScalar(spec.scale);
@@ -546,9 +574,13 @@ function buildRig(spec) {
     mFace.emissive = new THREE.Color(0xff6a22);
     mFace.emissiveIntensity = 0.16;
   }
-  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 3.0, strength: 0.28, fill: 0.20 });
-  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.7, strength: 0.28, fill: 0.17 });
-  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.3, strength: 0.30, fill: 0.16 });
+  // strength is ~3x the old value because the term is now gated by `lit` — see
+  // addDualRim in units.js. The old un-gated 0.28 measured +22 luma on the
+  // sunward silhouette and +33 on the shadow silhouette, i.e. no light direction
+  // at all; these numbers put ~+90 on the sunward contour and ~+12 elsewhere.
+  addDualRim(mBody, { warm: spec.rimW, cool: spec.rimC, power: 2.9, strength: 0.82, fill: 0.20, coolK: 0.17 });
+  addDualRim(mPlate, { warm: spec.rimW, cool: spec.rimC, power: 2.6, strength: 0.98, fill: 0.17, coolK: 0.16 });
+  addDualRim(mCape, { warm: spec.rimW, cool: spec.rimC, power: 2.2, strength: 0.86, fill: 0.16, coolK: 0.18 });
   addVertexGlow(mGlow);
   rig.mats.push(mBody, mPlate, mGlow, mCape, mFace);
   for (const mm of rig.mats) mm.userData.baseEmissive = mm.emissive.clone();
@@ -615,6 +647,8 @@ function buildRig(spec) {
       [cbox(0.030, legLen * 0.44, 0.032, 0.010).translate(0, -0.17, 0.128 * B), TR, { ao: 0.2, aoY0: -legLen * 0.6, aoY1: -0.15 }],
     ]), mBody, true));
     const knee = joint(hip, 0, -legLen, 0, 'knee' + side, rig);
+    rig.knees = rig.knees || [];
+    rig.knees.push(knee);
     const gp = [];
     // knee cop + greave + boot, all one plate mesh
     // knee cop: a faceted plate with a forward point, not a billiard ball
@@ -971,11 +1005,13 @@ function buildRig(spec) {
       pp.push([new THREE.ConeGeometry(0.026, 0.085, 5).rotateZ(sx * -1.35).translate(sx * 0.182, 0.222, 0), TR, { ao: 0 }]);
     }
     pp.push([lathe([[0.042, 0.11], [0.056, 0.16], [0.05, 0.215], [0.032, 0.24]], 10), TR, { ao: 0, to: TD, y0: 0.24, y1: 0.11 }]);
-    // wrapped grip
-    pp.push([new THREE.CylinderGeometry(0.026, 0.030, 0.19, 8).translate(0, 0.015, 0), 0x2a2438, { ao: 0 }]);
+    // wrapped grip — 0.21 long so the whole fist (y -0.082..0.123) has hilt to
+    // hold, and the pommel dropped clear of the heel of the hand instead of
+    // sitting buried inside it
+    pp.push([new THREE.CylinderGeometry(0.026, 0.030, 0.215, 8).translate(0, 0.012, 0), 0x2a2438, { ao: 0 }]);
     for (let i = 0; i < 4; i++)
-      pp.push([new THREE.TorusGeometry(0.029, 0.007, 4, 8).rotateX(Math.PI / 2).translate(0, -0.045 + i * 0.042, 0), 0x453a52, { ao: 0 }]);
-    pp.push([new THREE.OctahedronGeometry(0.052, 0).scale(1, 0.85, 0.85).translate(0, -0.095, 0), TR, { ao: 0 }]);
+      pp.push([new THREE.TorusGeometry(0.029, 0.007, 4, 8).rotateX(Math.PI / 2).translate(0, -0.050 + i * 0.044, 0), 0x453a52, { ao: 0 }]);
+    pp.push([new THREE.OctahedronGeometry(0.052, 0).scale(1, 0.85, 0.85).translate(0, -0.122, 0), TR, { ao: 0 }]);
     // right hand, welded to the hilt so the grip is never a floating ball
     for (const q of gripFist(1, SK, SS)) pp.push(q);
     wG.add(mesh(assemble(pp), mPlate, true));
@@ -985,7 +1021,7 @@ function buildRig(spec) {
       gp.push([cbox(0.021, 0.88, 0.008, 0.003).translate(0, 1.12, zz), spec.core,
         { ao: 0, to: 0x18424f, y0: 0.26, y1: 1.10 }]);
     gp.push([ell(0.022, 0.078, 0.012, 6, 5).translate(0, 1.22, 0), 0xffffff, { ao: 0 }]);
-    gp.push([new THREE.OctahedronGeometry(0.024, 0).translate(0, -0.095, 0), spec.core, { ao: 0 }]);
+    gp.push([new THREE.OctahedronGeometry(0.024, 0).translate(0, -0.122, 0), spec.core, { ao: 0 }]);
     wG.add(mesh(assemble(gp), mGlow));
     rig.bladeBase = new THREE.Vector3(0, 0.24, 0);
     rig.bladeTip = new THREE.Vector3(0, 1.30, 0);
@@ -1025,6 +1061,7 @@ function buildRig(spec) {
   }
   grip.add(wG);
   rig.weapon = wG;
+  if (location.search.includes('hidehero')) root.visible = false;
   return rig;
 }
 
@@ -1216,24 +1253,42 @@ const POSES = {
     o.hipR = [0.9 * k, 0, 0.2 * k]; o.kneeR = [0.8 * k, 0, 0];
     o.capeLean = 0.5 * k;
   },
-  showcase(t, p, o) { // hero-shot: contrapposto, blade raised across the body
-    const br = Math.sin(t * 1.5);
-    // sunk 0.09 into the support leg: real contrapposto, and it buys the dawn
-    // crest the screen headroom it needs in the (head-tight) hero preset
-    o.hips = [0.01, -0.24, -0.085, 0.03, br * 0.014 - 0.13, 0];
-    o.torso = [0.02 + br * 0.024, 0.13, 0.095];
-    o.head = [-0.07 + br * 0.02, 0.22, -0.05];
-    // sword arm: elbow tucked, forearm crossing the chest so the blade rakes up
-    // to her left — the weapon has to be part of the silhouette, not behind it
-    o.shR = [-0.30, -0.16, 0.46];
-    o.elR = [1.22, 0.24, 0.22];
-    o.grip = [-0.30, 0.18, -1.02];
-    o.shL = [0.24 + br * 0.03, 0.18, -0.44];
-    o.elL = [0.70, 0, -0.26];
-    o.hipL = [0.30, 0.06, -0.04]; o.kneeL = [0.52, 0, 0];
-    o.hipR = [-0.02, 0.10, 0.055]; o.kneeR = [0.26, 0, 0];
-    o.capeLean = 0.22 + br * 0.04;
-    o.capeSide = 0.14 + Math.sin(t * 0.9) * 0.11;
+  showcase(t, p, o) { // hero-shot: contrapposto, blade raked across the body
+    const br = Math.sin(t * 1.5), sw = Math.sin(t * 0.62);
+    // The panel called the old version "one step off a T-pose in her own beauty
+    // shot", and it was: both upper arms hung within 25 deg of straight down and
+    // the only asymmetry was in the legs. A hero shot needs three things this
+    // did not have — counter-rotation between hips and shoulders, a bent
+    // near-side elbow lifted clear of the torso so daylight shows through the
+    // arm gap, and the weapon crossing the body instead of standing parallel to
+    // it. All three below.
+    //
+    // The pelvis sink is 0.055 instead of 0.13: the root now foot-plants (see
+    // Hero.update), so a deep sink is no longer needed to fake ground contact
+    // and just reads as a crouch.
+    // Hips turned away from the lens, chest counter-twisted a little further,
+    // head brought back round to camera: the standard three-plane break that
+    // stops a character reading as a mannequin bolted to a turntable.
+    o.hips = [0.02, -0.30, -0.10, 0.045, br * 0.012 - 0.055, 0];
+    o.torso = [0.015 + br * 0.026, -0.14, 0.115];
+    o.head = [-0.09 + br * 0.02, 0.62 + sw * 0.05, -0.10];
+    // sword arm (near the lens): shoulder twisted in, elbow folded ~90 deg so
+    // the blade crosses the body diagonally instead of standing parallel to it
+    o.shR = [-0.26, -0.66, 0.28];
+    o.elR = [1.58, 0.12, 0.10];
+    o.grip = [-0.28, 0.34, -0.92];
+    // off arm (far side): brought forward across the front of the hip so the
+    // hand actually appears in frame. Deliberately NOT a mirror of the sword
+    // arm — two symmetric bent elbows read as handlebars.
+    o.shL = [-0.36 + br * 0.03, 0.02, -0.46];
+    o.elL = [1.18, 0.30, -0.30];
+    // far leg stepped forward and across, near leg straight underneath taking
+    // the weight: from this camera the two boots then land side by side in
+    // screen space instead of one hiding behind the other.
+    o.hipL = [-0.36, 0.02, -0.18]; o.kneeL = [0.34, 0, 0];
+    o.hipR = [0.12, 0.18, 0.09]; o.kneeR = [0.10, 0, 0];
+    o.capeLean = 0.30 + br * 0.05;
+    o.capeSide = 0.22 + Math.sin(t * 0.9) * 0.12;
   },
   channel(t, p, o) {
     POSES.idle(t, p, o);
@@ -1402,7 +1457,37 @@ export class Hero extends Unit {
     const airY = clamp(fin(this.airY), -2, 12);
     this.airY = airY;
     const root = this.rig.root;
-    root.position.y = airY;
+
+    // ------------------------------------------------------- foot plant ----
+    // Every pose that bends a knee or sinks the pelvis shortens the leg, and
+    // nothing was compensating: `showcase` drops the hips 0.13 and flexes both
+    // knees, which buried Sera's boots 0.18 m under the paving in her own
+    // beauty shot. The old ground ring (a bright disc at y = 0.07) hid it, so
+    // the bug read as "she floats" rather than "she is knee-deep in the floor".
+    //
+    // Resolve the two knee joints in root-local space, find the lower sole, and
+    // lift the rig root until it touches. Two 4x4 concatenations per frame, no
+    // allocation, and it grounds every pose in the state machine rather than
+    // hand-tuning each one.
+    let lift = 0;
+    {
+      const J = this.rig.joints, sole = this.rig.sole;
+      const hips = J.hips;
+      if (hips) {
+        hips.updateMatrix();
+        let lo = Infinity;
+        for (const side of ['L', 'R']) {
+          const hip = J['hip' + side], knee = J['knee' + side];
+          if (!hip || !knee) continue;
+          hip.updateMatrix(); knee.updateMatrix();
+          _m4.copy(hips.matrix).multiply(hip.matrix).multiply(knee.matrix);
+          _vFoot.copy(sole).applyMatrix4(_m4);
+          if (_vFoot.y < lo) lo = _vFoot.y;
+        }
+        if (Number.isFinite(lo)) lift = clamp(-lo * this.rig.spec.scale, 0, 0.34);
+      }
+    }
+    root.position.y = airY + lift;
 
     // ------------------------------------------- attack lunge / hit flinch --
     // Both live on the rig root: a champion who swings without travelling and

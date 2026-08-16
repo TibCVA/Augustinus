@@ -23,6 +23,15 @@ const MEND_CD = 100;      // s
 const MEND_FRAC = 0.25;   // of max hp
 const RECALL_CHANNEL = 5; // s, cancelled by damage or by moving
 
+// relic codex — mirrors the level gates the sim actually grants, so the forge
+// panel can never claim something the socket rail is not about to show
+const RELICS = [
+  { lv: 4, name: 'Dawnedge', line: 'Blade · attack damage' },
+  { lv: 7, name: 'Aegis of the Sanctum', line: 'Ward · armour' },
+  { lv: 10, name: 'Windstep Greaves', line: 'Greaves · movement' },
+  { lv: 13, name: 'Rift Heart', line: 'Focus · ability power' },
+];
+
 // screen-space stacking slots so simultaneous numbers never sit on top of
 // each other (first free slot wins). Biased horizontal: stacked crits in the
 // same fight used to climb straight into the score plate.
@@ -47,10 +56,16 @@ export class HUD {
       minimap: $('minimap'), cluster: $('abilityCluster'), hud: $('hud'),
       items: Array.prototype.slice.call(document.querySelectorAll('#itemRail .itemSlot')),
       btns: { A: $('btnA'), Q: $('btnQ'), W: $('btnW'), E: $('btnE'), R: $('btnR') },
+      towBlue: $('towBlue'), towRed: $('towRed'), waveTimer: $('waveTimer'), objWave: $('objWave'),
+      shopGold: $('shopGold'), shopList: $('shopList'),
     };
     // painted bust, baked once; the flat two-tone vector face stays as the
     // context-loss fallback
-    this.el.portrait.style.setProperty('--portrait', `url(${bakePortrait() || tex.portraitURL})`);
+    const seraArt = bakeBust(paintSeraBust, 288);
+    this.el.portrait.style.setProperty('--portrait', `url(${seraArt || tex.portraitURL})`);
+
+    this.initRoster(seraArt);
+    this.initTray();
 
     // keycaps are a desktop tell on a touch HUD — reveal them only once the
     // player actually uses a keyboard (keyboard control itself is untouched)
@@ -153,6 +168,156 @@ export class HUD {
     this.camera = camera;
   }
 
+  // ---------------------------------------------------------------- roster --
+  // Both champions, live. Every field is cached so the 5 Hz refresh only ever
+  // writes what actually moved.
+  initRoster(seraArt) {
+    const $ = (id) => document.getElementById(id);
+    const kargathArt = bakeBust(paintKargathBust, 192);
+    const mk = (pre, who, art) => {
+      const row = $(pre);
+      if (!row) return null;
+      const chip = row.querySelector('.tpChip');
+      if (chip && art) chip.style.setProperty('--chip', `url(${art})`);
+      return {
+        row, who, chip,
+        lv: $(pre + 'Lv'), kda: $(pre + 'Kda'), hp: $(pre + 'Hp'), mp: $(pre + 'Mp'), ult: $(pre + 'Ult'),
+        vHp: -1, vMp: -1, vLv: -1, vKda: '', vUlt: '', vUltCls: '', vDead: null,
+      };
+    };
+    this.roster = [mk('tpBlue', 'player', seraArt), mk('tpRed', 'bot', kargathArt)].filter(Boolean);
+    // structure pips: [outer tower, inner tower] + nexus, per side
+    this.pips = {
+      blue: this.el.towBlue ? { i: this.el.towBlue.querySelectorAll('i'), n: this.el.towBlue.querySelector('b'), v: -1, nv: null } : null,
+      red: this.el.towRed ? { i: this.el.towRed.querySelectorAll('i'), n: this.el.towRed.querySelector('b'), v: -1, nv: null } : null,
+    };
+    this.waveTxt = '';
+    this.waveSoon = null;
+  }
+
+  updateRoster() {
+    const sim = this.sim;
+    if (!sim || !this.roster) return;
+    for (const r of this.roster) {
+      const h = sim[r.who];
+      if (!h) continue;
+      const hpF = h.maxHp > 0 ? Math.max(0, Math.min(1, h.hp / h.maxHp)) : 0;
+      if (Math.abs(r.vHp - hpF) > 0.004) { r.vHp = hpF; r.hp.style.transform = `scaleX(${hpF.toFixed(3)})`; }
+      const mpF = h.maxMana > 0 ? Math.max(0, Math.min(1, h.mana / h.maxMana)) : 0;
+      if (Math.abs(r.vMp - mpF) > 0.008) { r.vMp = mpF; r.mp.style.transform = `scaleX(${mpF.toFixed(3)})`; }
+      if (r.vLv !== h.level) { r.vLv = h.level; r.lv.textContent = h.level; }
+      const kda = `${h.kills}/${h.deaths}`;
+      if (r.vKda !== kda) { r.vKda = kda; r.kda.textContent = kda; }
+      const dead = !h.alive;
+      if (r.vDead !== dead) { r.vDead = dead; r.row.classList.toggle('dead', dead); }
+      // the ult chip doubles as the respawn clock — it is the one badge on the
+      // row the eye already checks
+      let txt, cls;
+      if (dead) { txt = String(Math.ceil(Math.max(0, h.respawnT))); cls = 'tpUlt timer'; }
+      else if (h.level < AB_REQ.R) { txt = 'R'; cls = 'tpUlt'; }
+      else if (h.cds && h.cds.R > 0) { txt = String(Math.ceil(h.cds.R)); cls = 'tpUlt timer'; }
+      else { txt = 'R'; cls = 'tpUlt rdy'; }
+      if (r.vUlt !== txt) { r.vUlt = txt; r.ult.textContent = txt; }
+      if (r.vUltCls !== cls) { r.vUltCls = cls; r.ult.className = cls; }
+    }
+
+    // ---- structures still standing ----
+    if (this.pips) {
+      for (const team of ['blue', 'red']) {
+        const p = this.pips[team];
+        if (!p) continue;
+        let n = 0;
+        for (const t of sim.towers) if (t.team === team && t.alive) n++;
+        if (p.v !== n) {
+          p.v = n;
+          for (let i = 0; i < p.i.length; i++) p.i[i].classList.toggle('up', i < n);
+        }
+        let nx = false;
+        for (const x of sim.nexuses) if (x.team === team && x.alive) nx = true;
+        if (p.nv !== nx) { p.nv = nx; if (p.n) p.n.classList.toggle('up', nx); }
+      }
+    }
+
+    // ---- next wave ----
+    if (this.el.waveTimer) {
+      const w = Math.max(0, Math.ceil(sim.waveT));
+      const txt = `${Math.floor(w / 60)}:${String(w % 60).padStart(2, '0')}`;
+      if (this.waveTxt !== txt) { this.waveTxt = txt; this.el.waveTimer.textContent = txt; }
+      const soon = w <= 5;
+      if (this.waveSoon !== soon) { this.waveSoon = soon; this.el.objWave.classList.toggle('soon', soon); }
+    }
+  }
+
+  // ------------------------------------------------------------------ tray --
+  // Forge codex + settings. Both are HUD-owned: the settings switches only
+  // touch classes on #hud, and the codex is read-only.
+  initTray() {
+    const list = this.el.shopList;
+    if (list) {
+      let html = '';
+      for (const r of RELICS) {
+        html += `<li data-lv="${r.lv}"><b>${r.name}</b><i>${r.line}</i><span class="hpLv">LV ${r.lv}</span></li>`;
+      }
+      list.innerHTML = html;
+      this.shopRows = Array.prototype.slice.call(list.children);
+    }
+    this.opts = { dmg: true, keys: false, motion: false };
+    this.openPanel = '';
+    const pair = [['btnShop', 'shopPanel'], ['btnMenu', 'menuPanel']];
+    this.tray = [];
+    for (const [bid, pid] of pair) {
+      const btn = document.getElementById(bid), panel = document.getElementById(pid);
+      if (!btn || !panel) continue;
+      const entry = { key: bid, btn, panel };
+      this.tray.push(entry);
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        this.togglePanel(bid);
+      });
+    }
+    // an open popover must swallow the press: controls.js spawns the floating
+    // joystick from any document pointerdown in the left half that is not on a
+    // <button>, and the panels live squarely in that half
+    for (const t of this.tray) {
+      t.panel.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const li = e.target.closest ? e.target.closest('.hpOpt') : null;
+        if (!li) return;
+        this.setOpt(li.dataset.opt, !this.opts[li.dataset.opt], li.querySelector('.hpTog'));
+      });
+    }
+  }
+
+  setOpt(key, on, tog) {
+    if (!(key in this.opts)) return;
+    this.opts[key] = on;
+    if (tog) tog.classList.toggle('on', on);
+    const hud = this.el.hud;
+    if (!hud) return;
+    if (key === 'dmg') hud.classList.toggle('noDmg', !on);
+    else if (key === 'keys') { hud.classList.toggle('kb', on); this.kbShown = on; }
+    else if (key === 'motion') hud.classList.toggle('rm', on);
+  }
+
+  togglePanel(key) {
+    const next = this.openPanel === key ? '' : key;
+    this.openPanel = next;
+    for (const t of this.tray) {
+      const on = t.key === next;
+      t.panel.classList.toggle('open', on);
+      t.btn.classList.toggle('open', on);
+    }
+    if (next === 'btnShop') this.refreshShop();
+  }
+
+  refreshShop() {
+    const sim = this.sim;
+    if (!sim || !this.shopRows) return;
+    const lv = sim.player.level;
+    if (this.el.shopGold) this.el.shopGold.textContent = String(Math.floor(sim.player.gold));
+    for (const row of this.shopRows) row.classList.toggle('own', lv >= +row.dataset.lv);
+  }
+
   // wipe transient overlays (combat text, feed, announce) — used by staging
   reset() {
     for (const n of this.nums) { n.active = false; n.el.style.display = 'none'; }
@@ -174,6 +339,11 @@ export class HUD {
       s.el.classList.remove('cooling');
     }
     this.itemsOn = -1;
+    if (this.openPanel) this.togglePanel(this.openPanel);
+    if (this.roster) for (const r of this.roster) { r.vHp = -1; r.vMp = -1; r.vLv = -1; r.vKda = ''; r.vUlt = ''; r.vUltCls = ''; r.vDead = null; }
+    if (this.pips) { if (this.pips.blue) { this.pips.blue.v = -1; this.pips.blue.nv = null; } if (this.pips.red) { this.pips.red.v = -1; this.pips.red.nv = null; } }
+    this.waveTxt = '';
+    this.waveSoon = null;
     for (const k of AB_KEYS) {
       const a = this.ab[k];
       a.prevCd = null; a.castT = 0; a.castCls = '';
@@ -216,6 +386,7 @@ export class HUD {
 
   // -------------------------------------------------- floating combat text --
   damageNumber(worldPos, text, kind = 'phys') {
+    if (this.opts && !this.opts.dmg) return;
     let slot = null;
     for (const n of this.nums) { if (!n.active) { slot = n; break; } }
     if (!slot) slot = this.nums[0];
@@ -539,6 +710,8 @@ export class HUD {
       set(this.el.timer, `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`);
       set(this.el.hpText, `${Math.ceil(Math.max(0, p.hp))}/${p.maxHp}`);
       set(this.el.mpText, `${Math.ceil(p.mana)}/${p.maxMana}`);
+      this.updateRoster();
+      if (this.openPanel === 'btnShop') this.refreshShop();
     }
 
     // ---- floating combat text ----
@@ -628,12 +801,15 @@ export class HUD {
     ctx.clip();
 
     // ---- terrain ----
+    // Value discipline: the map is a dark board and the ICONS are the bright
+    // marks on it. Round 2 shipped a pale tan lane at L~80, which made empty
+    // floor the brightest thing in the whole HUD — the eye landed on nothing.
     const gr = ctx.createLinearGradient(0, sy(-A.WALK_Z), 0, sy(A.WALK_Z));
-    gr.addColorStop(0, '#1e3f1c');
-    gr.addColorStop(0.13, '#417f37');
-    gr.addColorStop(0.5, '#4f9243');
-    gr.addColorStop(0.87, '#417f37');
-    gr.addColorStop(1, '#1e3f1c');
+    gr.addColorStop(0, '#0a1d14');
+    gr.addColorStop(0.13, '#1d4430');
+    gr.addColorStop(0.5, '#255138');
+    gr.addColorStop(0.87, '#1d4430');
+    gr.addColorStop(1, '#0a1d14');
     ctx.fillStyle = gr;
     ctx.fillRect(0, 0, W, H);
 
@@ -688,11 +864,11 @@ export class HUD {
       ctx.closePath();
     };
     const lg = ctx.createLinearGradient(0, sy(-A.LANE_HALF), 0, sy(A.LANE_HALF));
-    lg.addColorStop(0, 'rgba(150,130,88,0.9)');
-    lg.addColorStop(0.5, 'rgba(203,184,136,0.94)');
-    lg.addColorStop(1, 'rgba(150,130,88,0.9)');
+    lg.addColorStop(0, 'rgba(64,55,38,0.94)');
+    lg.addColorStop(0.5, 'rgba(102,90,64,0.95)');
+    lg.addColorStop(1, 'rgba(64,55,38,0.94)');
     lanePath(); ctx.fillStyle = lg; ctx.fill();
-    lanePath(); ctx.strokeStyle = 'rgba(238,224,178,0.45)'; ctx.lineWidth = 1.4; ctx.stroke();
+    lanePath(); ctx.strokeStyle = 'rgba(214,196,146,0.42)'; ctx.lineWidth = 1.3; ctx.stroke();
 
     ctx.restore();
 
@@ -707,7 +883,7 @@ export class HUD {
     const rvg = ctx.createLinearGradient(r0, 0, r1, 0);
     rvg.addColorStop(0, 'rgba(46,150,176,0)');
     rvg.addColorStop(0.2, 'rgba(58,178,200,0.62)');
-    rvg.addColorStop(0.5, 'rgba(118,234,242,0.9)');
+    rvg.addColorStop(0.5, 'rgba(76,178,196,0.78)');
     rvg.addColorStop(0.8, 'rgba(58,178,200,0.62)');
     rvg.addColorStop(1, 'rgba(46,150,176,0)');
     ctx.fillStyle = rvg;
@@ -727,12 +903,12 @@ export class HUD {
     ctx.clip();
     // bridge
     const bz0 = sy(-A.BRIDGE_HALF_Z + 0.15), bz1 = sy(A.BRIDGE_HALF_Z - 0.15);
-    ctx.fillStyle = 'rgba(196,178,138,0.95)';
+    ctx.fillStyle = 'rgba(112,100,74,0.95)';
     ctx.fillRect(sx(-A.BRIDGE_HALF_X), bz0, sx(A.BRIDGE_HALF_X) - sx(-A.BRIDGE_HALF_X), bz1 - bz0);
-    ctx.strokeStyle = 'rgba(60,46,28,0.7)';
+    ctx.strokeStyle = 'rgba(30,23,14,0.8)';
     ctx.lineWidth = 1.2;
     ctx.strokeRect(sx(-A.BRIDGE_HALF_X), bz0, sx(A.BRIDGE_HALF_X) - sx(-A.BRIDGE_HALF_X), bz1 - bz0);
-    ctx.strokeStyle = 'rgba(84,64,38,0.45)';
+    ctx.strokeStyle = 'rgba(44,34,20,0.55)';
     ctx.lineWidth = 1;
     for (let x = -A.BRIDGE_HALF_X + 2.1; x < A.BRIDGE_HALF_X - 0.5; x += 2.1) {
       ctx.beginPath(); ctx.moveTo(sx(x), bz0 + 1); ctx.lineTo(sx(x), bz1 - 1); ctx.stroke();
@@ -868,7 +1044,9 @@ export class HUD {
     ctx.save();
     ctx.lineWidth = 2;
     ctx.strokeStyle = 'rgba(2,5,10,0.85)';
-    ctx.fillStyle = !alive ? '#5a5f68' : team === 'blue' ? '#5aa4ff' : '#ff6a52';
+    // the board is dark now, so a live structure is allowed to actually glow
+    if (alive) { ctx.shadowColor = team === 'blue' ? 'rgba(80,170,255,0.95)' : 'rgba(255,105,75,0.95)'; ctx.shadowBlur = 6; }
+    ctx.fillStyle = !alive ? '#5a5f68' : team === 'blue' ? '#8fc8ff' : '#ff8a70';
     ctx.beginPath();
     ctx.moveTo(x - 5, y + 6);
     ctx.lineTo(x - 5, y - 1.5);
@@ -877,12 +1055,13 @@ export class HUD {
     ctx.lineTo(x + 5, y + 6);
     ctx.closePath();
     ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.stroke();
     if (alive) {
-      ctx.strokeStyle = 'rgba(255,226,170,0.75)';
+      ctx.strokeStyle = 'rgba(255,236,190,0.85)';
       ctx.lineWidth = 1.1;
       ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
       ctx.fillRect(x - 1.4, y - 0.6, 2.8, 3.4);
     } else {
       ctx.strokeStyle = 'rgba(20,24,30,0.9)';
@@ -961,8 +1140,12 @@ export class HUD {
       ctx.lineWidth = 1.2;
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.beginPath(); ctx.arc(0, 0, r + 1.8, 0, 7); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, 7); ctx.fill();
+      // the player pin is the single brightest mark on the board, by design
+      ctx.strokeStyle = 'rgba(190,246,255,0.55)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.arc(0, 0, r + 4.4, 0, 7); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.98)';
+      ctx.beginPath(); ctx.arc(0, 0, 2.8, 0, 7); ctx.fill();
     }
     ctx.restore();
   }
@@ -988,17 +1171,98 @@ export class HUD {
 // shading, a lit/shadow split, real eyes and a rim light, so the plate
 // stops reading as a prototype at 54-108 device px.
 // =====================================================================
-function bakePortrait() {
+function bakeBust(paint, S) {
   try {
     const c = document.createElement('canvas');
-    c.width = c.height = 256;
+    c.width = c.height = S;
     const g = c.getContext('2d');
     if (!g) return null;
-    paintSeraBust(g, 256);
+    paint(g, S);
     return c.toDataURL();
   } catch (e) {
     return null;   // context-loss / tainted canvas: fall back to tex.portraitURL
   }
+}
+
+// =====================================================================
+// KARGATH, EMBER WARLORD — enemy roster chip. Authored at 21 device px
+// wide, so it is built as a silhouette read: horned helm, ember visor
+// slot, one hot rim off the left horn. No features that vanish at size.
+// =====================================================================
+function paintKargathBust(g, S) {
+  const u = S / 256;
+  const rgba = (h, a) => `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`;
+  const blob = (x, y, r, col, a, a2 = 0) => {
+    const rg = g.createRadialGradient(x * u, y * u, 0, x * u, y * u, r * u);
+    rg.addColorStop(0, rgba(col, a)); rg.addColorStop(1, rgba(col, a2));
+    g.fillStyle = rg; g.beginPath(); g.arc(x * u, y * u, r * u, 0, 7); g.fill();
+  };
+  const path = (pts, col) => {
+    g.fillStyle = typeof col === 'string' ? col : rgba(col, 1);
+    g.beginPath();
+    g.moveTo(pts[0][0] * u, pts[0][1] * u);
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.length === 6) g.bezierCurveTo(p[0] * u, p[1] * u, p[2] * u, p[3] * u, p[4] * u, p[5] * u);
+      else if (p.length === 4) g.quadraticCurveTo(p[0] * u, p[1] * u, p[2] * u, p[3] * u);
+      else g.lineTo(p[0] * u, p[1] * u);
+    }
+    g.closePath(); g.fill();
+  };
+
+  const bg = g.createLinearGradient(0, 0, 0, S);
+  bg.addColorStop(0, '#6a2418'); bg.addColorStop(0.5, '#39120e'); bg.addColorStop(1, '#150607');
+  g.fillStyle = bg; g.fillRect(0, 0, S, S);
+  blob(74, 52, 128, 0xff9a3c, 0.34);
+  blob(200, 220, 110, 0x0a0304, 0.55);
+
+  // pauldrons / gorget
+  path([[6, 256], [16, 202, 62, 178, 92, 186], [96, 256]], '#3a1d16');
+  path([[250, 256], [240, 200, 196, 176, 166, 186], [162, 256]], '#2c1511');
+  path([[70, 256], [76, 208, 100, 190, 128, 190], [156, 190, 180, 208, 186, 256]], '#4d2419');
+  g.lineWidth = 7 * u; g.strokeStyle = '#c2531f'; g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(70 * u, 250 * u);
+  g.bezierCurveTo(78 * u, 208 * u, 102 * u, 188 * u, 128 * u, 188 * u);
+  g.bezierCurveTo(154 * u, 188 * u, 178 * u, 208 * u, 186 * u, 250 * u);
+  g.stroke();
+
+  // helm mass
+  path([[128, 34], [188, 40, 196, 104, 190, 146], [184, 186, 158, 206, 128, 206],
+        [98, 206, 72, 186, 66, 146], [60, 104, 68, 40, 128, 34]], '#5c2b1c');
+  blob(96, 84, 74, 0x8d472a, 0.7);
+  blob(170, 156, 62, 0x210a08, 0.6);
+  // horns
+  path([[62, 118], [22, 104, 8, 62, 20, 26], [34, 58, 54, 78, 74, 88]], '#c9bda6');
+  path([[194, 118], [234, 104, 248, 62, 236, 26], [222, 58, 202, 78, 182, 88]], '#a3947e');
+  path([[62, 118], [30, 104, 18, 70, 24, 42], [38, 68, 56, 84, 72, 92]], '#efe6d2');
+  // brow ridge + visor slot
+  path([[62, 122], [94, 108, 162, 108, 194, 122], [186, 138, 70, 138, 62, 122]], '#33150f');
+  g.fillStyle = '#120404';
+  g.fillRect(74 * u, 136 * u, 108 * u, 26 * u);
+  // ember eyes
+  blob(100, 148, 26, 0xff7a1e, 0.95, 0);
+  blob(156, 148, 24, 0xff6a14, 0.9, 0);
+  g.fillStyle = '#ffd08a';
+  g.beginPath(); g.ellipse(100 * u, 148 * u, 12 * u, 5 * u, 0, 0, 7); g.fill();
+  g.beginPath(); g.ellipse(156 * u, 148 * u, 11 * u, 4.6 * u, 0, 0, 7); g.fill();
+  // jaw guard / tusks
+  path([[80, 168], [128, 188, 176, 168, 176, 168], [172, 200, 84, 200, 80, 168]], '#432016');
+  path([[92, 190], [86, 214, 96, 224, 104, 220], [102, 208, 100, 198, 98, 190]], '#e7dcc6');
+  path([[164, 190], [170, 214, 160, 224, 152, 220], [154, 208, 156, 198, 158, 190]], '#cdc0a8');
+  // crest
+  path([[128, 20], [140, 44, 140, 74, 128, 96], [116, 74, 116, 44, 128, 20]], '#d1521c');
+  path([[128, 30], [134, 48, 134, 72, 128, 88], [122, 72, 122, 48, 128, 30]], '#ffa441');
+
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  blob(58, 96, 34, 0xff9a4a, 0.4);
+  blob(206, 150, 30, 0xff7a3a, 0.26);
+  g.restore();
+
+  const vg = g.createRadialGradient(S * 0.5, S * 0.44, S * 0.22, S * 0.5, S * 0.5, S * 0.62);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(8,2,3,0.62)');
+  g.fillStyle = vg; g.fillRect(0, 0, S, S);
 }
 
 function paintSeraBust(g, S) {
@@ -1037,13 +1301,32 @@ function paintSeraBust(g, S) {
   bg.addColorStop(0, '#33507f'); bg.addColorStop(0.52, '#1b2b4d'); bg.addColorStop(1, '#0a1122');
   g.fillStyle = bg; g.fillRect(0, 0, S, S);
   blob(196, 44, 130, 0xffd9a0, 0.34);        // warm dawn light, upper right
-  blob(44, 210, 120, 0x0a1020, 0.5);         // lower-left falloff
-  // sun disc glow behind the head
-  blob(128, 96, 92, 0xffe1ad, 0.2);
-
-  // figure is authored head-large; pull back slightly so the armour reads
+  blob(44, 214, 116, 0x0a1020, 0.34);        // lower-left falloff
+  // dawn rays behind the figure: the difference between a head crop and a
+  // staged key-art bust is almost entirely what is happening BEHIND the head
   g.save();
-  g.translate(128 * u, 150 * u); g.scale(0.93, 0.93); g.translate(-128 * u, -140 * u);
+  g.globalCompositeOperation = 'lighter';
+  g.translate(134 * u, 112 * u);
+  for (let i = 0; i < 14; i++) {
+    g.rotate((Math.PI * 2) / 14);
+    const w = (5 + (i % 4) * 6) * u;
+    const rg = g.createLinearGradient(0, -34 * u, 0, -170 * u);
+    rg.addColorStop(0, 'rgba(255,224,172,0.075)');
+    rg.addColorStop(1, 'rgba(255,214,150,0)');
+    g.fillStyle = rg;
+    g.beginPath(); g.moveTo(-w * 0.3, -30 * u); g.lineTo(w, -170 * u); g.lineTo(-w * 1.6, -170 * u); g.closePath(); g.fill();
+  }
+  g.restore();
+  // sun disc glow behind the head, painted over the ray roots so they read as
+  // haze rather than as a hard sunburst decal
+  blob(128, 96, 104, 0xffe1ad, 0.26);
+  blob(128, 102, 58, 0xfff0cc, 0.2);
+
+  // Ease the figure back a touch, anchored below the frame so the collar and
+  // pauldrons stay in shot: a bust with armour reads as key art, a head that
+  // fills the disc reads as an in-engine grab.
+  g.save();
+  g.translate(128 * u, 262 * u); g.scale(0.94, 0.94); g.translate(-128 * u, -262 * u);
 
   // ---- hair : back mass ---------------------------------------------------
   path([[128, 20], [186, 26, 200, 96, 196, 148], [200, 196, 176, 214, 158, 220],

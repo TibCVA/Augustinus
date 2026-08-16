@@ -1,0 +1,837 @@
+/* ===================================================================
+   AETHER RIFT — FRONT END
+   Title screen + how-to-play, built to sit OVER the live 3D arena.
+   Same visual language as css/hud.css: glassy dark panels, brushed
+   gold filigree, painterly golden-hour warmth. Pure CSS/SVG, system
+   fonts only, safe-area aware, iOS Safari 16.4 compatible.
+   =================================================================== */
+
+.arMenu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  color: #e8ecf4;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  opacity: 1;
+  transition: opacity 0.34s ease;
+
+  /* --- palette (mirrors hud.css so both layers agree) --- */
+  --gold: #ffd98c;
+  --gold-hi: #fff2cf;
+  --gold-mid: #d9a53f;
+  --gold-line: rgba(255, 208, 128, 0.7);
+  --gold-soft: rgba(255, 205, 120, 0.34);
+  --ink: #050810;
+  --paper: #cfd9ec;
+  --ring: conic-gradient(from 200deg,
+      #6d4a12 0deg, #fff0c8 40deg, #d9a53f 82deg, #74500f 130deg,
+      #ffe7b4 188deg, #c08f2e 234deg, #684310 292deg, #ffd98c 338deg, #6d4a12 360deg);
+  --sa-t: env(safe-area-inset-top, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  --sa-l: env(safe-area-inset-left, 0px);
+  --sa-r: env(safe-area-inset-right, 0px);
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+}
+.arMenu * { margin: 0; padding: 0; box-sizing: border-box; }
+/* NB: only font-FAMILY is inherited here. `font: inherit` (or any font-size /
+   font-weight in this rule) would out-specify every `.arSomething` button rule
+   below it — `.arMenu button` is (0,1,1), a lone class is (0,1,0) — and every
+   button would silently render at the root 16 px. */
+.arMenu button {
+  -webkit-appearance: none; appearance: none;
+  font-family: inherit; color: inherit; border: 0; background: none;
+  line-height: 1.15; cursor: pointer; touch-action: manipulation;
+}
+.arMenu.arOff { opacity: 0; visibility: hidden; pointer-events: none; }
+.arNum { font-variant-numeric: tabular-nums; }
+
+/* the HUD must not shine through the front end */
+body.arMenuOpen #hud { opacity: 0; visibility: hidden; transition: opacity 0.2s linear; }
+/* hud.css pins html/body to `touch-action: none` so the game never scrolls.
+   touch-action intersects down the ancestor chain, so that also kills panning
+   inside the rules sheet — hand pan-y back for as long as the menu is up. */
+body.arMenuOpen { touch-action: pan-y; }
+
+/* ====================================================================
+   AMBIENT LAYER — cinematic scrim over the live render
+   ==================================================================== */
+.arFx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+
+/* golden-hour grade + deep vignette: the world still reads through it */
+.arVig {
+  position: absolute; inset: -2px;
+  background:
+    radial-gradient(116% 126% at 50% 40%, rgba(8, 12, 24, 0) 16%, rgba(6, 10, 20, 0.5) 52%,
+      rgba(3, 5, 12, 0.86) 84%, rgba(2, 3, 8, 0.96) 100%),
+    linear-gradient(180deg, rgba(5, 8, 18, 0.86) 0%, rgba(5, 8, 18, 0.3) 16%, rgba(6, 10, 22, 0) 34%),
+    linear-gradient(0deg, rgba(3, 5, 12, 0.9) 0%, rgba(3, 5, 12, 0.42) 16%, rgba(3, 5, 12, 0) 40%);
+}
+.arGrade {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(78% 62% at 22% 8%, rgba(255, 186, 92, 0.22), rgba(255, 170, 70, 0) 68%),
+    radial-gradient(70% 70% at 88% 96%, rgba(48, 120, 168, 0.22), rgba(40, 110, 160, 0) 66%);
+}
+/* slow god-rays raking across the arena — barely there on purpose: they are a
+   breath of light on the render, not a graphic element of their own */
+.arRays { position: absolute; inset: -40% -30%; }
+.arRays i {
+  position: absolute; top: -20%; height: 160%; width: 22%;
+  background: linear-gradient(90deg, rgba(255, 226, 168, 0) 0%, rgba(255, 226, 168, 0.05) 50%, rgba(255, 226, 168, 0) 100%);
+  transform: rotate(14deg);
+  will-change: opacity;
+  animation: arRay 13s ease-in-out infinite;
+}
+.arRays i:nth-child(1) { left: 10%; animation-delay: -1s; }
+.arRays i:nth-child(2) { left: 36%; width: 15%; animation-delay: -6s; opacity: 0.7; }
+.arRays i:nth-child(3) { left: 62%; width: 28%; animation-delay: -9.5s; opacity: 0.55; }
+@keyframes arRay { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.85; } }
+
+.arDrift { position: absolute; inset: 0; }
+
+/* --- drifting blossom petals + rising motes --- */
+.arPetal, .arMote {
+  position: absolute; top: -12%; left: var(--x, 50%);
+  width: var(--w, 9px); height: var(--w, 9px);
+  will-change: transform, opacity;
+  animation: arFall var(--t, 17s) linear var(--d, 0s) infinite;
+}
+.arPetal b {
+  display: block; width: 100%; height: 72%;
+  border-radius: 66% 18% 66% 18% / 46% 62% 38% 54%;
+  background:
+    radial-gradient(120% 120% at 24% 22%, rgba(255, 255, 255, 0.95), rgba(255, 205, 224, 0.92) 42%, rgba(228, 132, 176, 0.85) 100%);
+  box-shadow: 0 0 5px rgba(255, 176, 210, 0.4);
+  will-change: transform;
+  animation: arSway var(--r, 4.5s) ease-in-out infinite;
+}
+.arMote {
+  top: auto; bottom: -6%;
+  animation-name: arRise;
+}
+.arMote b {
+  display: block; width: 100%; height: 100%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 244, 208, 0.98), rgba(255, 196, 96, 0.55) 46%, rgba(255, 170, 60, 0) 78%);
+  will-change: transform;
+  animation: arSway var(--r, 6s) ease-in-out infinite;
+}
+@keyframes arFall {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+  9%   { opacity: var(--o, 0.62); }
+  88%  { opacity: var(--o, 0.62); }
+  100% { transform: translate3d(var(--dx, 60px), 128vh, 0); opacity: 0; }
+}
+@keyframes arRise {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+  14%  { opacity: var(--o, 0.75); }
+  76%  { opacity: var(--o, 0.75); }
+  100% { transform: translate3d(var(--dx, -40px), -122vh, 0); opacity: 0; }
+}
+@keyframes arSway {
+  0%   { transform: translateX(-7px) rotate(0deg); }
+  50%  { transform: translateX(7px) rotate(184deg); }
+  100% { transform: translateX(-7px) rotate(360deg); }
+}
+
+/* --- corner filigree brackets --- */
+.arCnr {
+  position: absolute; width: 62px; height: 62px; color: var(--gold);
+  opacity: 0.42; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+}
+.arCnr svg { width: 100%; height: 100%; display: block; }
+.arCnr.tl { top: calc(6px + var(--sa-t)); left: calc(6px + var(--sa-l)); }
+.arCnr.tr { top: calc(6px + var(--sa-t)); right: calc(6px + var(--sa-r)); transform: scaleX(-1); }
+.arCnr.bl { bottom: calc(6px + var(--sa-b)); left: calc(6px + var(--sa-l)); transform: scaleY(-1); }
+.arCnr.br { bottom: calc(6px + var(--sa-b)); right: calc(6px + var(--sa-r)); transform: scale(-1, -1); }
+
+/* ====================================================================
+   SCREEN PLUMBING — home / rules cross-fade
+   ==================================================================== */
+.arScreen {
+  position: absolute;
+  top: var(--sa-t); right: var(--sa-r); bottom: var(--sa-b); left: var(--sa-l);
+  display: flex; flex-direction: column;
+  opacity: 1; transition: opacity 0.28s ease, transform 0.28s ease;
+  will-change: opacity, transform;
+}
+.arScreen.arOff { opacity: 0; visibility: hidden; pointer-events: none; }
+.arHome.arOff { transform: scale(0.985); }
+.arRules.arOff { transform: translateY(10px); }
+
+/* ====================================================================
+   TITLE SCREEN
+   ==================================================================== */
+.arHome {
+  align-items: center; justify-content: center;
+  padding: 10px 16px;
+}
+/* soft pool of shade so the logo always reads over the render */
+.arHome::before {
+  content: ""; position: absolute; left: 50%; top: 47%;
+  width: 152vmax; height: 104vmin; transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(4, 7, 15, 0.74), rgba(4, 7, 15, 0.42) 46%,
+    rgba(4, 7, 15, 0.14) 74%, rgba(4, 7, 15, 0) 100%);
+  pointer-events: none;
+}
+.arHomeInner {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; width: 100%;
+}
+
+/* --- entrance: the front end assembles itself, it does not just appear --- */
+.arHome .arBrow, .arHome .arTitle, .arHome .arFlourish,
+.arHome .arSub, .arHome .arActions, .arHome .arFoot {
+  will-change: transform, opacity;
+}
+.arMenu:not(.arOff) .arHome:not(.arOff) .arBrow     { animation: arEnter 0.62s cubic-bezier(0.22, 0.8, 0.3, 1) both 0.05s; }
+.arMenu:not(.arOff) .arHome:not(.arOff) .arTitle    { animation: arEnterUp 0.78s cubic-bezier(0.22, 0.8, 0.3, 1) both 0.12s; }
+.arMenu:not(.arOff) .arHome:not(.arOff) .arFlourish { animation: arEnter 0.62s cubic-bezier(0.22, 0.8, 0.3, 1) both 0.3s; }
+.arMenu:not(.arOff) .arHome:not(.arOff) .arSub      { animation: arEnter 0.62s cubic-bezier(0.22, 0.8, 0.3, 1) both 0.38s; }
+.arMenu:not(.arOff) .arHome:not(.arOff) .arActions  { animation: arEnter 0.66s cubic-bezier(0.22, 0.8, 0.3, 1) both 0.46s; }
+.arMenu:not(.arOff) .arHome:not(.arOff) .arFoot     { animation: arEnter 0.7s ease-out both 0.62s; }
+@keyframes arEnter   { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+@keyframes arEnterUp { from { opacity: 0; transform: translateY(16px) scale(0.965); } to { opacity: 1; transform: none; } }
+
+/* --- eyebrow --- */
+.arBrow {
+  display: flex; align-items: center; gap: 10px;
+  font-size: clamp(7.5px, 1.15vw, 9.5px); font-weight: 700;
+  letter-spacing: 0.42em; text-indent: 0.42em;
+  color: rgba(255, 226, 176, 0.82);
+  text-shadow: 0 1px 3px #000;
+  margin-bottom: clamp(6px, 1.4vh, 12px);
+}
+.arBrow i {
+  display: block; width: clamp(22px, 7vw, 62px); height: 1px;
+  background: linear-gradient(90deg, rgba(255, 205, 120, 0), var(--gold-soft));
+}
+.arBrow i:last-child { background: linear-gradient(90deg, var(--gold-soft), rgba(255, 205, 120, 0)); }
+
+/* --- the logotype --- */
+.arTitle {
+  position: relative;
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: clamp(30px, min(9.4vw, 15.5vh), 68px);
+  line-height: 1;
+  letter-spacing: 0.13em;
+  text-indent: 0.13em;
+  white-space: nowrap;
+}
+/* the in-flow copy sizes the box; the three painted layers stack on top */
+.arTitleA11y { display: block; color: transparent; }
+.arTitle .arTL {
+  position: absolute; left: 0; top: 0; width: 100%; display: block;
+  pointer-events: none;
+}
+/* 1 — chunky ink outline (same trick the floating combat text uses) */
+.arTitleInk {
+  color: transparent;
+  -webkit-text-stroke: 0.13em rgba(3, 6, 14, 0.92);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 22px rgba(255, 168, 62, 0.45));
+}
+/* 2 — brushed gold face */
+.arTitleFill {
+  background-image: linear-gradient(178deg,
+    #fffaea 0%, #ffe9b6 18%, #ffcf74 42%, #e5a137 62%, #b9751a 78%, #ffd98c 94%, #fff0c8 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  text-shadow: 0 1px 0 rgba(255, 246, 214, 0.25);
+}
+/* 3 — travelling shimmer */
+.arTitleShine {
+  background-image: linear-gradient(104deg,
+    rgba(255, 255, 255, 0) 42%, rgba(255, 253, 240, 0.92) 50%, rgba(255, 255, 255, 0) 58%);
+  background-size: 240% 100%;
+  background-repeat: no-repeat;
+  background-position: 165% 0;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: arShine 6.4s ease-in-out infinite;
+}
+@keyframes arShine {
+  0%   { background-position: 165% 0; }
+  26%  { background-position: -65% 0; }
+  100% { background-position: -65% 0; }
+}
+
+/* --- filigree divider --- */
+.arFlourish {
+  width: clamp(210px, 46vw, 420px); height: auto; color: var(--gold);
+  margin-top: clamp(5px, 1.2vh, 11px);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+  opacity: 0.95;
+}
+/* phrase-level flex so a narrow screen breaks between clauses, never mid-clause */
+.arSub {
+  margin-top: clamp(5px, 1.1vh, 9px);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 0 7px;
+  font-size: clamp(9.5px, 1.5vw, 12.5px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #e6ddc9;
+  text-shadow: 0 1px 3px #000, 0 0 12px rgba(0, 0, 0, 0.7);
+}
+.arSub span { white-space: nowrap; }
+.arSub i { font-style: normal; color: var(--gold-soft); padding-left: 6px; }
+.arSub em { font-style: normal; color: var(--gold); white-space: nowrap; }
+
+/* --- call to action --- */
+.arActions {
+  display: flex; align-items: center; gap: clamp(10px, 2vw, 18px);
+  margin-top: clamp(12px, 3.4vh, 30px);
+  flex-wrap: wrap; justify-content: center;
+}
+
+.arPlay {
+  position: relative;
+  min-width: clamp(186px, 27vw, 250px);
+  height: clamp(52px, 13.5vh, 62px);
+  border-radius: 999px;
+  transition: transform 0.09s ease-out;
+  flex: none;
+}
+.arPlay:active { transform: scale(0.962); }
+.arPlayGlow {
+  position: absolute; inset: -22px; border-radius: 999px; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 200, 100, 0.62) 0 46%, rgba(255, 168, 56, 0.28) 72%, rgba(255, 160, 50, 0) 100%);
+  will-change: transform, opacity;
+  animation: arBreathe 2.9s ease-in-out infinite;
+}
+@keyframes arBreathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.93); }
+  50%      { opacity: 1;   transform: scale(1.045); }
+}
+.arPlayRim {
+  position: absolute; inset: 0; border-radius: 999px;
+  background: var(--ring);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 244, 208, 0.55);
+}
+.arPlayFace {
+  position: absolute; inset: 2.4px; border-radius: 999px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; gap: 11px;
+  background: linear-gradient(180deg, #fff3cf 0%, #ffdb8d 26%, #f6b93f 58%, #d5891f 84%, #a76310 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -9px 16px rgba(120, 66, 4, 0.42);
+}
+.arPlayFace::after {
+  content: ""; position: absolute; left: -55%; top: -40%; width: 46%; height: 190%;
+  background: linear-gradient(102deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.62) 50%, rgba(255, 255, 255, 0) 100%);
+  animation: arPlayShine 4.6s ease-in-out infinite;
+}
+/* percentage of the highlight's OWN width, so it always parks fully clear of
+   the button whatever the button is sized to */
+@keyframes arPlayShine {
+  0%   { transform: translateX(0); }
+  22%  { transform: translateX(370%); }
+  100% { transform: translateX(370%); }
+}
+.arPlayLabel {
+  position: relative;
+  font-family: var(--serif); font-weight: 700;
+  font-size: clamp(15px, 2.4vw, 19px);
+  letter-spacing: 0.3em; text-indent: 0.3em;
+  color: #352104;
+  text-shadow: 0 1px 0 rgba(255, 244, 208, 0.6);
+}
+.arPlayDia {
+  position: relative; width: 6px; height: 6px; flex: none;
+  transform: rotate(45deg);
+  background: rgba(58, 36, 4, 0.68);
+  box-shadow: 0 0 0 1px rgba(255, 240, 200, 0.35);
+}
+
+.arGhost {
+  position: relative;
+  display: flex; align-items: center; gap: 9px;
+  height: clamp(42px, 11vh, 48px);
+  padding: 0 clamp(13px, 2vw, 19px);
+  border-radius: 999px;
+  background: linear-gradient(168deg, rgba(44, 60, 94, 0.62), rgba(8, 12, 24, 0.78) 62%);
+  border: 1px solid var(--gold-line);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 235, 190, 0.24),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  color: #ffe6bb;
+  font-size: clamp(10px, 1.35vw, 12px); font-weight: 800;
+  letter-spacing: 0.2em; text-indent: 0.2em;
+  text-shadow: 0 1px 2px #000;
+  transition: transform 0.09s ease-out, color 0.15s linear;
+  flex: none;
+}
+.arGhost:active { transform: scale(0.965); color: #fff6e0; }
+.arGhost svg { width: 16px; height: 16px; flex: none; color: var(--gold); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9)); }
+
+/* --- footer strip --- */
+.arFoot {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  padding: 0 clamp(16px, 8vw, 84px) clamp(7px, 1.6vh, 13px);
+  pointer-events: none;
+}
+.arCredit {
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.24em;
+  color: rgba(214, 226, 246, 0.62);
+  text-shadow: 0 1px 3px #000;
+}
+.arCredit b { color: rgba(255, 224, 168, 0.9); font-weight: 800; }
+.arCredit i {
+  display: block; width: 4px; height: 4px; transform: rotate(45deg);
+  background: var(--gold); opacity: 0.7;
+}
+
+/* --- narrow / portrait: stack the CTAs, give the footer the full width --- */
+@media (max-width: 480px) {
+  .arActions {
+    flex-direction: column; align-items: stretch;
+    width: 100%; max-width: 320px; margin-left: auto; margin-right: auto;
+    gap: 11px;
+  }
+  .arPlay, .arGhost { width: 100%; }
+  .arGhost { justify-content: center; }
+  .arSub { font-size: 10.5px; }
+  .arCnr.bl, .arCnr.br { display: none; }
+  .arCredit { font-size: 8px; letter-spacing: 0.2em; gap: 6px; }
+  /* four tabs across a 390 px screen: drop the pip and the wide tracking */
+  .arTabDot { display: none; }
+  .arTab { letter-spacing: 0.06em; text-indent: 0.06em; font-size: 9.5px; }
+}
+/* taller portrait viewports need a taller pool of shade or the blown-out sky
+   sits right behind the logo */
+@media (max-aspect-ratio: 4/5) {
+  .arHome::before { height: 62vh; }
+  .arVig {
+    background:
+      radial-gradient(126% 108% at 50% 44%, rgba(8, 12, 24, 0) 12%, rgba(6, 10, 20, 0.5) 46%,
+        rgba(3, 5, 12, 0.86) 82%, rgba(2, 3, 8, 0.96) 100%),
+      linear-gradient(180deg, rgba(5, 8, 18, 0.9) 0%, rgba(5, 8, 18, 0.46) 18%, rgba(6, 10, 22, 0) 42%),
+      linear-gradient(0deg, rgba(3, 5, 12, 0.92) 0%, rgba(3, 5, 12, 0.5) 16%, rgba(3, 5, 12, 0) 40%);
+  }
+}
+
+/* ====================================================================
+   RULES SCREEN
+   ==================================================================== */
+.arRules { padding: clamp(5px, 1.4vh, 10px) clamp(6px, 1.4vw, 14px); }
+.arSheet {
+  position: relative;
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  border-radius: 15px;
+  background:
+    linear-gradient(168deg, rgba(30, 43, 70, 0.88), rgba(7, 11, 22, 0.93) 62%);
+  border: 1px solid var(--gold-line);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 235, 190, 0.22),
+    inset 0 -14px 34px rgba(0, 0, 0, 0.42), 0 10px 34px rgba(0, 0, 0, 0.62);
+  -webkit-backdrop-filter: blur(10px) saturate(1.06); backdrop-filter: blur(10px) saturate(1.06);
+  overflow: hidden;
+}
+/* inner vignette at the foot of the sheet — doubles as the "there is more
+   below" tell on the rare page that has to scroll */
+.arSheet::after {
+  content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 20px;
+  border-radius: 0 0 14px 14px; pointer-events: none; z-index: 2;
+  background: linear-gradient(0deg, rgba(7, 11, 22, 0.95), rgba(7, 11, 22, 0.6) 45%, rgba(7, 11, 22, 0));
+}
+/* filigree studs at the sheet corners */
+.arStud {
+  position: absolute; width: 7px; height: 7px; pointer-events: none; z-index: 3;
+  background: var(--ring); border-radius: 1px; transform: rotate(45deg);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 0 5px rgba(255, 200, 110, 0.45);
+}
+.arStud.tl { left: -3.5px; top: -3.5px; } .arStud.tr { right: -3.5px; top: -3.5px; }
+.arStud.bl { left: -3.5px; bottom: -3.5px; } .arStud.br { right: -3.5px; bottom: -3.5px; }
+
+/* ---- header ---- */
+.arRHead {
+  position: relative; flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px 6px;
+  background: linear-gradient(180deg, rgba(56, 76, 118, 0.42), rgba(10, 16, 30, 0) 100%);
+}
+.arRHead::after {
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold-soft) 18%, var(--gold) 50%, var(--gold-soft) 82%, transparent);
+}
+.arBack {
+  position: relative;
+  display: flex; align-items: center; gap: 7px; flex: none;
+  height: 34px; padding: 0 13px 0 10px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(36, 50, 80, 0.9), rgba(8, 12, 24, 0.9));
+  box-shadow: 0 0 0 1px rgba(255, 208, 128, 0.42), 0 2px 7px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 235, 190, 0.18);
+  color: #ffe6bb; font-size: 10.5px; font-weight: 800; letter-spacing: 0.18em; text-indent: 0.18em;
+  text-shadow: 0 1px 2px #000;
+  transition: transform 0.09s ease-out;
+}
+.arBack::before {
+  content: ""; position: absolute; left: -6px; right: -8px; top: -9px; bottom: -9px;
+}
+.arBack:active { transform: scale(0.955); }
+.arBack svg { width: 11px; height: 11px; color: var(--gold); flex: none; }
+.arRTitle {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.arRTitle span {
+  font-family: var(--serif); font-weight: 700;
+  font-size: clamp(12px, 2vw, 16px);
+  letter-spacing: 0.26em; text-indent: 0.26em;
+  color: var(--gold);
+  text-shadow: 0 0 14px rgba(255, 180, 60, 0.45), 0 2px 3px #000;
+  white-space: nowrap;
+}
+.arRTitle i {
+  display: block; height: 1px; width: clamp(12px, 5vw, 64px);
+  background: linear-gradient(90deg, rgba(255, 205, 120, 0), var(--gold-soft));
+}
+.arRTitle i:last-child { background: linear-gradient(90deg, var(--gold-soft), rgba(255, 205, 120, 0)); }
+.arPageNo {
+  flex: none; min-width: 54px; text-align: right;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.14em;
+  color: rgba(255, 224, 168, 0.7);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px #000;
+}
+.arPageNo b { color: var(--gold-hi); }
+
+/* ---- tab strip ---- */
+.arTabs {
+  flex: none; display: flex; gap: 4px;
+  padding: 6px 8px 0;
+}
+.arTab {
+  position: relative; flex: 1 1 0; min-width: 0;
+  height: 32px; border-radius: 8px 8px 0 0;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: clamp(9.5px, 1.4vw, 12px); font-weight: 800;
+  letter-spacing: 0.15em; text-indent: 0.15em;
+  color: rgba(196, 212, 238, 0.68);
+  text-shadow: 0 1px 2px #000;
+  background: linear-gradient(180deg, rgba(30, 42, 68, 0.5), rgba(8, 12, 24, 0.2));
+  box-shadow: inset 0 1px 0 rgba(255, 235, 190, 0.08);
+  transition: color 0.16s linear, background 0.16s linear;
+  white-space: nowrap; overflow: hidden;
+}
+/* the strip is only 32 px tall so it fits a landscape phone — the touch target
+   is grown past it instead of growing the layout */
+.arTab::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -8px; bottom: -6px;
+}
+.arTab::after {
+  content: ""; position: absolute; left: 12%; right: 12%; bottom: 0; height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(90deg, rgba(255, 205, 120, 0), var(--gold), rgba(255, 205, 120, 0));
+  opacity: 0; transform: scaleX(0.4); transform-origin: 50% 50%;
+  transition: opacity 0.18s linear, transform 0.18s ease-out;
+}
+.arTab.on {
+  color: #fff3d8;
+  background: linear-gradient(180deg, rgba(74, 100, 152, 0.6), rgba(16, 24, 44, 0.35));
+}
+.arTab.on::after { opacity: 1; transform: scaleX(1); }
+.arTabDot {
+  width: 5px; height: 5px; flex: none; transform: rotate(45deg); border-radius: 0.5px;
+  background: rgba(8, 12, 22, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(255, 216, 140, 0.45);
+}
+.arTab.on .arTabDot {
+  background: linear-gradient(150deg, #fff2cf, #ffc95e 55%, #cf8f1c);
+  box-shadow: 0 0 5px rgba(255, 205, 100, 0.95);
+}
+
+/* ---- pages ---- */
+.arBody {
+  position: relative; flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: 9px 10px 12px;
+  border-top: 1px solid rgba(255, 208, 128, 0.22);
+}
+.arPage { display: none; grid-template-columns: 1fr; gap: 8px; }
+.arPage.on { display: grid; animation: arPageIn 0.26s ease-out; }
+@keyframes arPageIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
+.arCard {
+  position: relative;
+  padding: 9px 11px 10px 13px;
+  border-radius: 10px;
+  background: linear-gradient(165deg, rgba(44, 60, 94, 0.44), rgba(8, 12, 24, 0.52) 70%);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 190, 0.14), inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 3px 10px rgba(0, 0, 0, 0.34);
+}
+.arCard::before {
+  content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255, 205, 120, 0), var(--gold) 30%, var(--gold-mid) 72%, rgba(255, 205, 120, 0));
+  box-shadow: 0 0 6px rgba(255, 190, 90, 0.5);
+}
+.arCardT {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.19em; text-indent: 0.19em;
+  color: #ffe6bb;
+  text-shadow: 0 1px 2px #000;
+  margin-bottom: 5px;
+}
+.arCardT i {
+  display: block; width: 5px; height: 5px; flex: none; transform: rotate(45deg);
+  background: linear-gradient(150deg, #fff2cf, #ffc95e 55%, #cf8f1c);
+  box-shadow: 0 0 5px rgba(255, 205, 100, 0.8);
+}
+.arCard p {
+  font-size: 11px; line-height: 1.5; color: var(--paper);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.arCard p + p { margin-top: 5px; }
+.arCard b { color: #fff1d4; font-weight: 700; }
+.arCard u { color: var(--gold); text-decoration: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.arCard em { font-style: normal; color: #9fd0ff; font-weight: 700; }
+
+/* key caps for the desktop mapping */
+.arKeys { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.arKey {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px; border-radius: 4px;
+  background: linear-gradient(180deg, rgba(24, 34, 56, 0.95), rgba(6, 10, 20, 0.95));
+  box-shadow: 0 0 0 1px rgba(255, 208, 128, 0.3), inset 0 1px 0 rgba(255, 235, 190, 0.16);
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.1em;
+  color: rgba(233, 240, 252, 0.9);
+}
+.arKey b { color: var(--gold); font-weight: 800; }
+
+/* ---- ability cards ---- */
+.arAbTop { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+.arAbIcon { position: relative; width: 44px; height: 44px; flex: none; }
+.arAbRim {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: var(--ring);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 240, 200, 0.35);
+}
+.arAbFace {
+  position: absolute; inset: 2.4px; border-radius: 50%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 32% 18%, rgba(158, 194, 244, 0.95) 0%, rgba(56, 82, 134, 0.97) 46%, rgba(14, 22, 44, 0.99) 100%);
+  box-shadow: inset 0 2px 3px rgba(255, 245, 215, 0.35), inset 0 -10px 16px rgba(0, 0, 0, 0.55);
+}
+.arAbFace svg { width: 56%; height: 56%; color: #fbfdff;
+  filter: drop-shadow(0 0 1.5px rgba(2, 8, 20, 0.95)) drop-shadow(0 1.5px 2px rgba(0, 0, 0, 0.85)); }
+.arAbKeyBadge {
+  position: absolute; right: -3px; bottom: -3px; z-index: 2;
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 800; line-height: 1; color: #2a1c04;
+  background: radial-gradient(circle at 38% 30%, #fff4cf, #ffcb5c 52%, #d18d18 100%);
+  box-shadow: 0 0 0 1.4px rgba(0, 0, 0, 0.8), 0 0 7px rgba(255, 195, 80, 0.6);
+}
+.arAbId { min-width: 0; flex: 1 1 auto; }
+.arAbName {
+  font-family: var(--serif); font-weight: 700;
+  font-size: 13px; letter-spacing: 0.08em; line-height: 1.1;
+  color: #fff0d2; text-shadow: 0 1px 3px #000;
+  margin-bottom: 4px;
+}
+.arAbName small {
+  display: block; font-family: inherit; font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.22em; color: rgba(255, 214, 150, 0.72); margin-top: 2px;
+}
+.arChips { display: flex; flex-wrap: wrap; gap: 4px; }
+.arChip {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 2px 7px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(30, 42, 68, 0.85), rgba(6, 10, 20, 0.88));
+  box-shadow: 0 0 0 1px rgba(255, 208, 128, 0.32), inset 0 1px 0 rgba(255, 235, 190, 0.14);
+  font-size: 9.5px; font-weight: 800; color: #fff1d4;
+  font-variant-numeric: tabular-nums;
+}
+.arChip i {
+  font-style: normal; font-size: 7.5px; font-weight: 800; letter-spacing: 0.1em;
+  color: rgba(196, 212, 238, 0.68);
+}
+.arChip.lock { box-shadow: 0 0 0 1px rgba(255, 160, 70, 0.5); color: #ffc98a; }
+
+/* per-ability identity, matching the in-game cluster */
+.arAbQ .arAbFace { background:
+  radial-gradient(circle at 50% 128%, rgba(88, 226, 236, 0.55), rgba(40, 180, 200, 0) 58%),
+  radial-gradient(circle at 32% 16%, rgba(178, 238, 252, 0.95) 0%, rgba(26, 122, 152, 0.97) 44%, rgba(5, 32, 52, 0.99) 100%); }
+.arAbQ .arAbFace svg { color: #5cdcff; filter: drop-shadow(0 0 1.6px rgba(0, 24, 34, 0.95)) drop-shadow(0 0 6px rgba(110, 236, 255, 0.8)); }
+.arAbW .arAbFace { background:
+  radial-gradient(circle at 50% 128%, rgba(110, 166, 255, 0.52), rgba(60, 110, 235, 0) 58%),
+  radial-gradient(circle at 32% 16%, rgba(186, 214, 255, 0.95) 0%, rgba(40, 78, 176, 0.97) 44%, rgba(8, 18, 58, 0.99) 100%); }
+.arAbW .arAbFace svg { color: #7fadff; filter: drop-shadow(0 0 1.6px rgba(0, 12, 40, 0.95)) drop-shadow(0 0 6px rgba(130, 180, 255, 0.8)); }
+.arAbE .arAbFace { background:
+  radial-gradient(circle at 50% 128%, rgba(190, 130, 255, 0.52), rgba(150, 90, 240, 0) 58%),
+  radial-gradient(circle at 32% 16%, rgba(224, 198, 255, 0.95) 0%, rgba(88, 54, 178, 0.97) 44%, rgba(22, 8, 58, 0.99) 100%); }
+.arAbE .arAbFace svg { color: #b585ff; filter: drop-shadow(0 0 1.6px rgba(20, 4, 40, 0.95)) drop-shadow(0 0 6px rgba(196, 140, 255, 0.85)); }
+.arAbR .arAbFace { background:
+  radial-gradient(circle at 50% 62%, rgba(255, 236, 158, 0.85) 0%, rgba(255, 158, 44, 0.5) 26%, rgba(255, 110, 26, 0) 54%),
+  radial-gradient(circle at 30% 14%, rgba(255, 214, 122, 0.95) 0%, rgba(222, 88, 22, 0.97) 42%, rgba(74, 10, 8, 0.99) 100%); }
+.arAbR .arAbFace svg { color: #ff9f3c; filter: drop-shadow(0 0 2px rgba(72, 20, 0, 0.95)) drop-shadow(0 0 8px rgba(255, 232, 168, 0.9)); }
+.arAbR .arAbRim { box-shadow: 0 3px 11px rgba(0, 0, 0, 0.65), inset 0 0 0 1.5px rgba(255, 246, 214, 0.55), 0 0 10px rgba(255, 170, 60, 0.45); }
+.arAbA .arAbFace { background:
+  radial-gradient(circle at 50% 122%, rgba(255, 196, 100, 0.6), rgba(255, 150, 40, 0) 58%),
+  radial-gradient(circle at 32% 15%, rgba(200, 226, 255, 0.95) 0%, rgba(48, 82, 142, 0.97) 44%, rgba(6, 14, 36, 0.99) 100%); }
+.arAbA .arAbFace svg { color: #ffc463; filter: drop-shadow(0 0 1.6px rgba(40, 16, 0, 0.95)) drop-shadow(0 0 7px rgba(255, 190, 80, 0.85)); }
+
+/* ---- stat strip (numbers that deserve to be read at a glance) ---- */
+.arStats { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.arStat {
+  flex: 1 1 74px;
+  padding: 4px 7px 5px; border-radius: 7px;
+  background: linear-gradient(180deg, rgba(16, 24, 42, 0.72), rgba(5, 8, 16, 0.68));
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 128, 0.22);
+}
+.arStat b {
+  display: block; font-size: 13px; font-weight: 800; line-height: 1.05;
+  color: var(--gold-hi); font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px #000;
+}
+.arStat span {
+  display: block; margin-top: 1px;
+  font-size: 7.5px; font-weight: 800; letter-spacing: 0.13em;
+  color: rgba(196, 212, 238, 0.72);
+}
+
+/* escalation row: the tower's anti-dive ramp reads as a climb, not a table */
+.arRamp {
+  display: flex; align-items: center; gap: 3px; flex-wrap: nowrap;
+  margin: 6px 0 5px;
+}
+.arRamp b {
+  flex: 1 1 auto; text-align: center;
+  padding: 3px 0 4px; border-radius: 5px;
+  font-size: 10.5px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #ffeec4;
+  background: linear-gradient(180deg, rgba(30, 42, 68, 0.9), rgba(6, 10, 20, 0.9));
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 128, 0.28);
+  text-shadow: 0 1px 2px #000;
+}
+.arRamp b:nth-of-type(4) { color: #ffd08a; box-shadow: inset 0 0 0 1px rgba(255, 186, 100, 0.42); }
+.arRamp b:nth-of-type(5) { color: #ffb271; box-shadow: inset 0 0 0 1px rgba(255, 156, 82, 0.55); }
+.arRamp b:nth-of-type(6) {
+  color: #fff0d8;
+  background: linear-gradient(180deg, rgba(158, 52, 18, 0.92), rgba(58, 12, 6, 0.94));
+  box-shadow: inset 0 0 0 1px rgba(255, 132, 60, 0.75), 0 0 8px rgba(255, 96, 30, 0.35);
+}
+.arRamp i {
+  flex: none; width: 4px; height: 4px; opacity: 0.5;
+  border-right: 1.4px solid var(--gold); border-top: 1.4px solid var(--gold);
+  transform: rotate(45deg);
+}
+
+/* single-line footnote strip under a page's cards */
+.arNote {
+  grid-column: 1 / -1;
+  padding: 6px 11px 7px; border-radius: 9px;
+  background: linear-gradient(180deg, rgba(18, 27, 46, 0.6), rgba(5, 8, 16, 0.55));
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 128, 0.2);
+  font-size: 9.8px; line-height: 1.45; color: rgba(207, 217, 236, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.arNote b { color: var(--gold); font-weight: 800; letter-spacing: 0.12em; }
+.arNote u { color: #fff1d4; text-decoration: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ---- the lane diagram (real arena coordinates, mapped to %) ---- */
+.arLane { margin-top: 7px; }
+.arLaneEnds {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 7.5px; font-weight: 800; letter-spacing: 0.16em;
+  text-shadow: 0 1px 2px #000; margin-bottom: 3px;
+}
+.arLaneEnds .blue { color: #8fc6ff; }
+.arLaneEnds .red { color: #ff9280; }
+.arLaneTrack { position: relative; height: 29px; }
+.arLaneBand {
+  position: absolute; left: 0; right: 0; top: 4px; height: 13px; border-radius: 7px;
+  background: linear-gradient(90deg,
+    rgba(70, 150, 255, 0.34) 0%, rgba(96, 122, 176, 0.18) 34%,
+    rgba(96, 122, 176, 0.18) 66%, rgba(255, 110, 80, 0.34) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 128, 0.26), inset 0 2px 5px rgba(0, 0, 0, 0.6);
+}
+.arLaneRiver {
+  position: absolute; left: 43.8%; width: 12.4%; top: 4px; height: 13px;
+  background: linear-gradient(90deg,
+    rgba(96, 224, 238, 0) 0%, rgba(104, 226, 240, 0.55) 26%, rgba(168, 246, 255, 0.8) 50%,
+    rgba(104, 226, 240, 0.55) 74%, rgba(96, 224, 238, 0) 100%);
+}
+/* vertical ripple hairlines = flow across the lane, not stripes along it */
+.arLaneRiver::after {
+  content: ""; position: absolute; inset: 2px 14%;
+  background: repeating-linear-gradient(90deg,
+    rgba(240, 253, 255, 0.5) 0 1px, rgba(240, 253, 255, 0) 1px 7px);
+  opacity: 0.5;
+}
+.arLaneNode { position: absolute; top: 0; transform: translateX(-50%); text-align: center; }
+.arLaneNode i {
+  display: block; margin: 0 auto;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
+}
+.arLaneNode.tw i {
+  width: 12px; height: 21px;
+  -webkit-clip-path: polygon(4% 100%, 24% 26%, 24% 4%, 40% 4%, 40% 15%, 60% 15%, 60% 4%, 76% 4%, 76% 26%, 96% 100%);
+  clip-path: polygon(4% 100%, 24% 26%, 24% 4%, 40% 4%, 40% 15%, 60% 15%, 60% 4%, 76% 4%, 76% 26%, 96% 100%);
+}
+.arLaneNode.nx i {
+  width: 16px; height: 21px;
+  -webkit-clip-path: polygon(50% 0, 100% 34%, 78% 100%, 22% 100%, 0 34%);
+  clip-path: polygon(50% 0, 100% 34%, 78% 100%, 22% 100%, 0 34%);
+}
+.arLaneNode.blue i { background: linear-gradient(180deg, #cfe6ff, #6aa8ff 46%, #24487f); }
+.arLaneNode.red i { background: linear-gradient(180deg, #ffd8c8, #ff8a6c 46%, #8a2f1c); }
+.arLaneNode.nx.blue i { box-shadow: 0 0 9px rgba(110, 190, 255, 0.55); }
+.arLaneNode.nx.red i { box-shadow: 0 0 9px rgba(255, 130, 90, 0.55); }
+.arLaneNode b {
+  display: block; margin-top: 2px;
+  font-size: 7px; font-weight: 800; letter-spacing: 0.1em;
+  color: rgba(214, 226, 246, 0.72); text-shadow: 0 1px 2px #000;
+}
+.arLaneNode.nx b { color: rgba(255, 224, 168, 0.92); }
+.arLaneNode.rv i { width: 0; height: 21px; }
+.arLaneNode.rv b { color: rgba(160, 238, 250, 0.85); }
+.arAbNote p { font-size: 10.5px; }
+
+/* ---- responsive: two / three columns once there is width ---- */
+@media (min-width: 620px) {
+  .arPage { grid-template-columns: 1fr 1fr; }
+  .arPage.arCols3 > .arCard:first-child { grid-column: 1 / -1; }
+}
+/* landscape phone and up: the objectives page runs three columns with the lane
+   map spanning two of them, which is what keeps it inside one screen */
+@media (min-width: 760px) {
+  .arPage.arCols3 { grid-template-columns: repeat(3, 1fr); }
+  .arPage.arCols3 > .arCard:first-child { grid-column: span 2; }
+}
+/* short landscape phones: tighten everything by a hair so a page fits */
+@media (max-height: 430px) {
+  .arCard { padding: 7px 9px 8px 11px; }
+  .arCard p { font-size: 10.5px; line-height: 1.45; }
+  .arCardT { font-size: 10px; margin-bottom: 3px; }
+  .arBody { padding: 7px 8px 6px; }
+  .arAbIcon { width: 40px; height: 40px; }
+  .arAbName { font-size: 12px; }
+  .arNote { padding: 5px 10px 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arPetal, .arMote { display: none; }
+  .arRays i, .arTitleShine, .arPlayGlow, .arPlayFace::after, .arPage.on { animation: none; }
+  .arMenu:not(.arOff) .arHome:not(.arOff) .arBrow,
+  .arMenu:not(.arOff) .arHome:not(.arOff) .arTitle,
+  .arMenu:not(.arOff) .arHome:not(.arOff) .arFlourish,
+  .arMenu:not(.arOff) .arHome:not(.arOff) .arSub,
+  .arMenu:not(.arOff) .arHome:not(.arOff) .arActions,
+  .arMenu:not(.arOff) .arHome:not(.arOff) .arFoot { animation: none; }
+  .arTitleShine { opacity: 0; }
+  .arPlayGlow { opacity: 0.8; transform: none; }
+}

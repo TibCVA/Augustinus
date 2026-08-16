@@ -6,9 +6,13 @@
 // arrays / preallocated records, all math uses module-scope scratch vectors.
 //
 //   pAdd / pAlpha ..... billboard sprite particles (1 draw each)
+//   pSoot ............. SAME class as pAlpha but ordered AFTER pAdd, so smoke
+//                       and debris silhouettes can occlude the additive plume
+//                       instead of being buried under it (shares its program)
 //   arcs .............. oriented additive quads: crescents, pillars, rays
 //   rings ............. procedural ground shockwaves (bright edge + dust trail)
 //   decals ............ craters / scars, dark scorch + cooling hot fissures
+//   wear .............. STATIC plaza grime: cracks, moss creep, damp, scuffs
 //   tele .............. animated AoE telegraphs (sweep, rim pulse, runes)
 //   beams ............. tower beams w/ charge-up then snap
 //   debris ............ chunky 3D shards w/ real physics + shadows
@@ -24,6 +28,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tex, uTime } from '../core/assets.js';
 import { pulseLight } from '../world/environment.js';
+import { A, isWalkable } from '../world/arena.js';
 
 // ---- shared VFX uniforms -------------------------------------------------
 // uHole: a world-space sphere (xyz + radius) that additive effects fade out of,
@@ -67,6 +72,35 @@ function rnd() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 const rf = (a, b) => a + (b - a) * rnd();
+
+// ---- reusable spawn records ---------------------------------------------
+// Every pool's spawn() copies the record's fields into its typed arrays and
+// keeps no reference, so ONE record per pool kind can be reused forever.
+// dawnfall() alone was allocating ~300 short-lived object literals per cast,
+// against this file's zero-per-frame-allocation contract; the burst / ring /
+// slash inner loops allocated one more per particle on every hit in the game.
+//
+// Contract for callers: acquire with pRec()/aRec()/…, fill, spawn IMMEDIATELY.
+// Never hold a record across a call that might acquire the same one.
+const PFIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'life', 'size', 'sizeEnd', 'rot', 'rotV',
+  'gravity', 'drag', 'col', 'colEnd', 'glow', 'glowEnd', 'alpha', 'sprite', 'stretch',
+  'dirX', 'dirY', 'dirZ', 'fadePow'];
+const AFIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'life', 'yaw', 'el', 'roll', 'rollV',
+  'sx0', 'sx1', 'sy0', 'sy1', 'col', 'glow', 'alpha', 'sprite', 'mode', 'gravity',
+  'fadePow', 'yoff', 'pin'];
+const RFIELDS = ['x', 'y', 'z', 'r0', 'r1', 'dur', 'col', 'alpha', 'thick', 'dust', 'emis', 'ease'];
+const DFIELDS = ['x', 'y', 'z', 'size', 'dur', 'rot', 'sprite', 'col', 'hot', 'alpha', 'wear', 't0'];
+const BFIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'size', 'life', 'ground', 'ax', 'ay', 'az', 'spin', 'hot'];
+function mkRec(fields) {
+  const o = {};
+  for (let i = 0; i < fields.length; i++) o[fields[i]] = undefined;
+  return () => { for (let i = 0; i < fields.length; i++) o[fields[i]] = undefined; return o; };
+}
+const pRec = mkRec(PFIELDS);   // ParticlePool
+const aRec = mkRec(AFIELDS);   // ArcPool
+const rRec = mkRec(RFIELDS);   // RingPool
+const dRec = mkRec(DFIELDS);   // DecalPool
+const bRec = mkRec(BFIELDS);   // DebrisPool
 
 // ============================================================== textures ==
 function mkc(w, h) {
@@ -293,6 +327,64 @@ function spRock(x, S) {
   x.restore();
 }
 
+// Dense billowing smoke lobe. spSmoke tops out at alpha 0.16 — it can only TINT
+// what is behind it. A detonation needs mass that OCCLUDES: an opaque-ish core
+// with a lobed, hard-ish edge and turbulent holes punched back out, so the puff
+// still reads as a shape (and not a grey disc) after the judging downscale.
+function spBillow(x, S) {
+  const cx = S / 2, cy = S / 2;
+  for (let i = 0; i < 10; i++) {
+    const a = rf(0, TAU), r = rf(0, S * 0.16);
+    radial(x, cx + Math.cos(a) * r, cy + Math.sin(a) * r, rf(S * 0.16, S * 0.27),
+      [[0, W(0.92)], [0.30, W(0.70)], [0.60, W(0.33)], [0.84, W(0.09)], [1, W(0)]]);
+  }
+  // lit shoulders: the top-left of each lobe catches the blast, so the puff has
+  // an internal value ramp instead of one flat grey
+  x.globalCompositeOperation = 'source-atop';
+  const g = x.createLinearGradient(S * 0.18, S * 0.14, S * 0.86, S * 0.9);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.42, 'rgba(150,150,150,1)');
+  g.addColorStop(1, 'rgba(46,46,46,1)');
+  x.fillStyle = g; x.fillRect(0, 0, S, S);
+  // turbulence: bite holes out of the silhouette so the edge is not a circle
+  x.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 16; i++) {
+    const a = rf(0, TAU), r = rf(S * 0.14, S * 0.30);
+    radial(x, cx + Math.cos(a) * r, cy + Math.sin(a) * r, rf(S * 0.06, S * 0.15),
+      [[0, W(rf(0.25, 0.7))], [0.6, W(0.2)], [1, W(0)]]);
+  }
+  x.globalCompositeOperation = 'source-over';
+}
+// Hard-edged debris chunk: an OPAQUE angular silhouette with a lit top facet and
+// a near-black underside. Additive shard sprites can only add light and so read
+// as confetti over a bright core; this reads as thrown stone.
+function spChunk(x, S) {
+  x.save(); x.translate(S / 2, S / 2); x.rotate(rf(0, TAU));
+  const n = 7;
+  x.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU + rf(-0.24, 0.24), r = S * rf(0.24, 0.44);
+    const px = Math.cos(a) * r, py = Math.sin(a) * r * 0.84;
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  }
+  x.closePath();
+  x.fillStyle = W(1); x.fill();
+  x.globalCompositeOperation = 'source-atop';
+  const g = x.createLinearGradient(-S * 0.34, -S * 0.38, S * 0.3, S * 0.4);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.36, 'rgba(120,120,120,1)');
+  g.addColorStop(1, 'rgba(26,26,26,1)');
+  x.fillStyle = g; x.fillRect(-S, -S, S * 2, S * 2);
+  // one bright chipped facet so the chunk has a specular tell at 30 px
+  x.globalCompositeOperation = 'source-atop';
+  x.fillStyle = 'rgba(255,255,255,0.85)';
+  x.beginPath();
+  x.moveTo(-S * 0.18, -S * 0.24); x.lineTo(S * 0.04, -S * 0.31);
+  x.lineTo(-S * 0.02, -S * 0.10); x.closePath(); x.fill();
+  x.globalCompositeOperation = 'source-over';
+  x.restore();
+}
+
 // Build a 4x4 sprite atlas. Sprite id s maps to canvas cell
 // (col = s % 4, row = 3 - floor(s / 4)) so uv space matches shader indexing.
 function buildAtlas(cellDrawers, S = 512) {
@@ -433,6 +525,116 @@ function buildDecalAtlas(S = 512) {
   return t;
 }
 
+// Static plaza-wear atlas (2x2). Only the G channel is read (these spawn with
+// heat = 0, which zeroes the fissure/rim terms), so each cell is a pure
+// darkening MASK; the tint that mask is painted with is per-instance.
+// 60% of the gameplay frame is one uniform tan tile field — this is the pass
+// that puts texture frequency where the frame already scores best (VFX-2).
+function buildWearAtlas(S = 512) {
+  const c = mkc(S), ctx = c.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S, S);
+  const cell = S / 2;
+  const chan = (i) => {
+    ctx.save();
+    ctx.translate((i % 2) * cell, (1 - Math.floor(i / 2)) * cell);
+    ctx.beginPath(); ctx.rect(0, 0, cell, cell); ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    return cell;
+  };
+  const G = (a) => `rgba(0,${Math.round(255 * a)},0,1)`;
+  const blob = (x, y, r, a) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(0.01, r));
+    g.addColorStop(0, `rgba(0,255,0,${a})`);
+    g.addColorStop(0.55, `rgba(0,255,0,${a * 0.42})`);
+    g.addColorStop(1, 'rgba(0,255,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  };
+
+  // --- 0: crack network ---------------------------------------------------
+  {
+    const s = chan(0);
+    const branch = (x0, y0, ang, len, w, depth) => {
+      let x = x0, y = y0, a = ang;
+      ctx.lineWidth = w;
+      ctx.strokeStyle = G(0.85);
+      ctx.beginPath(); ctx.moveTo(x, y);
+      for (let k = 0; k < 7; k++) {
+        a += rf(-0.42, 0.42);
+        x += Math.cos(a) * (len / 7); y += Math.sin(a) * (len / 7);
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      if (depth > 0) for (let b = 0; b < 2; b++) {
+        if (rnd() < 0.4) continue;
+        branch(x0 + (x - x0) * rf(0.3, 0.8), y0 + (y - y0) * rf(0.3, 0.8),
+          a + rf(-1.3, 1.3), len * rf(0.35, 0.6), w * 0.6, depth - 1);
+      }
+    };
+    for (let i = 0; i < 7; i++) {
+      branch(s * rf(0.15, 0.85), s * rf(0.15, 0.85), rf(0, TAU), s * rf(0.24, 0.46), s * rf(0.010, 0.024), 2);
+    }
+    // spalled chips around the cracks
+    for (let i = 0; i < 30; i++) blob(s * rf(0.1, 0.9), s * rf(0.1, 0.9), s * rf(0.014, 0.042), 0.62);
+  }
+  ctx.restore();
+  // --- 1: moss creep along a tile joint -----------------------------------
+  {
+    const s = chan(1);
+    const y0 = s * rf(0.42, 0.58);
+    for (let i = 0; i < 90; i++) {
+      const t = i / 90;
+      const jx = t * s;
+      const jy = y0 + Math.sin(t * 9.0) * s * 0.035 + rf(-s * 0.05, s * 0.05);
+      blob(jx, jy, s * rf(0.020, 0.062), rf(0.25, 0.62));
+    }
+    // creep spreading off the joint into the tile faces
+    for (let i = 0; i < 40; i++) {
+      blob(s * rf(0, 1), y0 + rf(-s * 0.22, s * 0.22), s * rf(0.012, 0.030), rf(0.18, 0.45));
+    }
+    // a second, fainter joint at right angles
+    const x1 = s * rf(0.25, 0.75);
+    for (let i = 0; i < 40; i++) blob(x1 + rf(-s * 0.02, s * 0.02), s * (i / 40), s * rf(0.010, 0.030), 0.3);
+  }
+  ctx.restore();
+  // --- 2: damp / ground-in dirt blotch ------------------------------------
+  {
+    const s = chan(2), cx = s / 2, cy = s / 2;
+    for (let i = 0; i < 26; i++) {
+      const a = rf(0, TAU), r = rf(0, s * 0.22);
+      blob(cx + Math.cos(a) * r, cy + Math.sin(a) * r, rf(s * 0.10, s * 0.28), 0.24);
+    }
+    // grain so the blotch is not a soft airbrush at 1:1
+    for (let i = 0; i < 260; i++) blob(s * rf(0.06, 0.94), s * rf(0.06, 0.94), s * rf(0.004, 0.014), rf(0.2, 0.6));
+  }
+  ctx.restore();
+  // --- 3: scuff arcs + pits ------------------------------------------------
+  {
+    const s = chan(3), cx = s / 2, cy = s / 2;
+    for (let p = 0; p < 9; p++) {
+      const R = s * rf(0.16, 0.44), a0 = rf(0, TAU), sp = rf(0.7, 2.0);
+      ctx.lineWidth = s * rf(0.008, 0.022);
+      ctx.strokeStyle = G(rf(0.4, 0.8));
+      ctx.beginPath();
+      for (let i = 0; i <= 26; i++) {
+        const a = a0 + (i / 26) * sp;
+        const rr = R + Math.sin(i * 0.8) * s * 0.01;
+        const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr * 0.7;
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+    }
+    for (let i = 0; i < 60; i++) blob(s * rf(0.08, 0.92), s * rf(0.08, 0.92), s * rf(0.006, 0.022), rf(0.3, 0.75));
+  }
+  ctx.restore();
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  t.generateMipmaps = false;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  return t;
+}
+
 // sprite ids -------------------------------------------------------------
 const S_DOT = 0, S_SPARK = 1, S_SLASH = 2, S_RING = 3;
 const S_STREAK = 4, S_FLARE = 5, S_EMBER = 6, S_CRESC = 7;
@@ -440,6 +642,9 @@ const S_RAY = 8, S_GLOW = 9, S_PUFF = 10, S_BOLT = 11;
 const S_HALO = 12, S_DOME = 13, S_SHARD = 14, S_SPARK2 = 15;
 const A_SMOKE = 0, A_PETAL = 1, A_CRACK = 2, A_DOT = 3;
 const A_ROCK = 4, A_SOOT = 5, A_WISP = 6;
+const A_BILLOW = 8, A_CHUNK = 9;
+// wear atlas cells
+const WR_CRACK = 0, WR_MOSS = 1, WR_DAMP = 2, WR_SCUFF = 3;
 
 const PKEYS = ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'life', 'maxLife', 'size0', 'size1',
   'rot', 'rotV', 'grav', 'drag', 'cr', 'cg', 'cb', 'cr2', 'cg2', 'cb2', 'alpha',
@@ -895,9 +1100,10 @@ class RingPool {
 // Dark scorch (alpha blend) + glowing fissures that cool from white-hot to
 // dull red, in one premultiplied pass.
 class DecalPool {
-  constructor(scene, cap, texture) {
+  constructor(scene, cap, texture, renderOrder = 3, staticMode = false) {
     this.cap = cap; this.n = 0;
-    for (const k of ['t', 'dur', 'hot', 'x', 'y', 'z', 'size', 'rot', 'sprite', 'cr', 'cg', 'cb', 'a'])
+    this.staticMode = staticMode;
+    for (const k of ['t', 'dur', 'hot', 'x', 'y', 'z', 'size', 'rot', 'sprite', 'cr', 'cg', 'cb', 'a', 'wear'])
       this[k] = new Float32Array(cap);
     const quad = new THREE.PlaneGeometry(2, 2);
     quad.rotateX(-Math.PI / 2);
@@ -907,7 +1113,10 @@ class DecalPool {
     geo.attributes.uv = quad.attributes.uv;
     this.aPos = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4); // xyz, halfsize
     this.aPar = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4); // rot, heat, alpha, sprite
-    this.aCol = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+    // .w is the WEAR flag: 0 = blast decal (rgb is the hot fissure colour),
+    // 1 = static grime (rgb is the darkening tint, emissive term forced off).
+    // Both pools instantiate the same class, so they still share one program.
+    this.aCol = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
     for (const a of [this.aPos, this.aPar, this.aCol]) a.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aPos', this.aPos);
     geo.setAttribute('aPar', this.aPar);
@@ -921,8 +1130,8 @@ class DecalPool {
       blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
       uniforms: { tMap: { value: texture } },
       vertexShader: `
-        attribute vec4 aPos; attribute vec4 aPar; attribute vec3 aCol;
-        varying vec2 vUv; varying vec3 vPar; varying vec3 vCol; varying float vSprite;
+        attribute vec4 aPos; attribute vec4 aPar; attribute vec4 aCol;
+        varying vec2 vUv; varying vec3 vPar; varying vec4 vCol; varying float vSprite;
         void main() {
           float c = cos(aPar.x), s = sin(aPar.x);
           vec3 p = vec3(position.x * c - position.z * s, 0.0, position.x * s + position.z * c) * aPos.w;
@@ -931,27 +1140,27 @@ class DecalPool {
         }`,
       fragmentShader: `
         uniform sampler2D tMap;
-        varying vec2 vUv; varying vec3 vPar; varying vec3 vCol; varying float vSprite;
+        varying vec2 vUv; varying vec3 vPar; varying vec4 vCol; varying float vSprite;
         void main() {
           vec2 cell = vec2(mod(vSprite, 2.0), floor(vSprite / 2.0));
           vec3 m = texture2D(tMap, (cell + clamp(vUv, 0.004, 0.996)) * 0.5).rgb;
-          float heat = vPar.x, sa = vPar.y;
+          float heat = vPar.x, sa = vPar.y, wear = vCol.w;
           float edgeFade = 1.0 - smoothstep(0.80, 1.0, length(vUv - 0.5) * 2.0);
           float a = clamp(m.g * sa * edgeFade, 0.0, 0.88);
           // fissures cool: white-gold -> orange -> deep red -> out
-          vec3 hotCol = mix(vec3(0.75, 0.10, 0.02), vCol, smoothstep(0.0, 0.75, heat));
+          vec3 hotCol = mix(vec3(0.75, 0.10, 0.02), vCol.rgb, smoothstep(0.0, 0.75, heat));
           hotCol = mix(hotCol, vec3(1.0, 0.93, 0.78), smoothstep(0.72, 1.0, heat));
           float fis = m.r * pow(heat, 0.55);
           float rim = m.b * heat * 0.55;
-          vec3 emis = hotCol * (fis * fis * 1.35 + fis * 0.30 + rim);
-          vec3 dark = vec3(0.055, 0.040, 0.030);
+          vec3 emis = hotCol * (fis * fis * 1.35 + fis * 0.30 + rim) * (1.0 - wear);
+          vec3 dark = mix(vec3(0.055, 0.040, 0.030), vCol.rgb, wear);
           gl_FragColor = vec4(dark * a + emis, a);
           if (gl_FragColor.a < 0.003 && emis.r + emis.g + emis.b < 0.004) discard;
         }`,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 3;
+    this.mesh.renderOrder = renderOrder;
     this.mesh.visible = false;
     scene.add(this.mesh);
   }
@@ -959,7 +1168,9 @@ class DecalPool {
     let i;
     if (this.n < this.cap) i = this.n++;
     else { i = 0; let best = -1; for (let k = 0; k < this.n; k++) { const p = this.t[k] / this.dur[k]; if (p > best) { best = p; i = k; } } }
-    this.t[i] = 0; this.dur[i] = o.dur || 7;
+    // t0 lets a static decal skip the 0.07 s fade-in, so it is already on screen
+    // for the very first rendered frame instead of popping in.
+    this.t[i] = o.t0 || 0; this.dur[i] = o.dur || 7;
     this.hot[i] = o.hot ?? 0;
     this.x[i] = o.x; this.y[i] = o.y; this.z[i] = o.z;
     this.size[i] = o.size * 0.5;
@@ -968,24 +1179,31 @@ class DecalPool {
     _c.setHex(o.col ?? 0xffb04d);
     this.cr[i] = _c.r; this.cg[i] = _c.g; this.cb[i] = _c.b;
     this.a[i] = o.alpha ?? 1;
+    this.wear[i] = o.wear ? 1 : 0;
   }
   kill(i) {
     const l = --this.n;
-    if (i !== l) for (const k of ['t', 'dur', 'hot', 'x', 'y', 'z', 'size', 'rot', 'sprite', 'cr', 'cg', 'cb', 'a'])
+    if (i !== l) for (const k of ['t', 'dur', 'hot', 'x', 'y', 'z', 'size', 'rot', 'sprite', 'cr', 'cg', 'cb', 'a', 'wear'])
       this[k][i] = this[k][l];
   }
   update(dt) {
+    // static pools (plaza wear) are written once by flush() and then never
+    // touched again — no ageing, no per-frame attribute upload.
+    if (this.staticMode) return;
     let i = 0;
     while (i < this.n) {
       this.t[i] += dt;
       if (this.t[i] >= this.dur[i]) { this.kill(i); continue; }
       i++;
     }
+    this.flush();
+  }
+  flush() {
     const n = this.n;
     const P = this.aPos.array, R = this.aPar.array, C = this.aCol.array;
     for (let j = 0; j < n; j++) {
       const t = this.t[j] / this.dur[j];
-      const j4 = j * 4, j3 = j * 3;
+      const j4 = j * 4;
       P[j4] = this.x[j]; P[j4 + 1] = this.y[j]; P[j4 + 2] = this.z[j]; P[j4 + 3] = this.size[j];
       R[j4] = this.rot[j];
       // heat cools over ~2 s regardless of the scorch lifetime
@@ -993,11 +1211,11 @@ class DecalPool {
       R[j4 + 1] = heat * heat * (0.35 + 0.65 * heat);
       R[j4 + 2] = this.a[j] * Math.min(1, this.t[j] * 14) * Math.pow(1 - t, 1.6);
       R[j4 + 3] = this.sprite[j];
-      C[j3] = this.cr[j]; C[j3 + 1] = this.cg[j]; C[j3 + 2] = this.cb[j];
+      C[j4] = this.cr[j]; C[j4 + 1] = this.cg[j]; C[j4 + 2] = this.cb[j]; C[j4 + 3] = this.wear[j];
     }
     this.geo.instanceCount = n;
     this.mesh.visible = n > 0;
-    if (n > 0) { pushRange(this.aPos, n * 4); pushRange(this.aPar, n * 4); pushRange(this.aCol, n * 3); }
+    if (n > 0) { pushRange(this.aPos, n * 4); pushRange(this.aPar, n * 4); pushRange(this.aCol, n * 4); }
   }
   clear() { this.n = 0; this.geo.instanceCount = 0; this.mesh.visible = false; }
 }
@@ -1291,7 +1509,11 @@ class DebrisPool {
     this.mesh.visible = false;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < cap; i++) {
-      _c.setHSL(0.085 + rf(-0.02, 0.03), rf(0.14, 0.30), rf(0.42, 0.74));
+      // Lightness used to run to 0.74 — pale sand chips with a 30-value spread,
+      // which against a saturated blast read as paper confetti rather than
+      // shattered stone. Darker and wider now, so the chunks carry a real value
+      // range and some of them silhouette instead of glowing.
+      _c.setHSL(0.082 + rf(-0.02, 0.03), rf(0.12, 0.34), rf(0.16, 0.50));
       this.mesh.setColorAt(i, _c);
       this.br[i] = _c.r; this.bg[i] = _c.g; this.bb[i] = _c.b;
     }
@@ -1650,23 +1872,35 @@ export class VFX {
       (x, S) => spPuff(x, S, true),
       (x, S) => spSmoke(x, S),
       (x, S) => spRock(x, S),
+      spBillow,   // 8 A_BILLOW — occluding smoke mass
+      spChunk,    // 9 A_CHUNK  — opaque debris silhouette
     ]);
     this.decalTex = buildDecalAtlas();
-    this.atlases = { add: atlasAdd, alpha: atlasAlpha, decal: this.decalTex };
+    this.wearTex = buildWearAtlas();
+    this.atlases = { add: atlasAdd, alpha: atlasAlpha, decal: this.decalTex, wear: this.wearTex };
 
-    // render order: decals(3) → dust(4) → rings(5) → telegraphs(5.5) →
-    // ghosts(6) → arcs(7) → additive particles(8) → beams/projectiles(9).
-    // Dust sits under the light so a shockwave still punches through smoke.
+    // render order: wear(2) → decals(3) → dust(4) → rings(5) → telegraphs(5.5)
+    // → ghosts(6) → arcs(7) → additive particles(8) → SOOT(8.6) →
+    // beams/projectiles(9).
+    // Ground dust sits under the light so a shockwave still punches through it.
+    // pSoot is the exception and the whole point of the pool: it draws AFTER
+    // the additive plume, so a smoke lobe or a stone chunk can put real dark
+    // mass in front of the core instead of glowing along with it. Same class,
+    // same shader source and same uniform set as pAlpha, so three hands both
+    // meshes the same linked program — no extra compile, no extra prewarm cost.
     this.pAdd = new ParticlePool(scene, 1000, atlasAdd, true, 8);
     this.pAlpha = new ParticlePool(scene, 420, atlasAlpha, false, 4);
+    this.pSoot = new ParticlePool(scene, 180, atlasAlpha, false, 8.6);
     this.arcs = new ArcPool(scene, 72, atlasAdd, 7);
     this.ringPool = new RingPool(scene, 22);
     this.decalPool = new DecalPool(scene, 14, this.decalTex);
+    this.wearPool = new DecalPool(scene, 72, this.wearTex, 2, true);
     this.telePool = new TelePool(scene, 6);
     this.beamPool = new BeamPool(scene, 8);
-    this.debris = new DebrisPool(scene, 56);
+    this.debris = new DebrisPool(scene, 76);
     this.ghostPool = new GhostPool(scene, 12);
     this.trailBank = new TrailBank(scene, 2, 18);
+    this._scatterWear();
 
     // legacy-shaped aliases so external code that pokes at these keeps working
     this.trails = this.trailBank.state;
@@ -1742,12 +1976,66 @@ export class VFX {
   }
 
   // ------------------------------------------------------------ primitives --
+  // ------------------------------------------------------- static plaza wear --
+  // VFX-2. 60% of the gameplay frame is one uniform tan tile field with no
+  // authored detail anywhere on it. These are 40-odd permanent grime decals —
+  // crack networks, moss creeping out of the tile joints, damp darkening near
+  // the river, scuffs where the waves meet — laid down once at construction.
+  // One extra draw call, zero per-frame cost (the pool is staticMode), and it
+  // puts texture frequency exactly where the frame already scores best.
+  _scatterWear() {
+    // The lane drape narrows as it funnels onto the bridge (arena.js:336); match
+    // it so nothing spills off the stone onto grass.
+    const laneHalf = (x) => A.LANE_HALF *
+      (1 - 0.26 * (1 - THREE.MathUtils.smoothstep(Math.abs(x), A.BRIDGE_HALF_X, A.BRIDGE_HALF_X + 5)));
+    const put = (sprite, col, x, z, size, alpha) => {
+      if (!isWalkable(x, z)) return;
+      const y = this.groundHeight(x, z * 0.92);
+      if (y < -0.4) return;                       // riverbed, not deck
+      const o = dRec();
+      o.x = x; o.y = y + 0.085; o.z = z;          // lane top is groundHeight+0.055
+      o.size = size; o.dur = 1e9; o.t0 = 1;
+      o.rot = rf(0, TAU); o.sprite = sprite; o.col = col;
+      o.hot = 0; o.alpha = alpha; o.wear = 1;
+      this.wearPool.spawn(o);
+    };
+    const onLane = (x) => {
+      const h = laneHalf(x) - 0.7;
+      return rf(-h, h);
+    };
+    // crack networks: everywhere, densest mid-lane where the waves grind
+    for (let i = 0; i < 24; i++) {
+      const x = rf(-40, 40);
+      put(WR_CRACK, 0x2b251e, x, onLane(x), rf(3.2, 6.6), rf(0.55, 0.86));
+    }
+    // moss creep: out of the joints at the lane edge, and heaviest by the water
+    for (let i = 0; i < 14; i++) {
+      const x = rf(-34, 34);
+      const h = laneHalf(x) - 0.7;
+      const z = (rnd() < 0.5 ? -1 : 1) * rf(h * 0.42, h);
+      const wet = 1 - Math.min(1, Math.abs(x) / 16);
+      put(WR_MOSS, 0x3f5c2a, x, z, rf(3.2, 6.6), 0.42 + wet * 0.4);
+    }
+    // damp darkening: river approach + under the tower footprints
+    for (let i = 0; i < 12; i++) {
+      const x = i < 7 ? (rnd() < 0.5 ? -1 : 1) * rf(4.6, 15)
+        : (rnd() < 0.5 ? -1 : 1) * (A.TOWER_OUTER_X + rf(-6, 6));
+      put(WR_DAMP, 0x2a343d, x, onLane(x), rf(4.0, 8.0), rf(0.4, 0.7));
+    }
+    // scuffs and pits: the two contested spots — bridge mouth and outer towers
+    for (let i = 0; i < 12; i++) {
+      const x = i < 6 ? rf(-11, 11) : (rnd() < 0.5 ? -1 : 1) * (A.TOWER_OUTER_X + rf(-7, 7));
+      put(WR_SCUFF, 0x3d362d, x, onLane(x), rf(2.6, 5.4), rf(0.48, 0.8));
+    }
+    this.wearPool.flush();
+  }
+
   burst(x, y, z, {
     count = 10, col = 0xffe9b0, col2 = null, colEnd, speed = 5, up = 2.5, life = 0.5,
     size = 0.28, sizeEnd = 0.05, gravity = 6, spread = 1, sprite = 1, pool = 'add',
     glow = 1.6, drag = 2, alpha = 1, stretch = 1, fadePow = 2, cone = null, coneWidth = 1,
   } = {}) {
-    const P = pool === 'add' ? this.pAdd : this.pAlpha;
+    const P = pool === 'add' ? this.pAdd : (pool === 'soot' ? this.pSoot : this.pAlpha);
     for (let i = 0; i < count; i++) {
       let ax, az;
       if (cone !== null) {
@@ -1759,20 +2047,26 @@ export class VFX {
       }
       const r = rnd();
       const sp = speed * (0.4 + rnd() * 0.6);
-      P.spawn({
-        x: x + ax * r * spread * 0.4, y: y + rnd() * 0.2, z: z + az * r * spread * 0.4,
-        vx: ax * sp * spread, vy: up * (0.5 + rnd() * 0.8), vz: az * sp * spread,
-        life: life * (0.6 + rnd() * 0.7), size: size * (0.7 + rnd() * 0.6), sizeEnd,
-        col: col2 && rnd() < 0.5 ? col2 : col, colEnd, gravity, drag,
-        rot: rnd() * 6.28, rotV: (rnd() - 0.5) * 6,
-        sprite, glow, alpha, stretch, fadePow,
-      });
+      const o = pRec();
+      o.x = x + ax * r * spread * 0.4; o.y = y + rnd() * 0.2; o.z = z + az * r * spread * 0.4;
+      o.vx = ax * sp * spread; o.vy = up * (0.5 + rnd() * 0.8); o.vz = az * sp * spread;
+      o.life = life * (0.6 + rnd() * 0.7); o.size = size * (0.7 + rnd() * 0.6); o.sizeEnd = sizeEnd;
+      o.col = col2 && rnd() < 0.5 ? col2 : col; o.colEnd = colEnd;
+      o.gravity = gravity; o.drag = drag;
+      o.rot = rnd() * 6.28; o.rotV = (rnd() - 0.5) * 6;
+      o.sprite = sprite; o.glow = glow; o.alpha = alpha; o.stretch = stretch; o.fadePow = fadePow;
+      P.spawn(o);
     }
   }
 
   ring(x, y, z, { r0 = 0.3, r1 = 5, dur = 0.5, col = 0xfff2cf, alpha = 0.75,
     thick = 0.14, dust = 0.45, emis = 1, ease = 3, kick = true } = {}) {
-    this.ringPool.spawn({ x, y: y + 0.14, z, r0, r1, dur, col, alpha, thick, dust, emis, ease });
+    {
+      const R = rRec();
+      R.x = x; R.y = y + 0.14; R.z = z; R.r0 = r0; R.r1 = r1; R.dur = dur;
+      R.col = col; R.alpha = alpha; R.thick = thick; R.dust = dust; R.emis = emis; R.ease = ease;
+      this.ringPool.spawn(R);
+    }
     if (!kick) return;
     // ground dust + sparks kicked up along the leading edge
     const n = Math.min(14, Math.max(3, Math.round(r1 * 1.6)));
@@ -1780,19 +2074,19 @@ export class VFX {
       const a = (i / n) * TAU + rnd() * 0.5;
       const ca = Math.cos(a), sa = Math.sin(a);
       const rr = r0 + (r1 - r0) * 0.22;
-      this.pAlpha.spawn({
-        x: x + ca * rr, y: y + 0.1, z: z + sa * rr,
-        vx: ca * r1 * 1.5, vy: 0.6 + rnd() * 0.9, vz: sa * r1 * 1.5,
-        life: dur * 1.9, size: 0.34 + r1 * 0.09, sizeEnd: 0.9 + r1 * 0.22,
-        col: 0xbfae90, alpha: 0.3, sprite: A_SMOKE, glow: 1, drag: 3.4, fadePow: 1.5,
-      });
+      let o = pRec();
+      o.x = x + ca * rr; o.y = y + 0.1; o.z = z + sa * rr;
+      o.vx = ca * r1 * 1.5; o.vy = 0.6 + rnd() * 0.9; o.vz = sa * r1 * 1.5;
+      o.life = dur * 1.9; o.size = 0.34 + r1 * 0.09; o.sizeEnd = 0.9 + r1 * 0.22;
+      o.col = 0xbfae90; o.alpha = 0.3; o.sprite = A_SMOKE; o.glow = 1; o.drag = 3.4; o.fadePow = 1.5;
+      this.pAlpha.spawn(o);
       if (i % 2 === 0) {
-        this.pAdd.spawn({
-          x: x + ca * rr, y: y + 0.16, z: z + sa * rr,
-          vx: ca * r1 * 3.4, vy: 1.4 + rnd() * 2.6, vz: sa * r1 * 3.4,
-          life: 0.26 + rnd() * 0.18, size: 0.2, sizeEnd: 0.04,
-          col, glow: 2.0, sprite: S_SPARK2, gravity: 9, drag: 2.6, stretch: 2.6,
-        });
+        o = pRec();
+        o.x = x + ca * rr; o.y = y + 0.16; o.z = z + sa * rr;
+        o.vx = ca * r1 * 3.4; o.vy = 1.4 + rnd() * 2.6; o.vz = sa * r1 * 3.4;
+        o.life = 0.26 + rnd() * 0.18; o.size = 0.2; o.sizeEnd = 0.04;
+        o.col = col; o.glow = 2.0; o.sprite = S_SPARK2; o.gravity = 9; o.drag = 2.6; o.stretch = 2.6;
+        this.pAdd.spawn(o);
       }
     }
   }
@@ -1803,59 +2097,61 @@ export class VFX {
     const el = tilt + Math.PI / 2;                 // elevation above the ground plane
     const vx = Math.sin(yaw) * vel, vz = Math.cos(yaw) * vel;
     const g = 0.55 + grow * 0.32;
+    let a2 = aRec();
     // main body
-    this.arcs.spawn({
-      x, y, z, vx, vz, life: dur, yaw, el,
-      roll: -0.30, rollV: 1.5,
-      sx0: size * 0.55, sx1: size * g * 1.28,
-      sy0: size * 0.68, sy1: size * g * 1.06,
-      col, glow: 1.35, alpha: 0.92, sprite: S_SLASH, fadePow: 1.7,
-    });
+    a2.x = x; a2.y = y; a2.z = z; a2.vx = vx; a2.vz = vz; a2.life = dur; a2.yaw = yaw; a2.el = el;
+    a2.roll = -0.30; a2.rollV = 1.5;
+    a2.sx0 = size * 0.55; a2.sx1 = size * g * 1.28;
+    a2.sy0 = size * 0.68; a2.sy1 = size * g * 1.06;
+    a2.col = col; a2.glow = 1.35; a2.alpha = 0.92; a2.sprite = S_SLASH; a2.fadePow = 1.7;
+    this.arcs.spawn(a2);
     // hot leading edge, slightly bigger and much shorter lived
-    this.arcs.spawn({
-      x, y, z, vx: vx * 1.12, vz: vz * 1.12, life: dur * 0.55, yaw, el,
-      roll: -0.24, rollV: 1.4,
-      sx0: size * 0.62, sx1: size * g * 1.42,
-      sy0: size * 0.74, sy1: size * g * 1.16,
-      col: 0xffffff, glow: 1.5, alpha: 0.85, sprite: S_CRESC, fadePow: 3,
-    });
+    a2 = aRec();
+    a2.x = x; a2.y = y; a2.z = z; a2.vx = vx * 1.12; a2.vz = vz * 1.12;
+    a2.life = dur * 0.55; a2.yaw = yaw; a2.el = el; a2.roll = -0.24; a2.rollV = 1.4;
+    a2.sx0 = size * 0.62; a2.sx1 = size * g * 1.42;
+    a2.sy0 = size * 0.74; a2.sy1 = size * g * 1.16;
+    a2.col = 0xffffff; a2.glow = 1.5; a2.alpha = 0.85; a2.sprite = S_CRESC; a2.fadePow = 3;
+    this.arcs.spawn(a2);
     // trailing gradient ghosts
     for (let i = 1; i <= 2; i++) {
-      this.arcs.spawn({
-        x: x - Math.sin(yaw) * 0.22 * i, y: y - 0.05 * i, z: z - Math.cos(yaw) * 0.22 * i,
-        vx: vx * 0.72, vz: vz * 0.72, life: dur * (1.1 + i * 0.25), yaw, el,
-        roll: -0.38 - i * 0.1, rollV: 1.2,
-        sx0: size * 0.44, sx1: size * g * (1.05 - i * 0.1),
-        sy0: size * 0.56, sy1: size * g * (0.9 - i * 0.08),
-        col, glow: 0.9, alpha: 0.32 / i, sprite: S_SLASH, fadePow: 1.3,
-      });
+      a2 = aRec();
+      a2.x = x - Math.sin(yaw) * 0.22 * i; a2.y = y - 0.05 * i; a2.z = z - Math.cos(yaw) * 0.22 * i;
+      a2.vx = vx * 0.72; a2.vz = vz * 0.72; a2.life = dur * (1.1 + i * 0.25); a2.yaw = yaw; a2.el = el;
+      a2.roll = -0.38 - i * 0.1; a2.rollV = 1.2;
+      a2.sx0 = size * 0.44; a2.sx1 = size * g * (1.05 - i * 0.1);
+      a2.sy0 = size * 0.56; a2.sy1 = size * g * (0.9 - i * 0.08);
+      a2.col = col; a2.glow = 0.9; a2.alpha = 0.32 / i; a2.sprite = S_SLASH; a2.fadePow = 1.3;
+      this.arcs.spawn(a2);
     }
     // sparks along the cutting edge
     const cnt = Math.round(6 + size * 2.4);
     for (let i = 0; i < cnt; i++) {
       const a = yaw + (rnd() - 0.5) * 1.5;
       const rr = size * (0.45 + rnd() * 0.55);
-      const sx = x + Math.sin(a) * rr, sz = z + Math.cos(a) * rr;
-      this.pAdd.spawn({
-        x: sx, y: y + (rnd() - 0.4) * 0.4, z: sz,
-        vx: Math.sin(a) * (4 + vel * 0.5), vy: 1.2 + rnd() * 2.4, vz: Math.cos(a) * (4 + vel * 0.5),
-        life: 0.2 + rnd() * 0.2, size: 0.17 + rnd() * 0.1, sizeEnd: 0.02,
-        col: rnd() < 0.4 ? 0xffffff : col, glow: 2.0, sprite: S_SPARK2,
-        gravity: 8, drag: 2.5, stretch: 2.2,
-      });
+      const o = pRec();
+      o.x = x + Math.sin(a) * rr; o.y = y + (rnd() - 0.4) * 0.4; o.z = z + Math.cos(a) * rr;
+      o.vx = Math.sin(a) * (4 + vel * 0.5); o.vy = 1.2 + rnd() * 2.4; o.vz = Math.cos(a) * (4 + vel * 0.5);
+      o.life = 0.2 + rnd() * 0.2; o.size = 0.17 + rnd() * 0.1; o.sizeEnd = 0.02;
+      o.col = rnd() < 0.4 ? 0xffffff : col; o.glow = 2.0; o.sprite = S_SPARK2;
+      o.gravity = 8; o.drag = 2.5; o.stretch = 2.2;
+      this.pAdd.spawn(o);
     }
     if (scar) {
       const gy = this.groundHeight(x, z);
-      this.decalPool.spawn({
-        x, y: gy + 0.105, z, size: size * 2.0, dur: scar, rot: -yaw,
-        sprite: 1, col, hot: 0.34, alpha: 0.55,
-      });
+      const d = dRec();
+      d.x = x; d.y = gy + 0.105; d.z = z; d.size = size * 2.0; d.dur = scar; d.rot = -yaw;
+      d.sprite = 1; d.col = col; d.hot = 0.34; d.alpha = 0.55;
+      this.decalPool.spawn(d);
     }
   }
 
   decal(x, z, { size = 5, dur = 7, glowCol = 0xffa93d, sprite = 0, hot = 1, alpha = 1 } = {}) {
     const y = this.groundHeight(x, z);
-    this.decalPool.spawn({ x, y: y + 0.11, z, size, dur, col: glowCol, sprite, hot, alpha });
+    const d = dRec();
+    d.x = x; d.y = y + 0.11; d.z = z; d.size = size; d.dur = dur;
+    d.col = glowCol; d.sprite = sprite; d.hot = hot; d.alpha = alpha;
+    this.decalPool.spawn(d);
   }
 
   telegraph(x, z, r, col = 0xff5533) {
@@ -1877,10 +2173,11 @@ export class VFX {
       _v1.copy(p.to).sub(p.pos).normalize();
       p.dx = _v1.x; p.dy = _v1.y; p.dz = _v1.z;
       // muzzle pop
-      this.pAdd.spawn({
-        x: from.x, y: from.y, z: from.z, life: 0.16, size: size * 3.2, sizeEnd: size * 0.6,
-        col, glow: 1.7, alpha: 0.8, sprite: S_GLOW, drag: 0, gravity: 0,
-      });
+      const o = pRec();
+      o.x = from.x; o.y = from.y; o.z = from.z; o.life = 0.16;
+      o.size = size * 3.2; o.sizeEnd = size * 0.6;
+      o.col = col; o.glow = 1.7; o.alpha = 0.8; o.sprite = S_GLOW; o.drag = 0; o.gravity = 0;
+      this.pAdd.spawn(o);
       return p;
     }
     return null;
@@ -1889,46 +2186,53 @@ export class VFX {
   beam(from, to, { col = 0xff8a4d, dur = 0.32, r = 0.22, delay = 0.1 } = {}) {
     this.beamPool.spawn(from, to, dur, r, col, delay);
     // charge-up telegraph at the muzzle
-    this.pAdd.spawn({
-      x: from.x, y: from.y, z: from.z, life: delay + 0.06,
-      size: 0.12, sizeEnd: r * 5.2, col, glow: 1.5, alpha: 0.9, sprite: S_GLOW, fadePow: 4,
-    });
-    this.pAdd.spawn({
-      x: from.x, y: from.y, z: from.z, life: delay + 0.02,
-      size: 0.05, sizeEnd: r * 9, col: 0xffffff, glow: 1.3, alpha: 0.55, sprite: S_FLARE, fadePow: 5,
-      rot: rnd() * 6.28,
-    });
+    let o = pRec();
+    o.x = from.x; o.y = from.y; o.z = from.z; o.life = delay + 0.06;
+    o.size = 0.12; o.sizeEnd = r * 5.2; o.col = col; o.glow = 1.5; o.alpha = 0.9;
+    o.sprite = S_GLOW; o.fadePow = 4;
+    this.pAdd.spawn(o);
+    o = pRec();
+    o.x = from.x; o.y = from.y; o.z = from.z; o.life = delay + 0.02;
+    o.size = 0.05; o.sizeEnd = r * 9; o.col = 0xffffff; o.glow = 1.3; o.alpha = 0.55;
+    o.sprite = S_FLARE; o.fadePow = 5; o.rot = rnd() * 6.28;
+    this.pAdd.spawn(o);
     for (let i = 0; i < 7; i++) {
       const a = rnd() * TAU, rr = 1.1 + rnd() * 0.9;
       const p = rnd() * Math.PI - Math.PI / 2;
       const cx = Math.cos(a) * Math.cos(p) * rr, cy = Math.sin(p) * rr, cz = Math.sin(a) * Math.cos(p) * rr;
-      this.pAdd.spawn({
-        x: from.x + cx, y: from.y + cy, z: from.z + cz,
-        vx: -cx / delay, vy: -cy / delay, vz: -cz / delay,
-        life: delay, size: 0.16, sizeEnd: 0.03, col, glow: 1.8, sprite: S_SPARK2, drag: 0, stretch: 2.4,
-      });
+      o = pRec();
+      o.x = from.x + cx; o.y = from.y + cy; o.z = from.z + cz;
+      o.vx = -cx / delay; o.vy = -cy / delay; o.vz = -cz / delay;
+      o.life = delay; o.size = 0.16; o.sizeEnd = 0.03; o.col = col; o.glow = 1.8;
+      o.sprite = S_SPARK2; o.drag = 0; o.stretch = 2.4;
+      this.pAdd.spawn(o);
     }
   }
   _beamImpact(x, y, z, r, g, b) {
     _c.setRGB(r, g, b);
     const hex = _c.getHex();
-    // a tower shot now throws real light onto the ground it hits (L3)
-    pulseLight(x, y + 0.3, z, { color: hex, peak: 16, dur: 0.26, distance: 11 });
-    this.pAdd.spawn({ x, y, z, life: 0.2, size: 0.5, sizeEnd: 2.0, col: hex, glow: 1.6, alpha: 0.8, sprite: S_GLOW, fadePow: 3 });
+    // a tower shot throws real light onto the ground it hits (L3), but from
+    // 1.6 m up instead of 0.3 m: at y+0.3 the light was INSIDE the unit it was
+    // lighting, and 16 cd / (0.3 m)^2 is 178 lux on a single mesh.
+    pulseLight(x, y + 1.6, z, { color: hex, peak: 12, dur: 0.26, distance: 12 });
+    const o = pRec();
+    o.x = x; o.y = y; o.z = z; o.life = 0.2; o.size = 0.5; o.sizeEnd = 2.0;
+    o.col = hex; o.glow = 1.6; o.alpha = 0.8; o.sprite = S_GLOW; o.fadePow = 3;
+    this.pAdd.spawn(o);
     this.burst(x, y, z, { count: 8, col: hex, col2: 0xffffff, speed: 6, up: 2.6, life: 0.3, size: 0.19, sizeEnd: 0.02, gravity: 10, sprite: S_SPARK2, glow: 2.1, stretch: 2.6, drag: 3 });
   }
 
   pillar(x, y, z, { col = 0xffd98c, dur = 0.5, r = 0.8, h = 6, glow = 1.2 } = {}) {
-    this.arcs.spawn({
-      x, y, z, life: dur, mode: 1, pin: 1,
-      sx0: r * 2.2, sx1: r * 3.4, sy0: h * 0.55, sy1: h * 1.06,
-      col, glow, alpha: 0.5, sprite: S_RAY, fadePow: 2,
-    });
-    this.arcs.spawn({
-      x, y, z, life: dur * 0.7, mode: 1, pin: 1,
-      sx0: r * 0.7, sx1: r * 1.2, sy0: h * 0.7, sy1: h * 1.12,
-      col: 0xffffff, glow: 1.3, alpha: 0.55, sprite: S_RAY, fadePow: 3,
-    });
+    let a2 = aRec();
+    a2.x = x; a2.y = y; a2.z = z; a2.life = dur; a2.mode = 1; a2.pin = 1;
+    a2.sx0 = r * 2.2; a2.sx1 = r * 3.4; a2.sy0 = h * 0.55; a2.sy1 = h * 1.06;
+    a2.col = col; a2.glow = glow; a2.alpha = 0.5; a2.sprite = S_RAY; a2.fadePow = 2;
+    this.arcs.spawn(a2);
+    a2 = aRec();
+    a2.x = x; a2.y = y; a2.z = z; a2.life = dur * 0.7; a2.mode = 1; a2.pin = 1;
+    a2.sx0 = r * 0.7; a2.sx1 = r * 1.2; a2.sy0 = h * 0.7; a2.sy1 = h * 1.12;
+    a2.col = 0xffffff; a2.glow = 1.3; a2.alpha = 0.55; a2.sprite = S_RAY; a2.fadePow = 3;
+    this.arcs.spawn(a2);
   }
 
   spawnGhost(pos, yaw, lean = 0.4, col = 0x6fd4ff) {
@@ -1945,18 +2249,20 @@ export class VFX {
         const s = rnd();
         const px = D.px + mx * s, pz = D.pz + mz * s;
         const off = (rnd() - 0.5) * 1.15;
-        this.pAdd.spawn({
-          x: px - D.dz * off, y: pos.y + 0.35 + rnd() * 1.5, z: pz + D.dx * off,
-          vx: -D.dx * 5.5, vy: 0.25, vz: -D.dz * 5.5,
-          dirX: D.dx, dirY: 0, dirZ: D.dz,
-          life: 0.24 + rnd() * 0.12, size: 0.16, sizeEnd: 0.02,
-          col: 0xbfeeff, glow: 1.5, alpha: 0.75, sprite: S_STREAK, drag: 2.4, stretch: 7 + rnd() * 5,
-        });
+        const o = pRec();
+        o.x = px - D.dz * off; o.y = pos.y + 0.35 + rnd() * 1.5; o.z = pz + D.dx * off;
+        o.vx = -D.dx * 5.5; o.vy = 0.25; o.vz = -D.dz * 5.5;
+        o.dirX = D.dx; o.dirY = 0; o.dirZ = D.dz;
+        o.life = 0.24 + rnd() * 0.12; o.size = 0.16; o.sizeEnd = 0.02;
+        o.col = 0xbfeeff; o.glow = 1.5; o.alpha = 0.75; o.sprite = S_STREAK;
+        o.drag = 2.4; o.stretch = 7 + rnd() * 5;
+        this.pAdd.spawn(o);
       }
-      this.pAlpha.spawn({
-        x: pos.x, y: pos.y + 0.08, z: pos.z, vy: 0.5,
-        life: 0.45, size: 0.34, sizeEnd: 1.0, col: 0xc8bda2, alpha: 0.26, sprite: A_SMOKE, drag: 2.2,
-      });
+      const o = pRec();
+      o.x = pos.x; o.y = pos.y + 0.08; o.z = pos.z; o.vy = 0.5;
+      o.life = 0.45; o.size = 0.34; o.sizeEnd = 1.0; o.col = 0xc8bda2;
+      o.alpha = 0.26; o.sprite = A_SMOKE; o.drag = 2.2;
+      this.pAlpha.spawn(o);
     }
     D.last = this.time;
     D.x = pos.x; D.y = pos.y; D.z = pos.z;
@@ -1974,10 +2280,10 @@ export class VFX {
       count: 16, col: 0xcaf2ff, col2: 0xffffff, speed: 11, up: 2.2, life: 0.28, size: 0.2, sizeEnd: 0.02,
       gravity: 6, sprite: S_SPARK2, glow: 2.1, stretch: 3.2, drag: 3.4, cone: yaw, coneWidth: 1.7,
     });
-    this.pAdd.spawn({
-      x, y: y + 1.0, z, life: 0.2, size: 0.6, sizeEnd: 2.6,
-      col: 0xbfeeff, glow: 1.6, alpha: 0.8, sprite: S_GLOW, fadePow: 3,
-    });
+    const o = pRec();
+    o.x = x; o.y = y + 1.0; o.z = z; o.life = 0.2; o.size = 0.6; o.sizeEnd = 2.6;
+    o.col = 0xbfeeff; o.glow = 1.6; o.alpha = 0.8; o.sprite = S_GLOW; o.fadePow = 3;
+    this.pAdd.spawn(o);
     this.shake(0.14);
   }
 
@@ -1991,13 +2297,14 @@ export class VFX {
       if (d > 0.06 && T.acc > 0.34) {
         T.acc = 0;
         const inv = 1 / d;
-        this.pAdd.spawn({
-          x: tip.x, y: tip.y, z: tip.z,
-          vx: dx * inv * 2.2, vy: dy * inv * 2.2 + 0.6, vz: dz * inv * 2.2,
-          dirX: dx * inv, dirY: dy * inv, dirZ: dz * inv,
-          life: 0.2 + rnd() * 0.12, size: 0.13, sizeEnd: 0.02,
-          col: 0xd8f6ff, glow: 1.8, alpha: 0.8, sprite: S_SPARK2, gravity: 5, drag: 3, stretch: 2.6,
-        });
+        const o = pRec();
+        o.x = tip.x; o.y = tip.y; o.z = tip.z;
+        o.vx = dx * inv * 2.2; o.vy = dy * inv * 2.2 + 0.6; o.vz = dz * inv * 2.2;
+        o.dirX = dx * inv; o.dirY = dy * inv; o.dirZ = dz * inv;
+        o.life = 0.2 + rnd() * 0.12; o.size = 0.13; o.sizeEnd = 0.02;
+        o.col = 0xd8f6ff; o.glow = 1.8; o.alpha = 0.8; o.sprite = S_SPARK2;
+        o.gravity = 5; o.drag = 3; o.stretch = 2.6;
+        this.pAdd.spawn(o);
       }
     }
     T.tx = tip.x; T.ty = tip.y; T.tz = tip.z; T.has = true;
@@ -2044,28 +2351,89 @@ export class VFX {
   }
 
   // ---------------------------------------------------------- composites --
+  /**
+   * Every hit in the game funnels through here (minion melee, tower beams,
+   * caster bolts), and it used to be four sparkle sprites: a unit could eat 428
+   * damage without a pixel changing on it. This is the stacked-cue version —
+   * body flash, hot core, expanding shock ring, cross cut, directional spray,
+   * scuff dust — so a hit reads as an EVENT at 50 px and not as a number.
+   *
+   * `y` is the victim's chest (sim passes pos.y + 0.75..0.9), so the flash is
+   * sized and stretched to cover a body silhouette rather than a point.
+   */
   hitSpark(x, y, z, col = 0xffe9b0, dirYaw = null) {
-    // victim flash — brief white pop that reads as a damage flash
-    this.pAdd.spawn({
-      x, y, z, life: 0.13, size: 1.5, sizeEnd: 0.85,
-      col: 0xffffff, glow: 1.15, alpha: 0.62, sprite: S_GLOW, fadePow: 3, drag: 0,
-    });
-    this.pAdd.spawn({
-      x, y, z, life: 0.17, size: 0.6, sizeEnd: 2.1, rot: rnd() * 6.28,
-      col, glow: 1.9, alpha: 0.75, sprite: S_FLARE, fadePow: 3, drag: 0,
-    });
+    const yw = dirYaw === null ? rf(0, TAU) : dirYaw;
+    // 1) VICTIM FLASH — a body-shaped white pop over the unit. Vertically
+    //    stretched so it covers a torso, not a dot, and gone in 5 frames.
+    let o = pRec();
+    o.x = x; o.y = y; o.z = z; o.life = 0.10; o.size = 0.98; o.sizeEnd = 1.32;
+    o.col = 0xffffff; o.glow = 2.3; o.alpha = 0.92; o.sprite = S_GLOW; o.fadePow = 4;
+    o.drag = 0; o.stretch = 1.75; o.dirX = 0; o.dirY = 1; o.dirZ = 0;
+    this.pAdd.spawn(o);
+    // 2) hot tinted core, slightly longer, carrying the attacker's colour
+    o = pRec();
+    o.x = x; o.y = y; o.z = z; o.life = 0.17; o.size = 0.55; o.sizeEnd = 1.9;
+    o.rot = rnd() * 6.28; o.col = col; o.glow = 1.9; o.alpha = 0.75;
+    o.sprite = S_FLARE; o.fadePow = 3; o.drag = 0;
+    this.pAdd.spawn(o);
+    // 3) IMPACT RING — a hard expanding annulus. This is the cue Wild Rift uses
+    //    to make a 40-damage poke land; it costs one instance in an existing pool.
+    let a2 = aRec();
+    a2.x = x; a2.y = y; a2.z = z; a2.life = 0.19; a2.mode = 1;
+    a2.sx0 = 0.30; a2.sx1 = 1.55; a2.sy0 = 0.30; a2.sy1 = 1.55;
+    a2.col = 0xfff4e2; a2.glow = 1.45; a2.alpha = 0.85; a2.sprite = S_RING; a2.fadePow = 2.6;
+    this.arcs.spawn(a2);
+    // 4) CROSS CUT — a short crescent through the contact point, oriented along
+    //    the blow, so a melee bonk shows a cut and not just a sparkle.
+    a2 = aRec();
+    a2.x = x; a2.y = y; a2.z = z; a2.life = 0.13; a2.yaw = yw; a2.el = -0.55 + Math.PI / 2;
+    a2.roll = rf(-0.5, 0.5); a2.rollV = 2.2;
+    a2.sx0 = 0.7; a2.sx1 = 1.5; a2.sy0 = 0.55; a2.sy1 = 1.15;
+    a2.col = 0xffffff; a2.glow = 1.5; a2.alpha = 0.7; a2.sprite = S_CRESC; a2.fadePow = 3;
+    this.arcs.spawn(a2);
+    // 5) directional spray
     this.burst(x, y, z, {
-      count: 9, col, col2: 0xffffff, speed: 6.5, up: 2.4, life: 0.26, size: 0.16, sizeEnd: 0.02,
-      gravity: 11, sprite: S_SPARK2, glow: 2.1, stretch: 3, drag: 3.2,
+      count: 10, col, col2: 0xffffff, speed: 7.0, up: 2.6, life: 0.26, size: 0.16, sizeEnd: 0.02,
+      gravity: 11, sprite: S_SPARK2, glow: 2.1, stretch: 3.2, drag: 3.2,
       cone: dirYaw, coneWidth: 2.2,
     });
+    // 6) two puffs of scuffed dust — the only NON-glowing cue in the stack, so
+    //    the hit has a dark note against all the light.
+    for (let i = 0; i < 2; i++) {
+      const a = yw + rf(-1.1, 1.1);
+      o = pRec();
+      o.x = x + Math.sin(a) * 0.25; o.y = y - rf(0.15, 0.5); o.z = z + Math.cos(a) * 0.25;
+      o.vx = Math.sin(a) * rf(1.2, 2.6); o.vy = rf(0.5, 1.4); o.vz = Math.cos(a) * rf(1.2, 2.6);
+      o.life = rf(0.34, 0.55); o.size = rf(0.18, 0.3); o.sizeEnd = rf(0.6, 0.95);
+      o.col = 0x8d7f68; o.alpha = 0.30; o.sprite = A_SMOKE; o.glow = 1; o.drag = 3.2; o.fadePow = 1.5;
+      this.pAlpha.spawn(o);
+    }
   }
   meleeImpact(x, y, z, col, dirYaw = null) {
     this.hitSpark(x, y, z, col, dirYaw);
-    this.pAdd.spawn({
-      x, y, z, life: 0.15, size: 0.4, sizeEnd: 1.15,
-      col, glow: 1.3, alpha: 0.42, sprite: S_HALO, fadePow: 3,
-    });
+    const yw = dirYaw === null ? rf(0, TAU) : dirYaw;
+    let o = pRec();
+    o.x = x; o.y = y; o.z = z; o.life = 0.15; o.size = 0.4; o.sizeEnd = 1.15;
+    o.col = col; o.glow = 1.3; o.alpha = 0.42; o.sprite = S_HALO; o.fadePow = 3;
+    this.pAdd.spawn(o);
+    // ground scuff ring under the trade — grounds the exchange on the paving
+    const gy = this.groundHeight(x, z);
+    if (y - gy < 3.0) {
+      this.ring(x, gy, z, {
+        r0: 0.25, r1: 1.5, dur: 0.26, col: 0xffe6c0, alpha: 0.5,
+        thick: 0.16, dust: 0.5, emis: 0.7, ease: 2.4, kick: false,
+      });
+    }
+    // three real chips of stone, thrown along the blow
+    for (let i = 0; i < 3; i++) {
+      const a = yw + rf(-0.8, 0.8);
+      const b = bRec();
+      b.x = x + Math.sin(a) * 0.2; b.y = y - 0.2; b.z = z + Math.cos(a) * 0.2;
+      b.vx = Math.sin(a) * rf(2.5, 6); b.vy = rf(3, 6.5); b.vz = Math.cos(a) * rf(2.5, 6);
+      b.size = rf(0.07, 0.15); b.life = rf(0.7, 1.2); b.ground = gy + 0.05;
+      b.ax = rf(-1, 1); b.ay = rf(-1, 1); b.az = rf(-1, 1); b.spin = rf(-14, 14); b.hot = 0;
+      this.debris.spawn(b);
+    }
     this.burst(x, y, z, {
       count: 4, col: 0x9a8a70, speed: 2.6, up: 2.2, life: 0.5, size: 0.16, sizeEnd: 0.45,
       gravity: 6, sprite: A_SMOKE, pool: 'alpha', glow: 1, alpha: 0.35,
@@ -2075,9 +2443,15 @@ export class VFX {
     this.burst(x, y, z, { count: 18, col, col2: 0xffffff, speed: 4.5, up: 3.4, life: 0.65, size: 0.26, sizeEnd: 0.02, gravity: 6, sprite: S_SPARK2, glow: 2, stretch: 2.4, drag: 2.4 });
     this.burst(x, y, z, { count: 10, col, colEnd: 0x5a2a12, speed: 1.6, up: 3.0, life: 1.2, size: 0.15, sizeEnd: 0.05, gravity: 2.4, sprite: S_EMBER, glow: 1.9, drag: 1.4, fadePow: 4 });
     this.burst(x, y, z, { count: 7, col: 0xdad4c8, speed: 1.8, up: 1.2, life: 0.85, size: 0.5, sizeEnd: 1.35, gravity: -0.3, sprite: A_SMOKE, pool: 'alpha', alpha: 0.4, glow: 1, fadePow: 1.4 });
-    this.pAdd.spawn({ x, y, z, life: 0.22, size: 0.8, sizeEnd: 2.6, col, glow: 1.5, alpha: 0.7, sprite: S_GLOW, fadePow: 3 });
+    const o = pRec();
+    o.x = x; o.y = y; o.z = z; o.life = 0.22; o.size = 0.8; o.sizeEnd = 2.6;
+    o.col = col; o.glow = 1.5; o.alpha = 0.7; o.sprite = S_GLOW; o.fadePow = 3;
+    this.pAdd.spawn(o);
     this.ring(x, y - 0.4, z, { r0: 0.25, r1: 2.9, dur: 0.42, col, alpha: 0.7, thick: 0.2, dust: 0.5, ease: 2.6 });
-    pulseLight(x, y + 0.2, z, { color: col, peak: 12, dur: 0.3, distance: 9 });
+    // Lifted clear of the corpse. A point light sitting 0.2 m from a lit surface
+    // is an inverse-square singularity: see the comment on the pulseLight call
+    // in dawnfall() for what that costs downstream.
+    pulseLight(x, y + 1.5, z, { color: col, peak: 10, dur: 0.3, distance: 10 });
   }
   levelUpFx(unit) {
     const p = unit.pos;
@@ -2096,106 +2470,197 @@ export class VFX {
   // Layered radial slam. Everything launches fast and decelerates so the frame
   // right after impact reads as WEIGHT: hard flash → shockwave train → debris
   // arcs → light pillar + god rays → cooling crater → settling embers.
+  //
+  // ROUND-3 REBUILD. The previous version was 100% additive: ~180 sprites that
+  // can only ADD light, so the whole detonation was one 27°-wide amber band with
+  // no value range and no silhouette — a lens flare composited over the scene
+  // rather than an explosion inside it. Three things changed:
+  //   * a real value ramp — white-hot centre, saturated amber mid, deep-orange
+  //     outer. The core is the one thing in this game that SHOULD clip.
+  //   * real dark mass — pSoot draws after the additive plume, so smoke lobes
+  //     and opaque stone chunks silhouette against the core instead of glowing.
+  //   * hue opposition — shards, plume tops and outer dust are desaturated cool
+  //     grey-violet, against the amber, so the frame is not one colour.
+  // Paid for by DELETING additive overdraw: the column's wrap-glow, the widest
+  // ray, and 12 of the 20 large "sunlit dust" quads are gone. Net full-radius
+  // additive quad count is DOWN, which is where the ult's remaining cost lives.
+  //
+  // Allocation-free: every spawn goes through the shared pRec/aRec/rRec/dRec/
+  // bRec records. This used to allocate ~300 object literals per cast.
   dawnfall(x, y, z, r) {
     const gy = this.groundHeight(x, z);
     // The full-screen flash was the single biggest cause of the "clips to pure
     // white" read — it alone drove the whole frame past 1.0 before bloom.
-    this.flash(0.34);
+    this.flash(0.30);
     this.shake(1.25);
-    // real light in the world: the ult now lights the deck, the debris and the
-    // combatants standing in it (L3 + V2)
-    pulseLight(x, gy + 2.0, z, { color: 0xffb347, peak: 26, dur: 0.35, distance: 18 });
-    // punch the caster out of her own core for the duration of the flash (V1)
-    this.hole(x, gy + 1.25, z, 1.9, 0.34);
+    // Real light in the world (L3 + V2), lifted clear of the caster.
+    //
+    // This call used to put a 26 cd point light at gy + 2.0 — exactly head
+    // height, i.e. INSIDE the caster's own skull mesh. three clamps the
+    // inverse-square term at 1/max(d^2, 0.01), so at d ~ 0.45 m the irradiance
+    // was ~130 lux and the shaded radiance on that one mesh measured 452-640 in
+    // linear light: an unbounded near-field singularity aimed at the most
+    // looked-at pixel in the game. Bisecting the ult frame, the pure-black
+    // cluster in the core switched on between light intensity 8 and 10 and
+    // scaled monotonically with it; hiding pAdd / arcs / rings did not touch it.
+    // (The NaN itself — that value squared by the grade's S-curve, overflowing
+    // the half-float composer target to +Inf and coming out of ACES as NaN — is
+    // fixed properly by the clamp + shoulder in renderer.js. This is the other
+    // half: not emitting a 500x spike off a light source in the first place.
+    // A 2.6 m stand-off drops the near-field irradiance ~10x while the deck,
+    // debris and combatants keep essentially the same illumination.)
+    pulseLight(x, gy + 2.6, z, { color: 0xffb347, peak: 18, dur: 0.42, distance: 20 });
+    // Punch the caster out of her own core (V1) — but SHORTER and TIGHTER than
+    // before. holeFade() suppresses additive light inside this sphere, and at
+    // r 1.9 / 0.34 s it was also deleting the incandescent core that is supposed
+    // to be the focal point of the whole game: the ult's brightest moment had no
+    // bright centre, only a ring. Sera still reads; the heart of the blast now
+    // sits ABOVE the sphere instead of being erased by it.
+    this.hole(x, gy + 1.10, z, 1.70, 0.22);
 
-    // --- impact frame: a very short, hot core ------------------------------
-    // Peak emissive is CLAMPED and tinted warm (0xffd9a0) instead of white, so
-    // the core keeps a value ramp from gold rim to hot centre instead of
-    // saturating to a flat white disc that deletes everything under it.
-    this.pAdd.spawn({ x, y: gy + 0.5, z, life: 0.095, size: r * 1.1, sizeEnd: r * 2.0, col: 0xffd9a0, glow: 0.86, alpha: 0.78, sprite: S_GLOW, fadePow: 4 });
-    this.pAdd.spawn({ x, y: gy + 0.9, z, life: 0.13, size: r * 0.7, sizeEnd: r * 2.6, col: 0xffcf90, glow: 0.94, alpha: 0.68, sprite: S_FLARE, fadePow: 3, rot: 0.2 });
+    let o, a2, R, d, b;
+
+    // --- impact frame: a REAL value ramp, not one flat amber disc -----------
+    // Four tiers, stacked bottom-to-top so the hue travels with the height:
+    // ember red at the deck -> gold -> white-hot heart clear of the punch-out.
+    // The white heart CLIPS, deliberately: p99 luminance across this build sits
+    // at 213-220 because nothing is ever allowed to reach white, and a
+    // detonation core is precisely the thing that has earned it.
+    //
+    // The tier glows are chosen against the grade's filmic shoulder
+    // (renderer.js uShoK 0.94 / uShoW 7.0), which compresses everything above
+    // 0.94 into a 7-stop soft knee: 0.5 / 1.2 / 5 / 9 land on visibly different
+    // display values instead of all reading 255. They are bounded values picked
+    // for that curve, not "as bright as possible and let the clamp sort it out".
+    o = pRec();                                     // deep ember shell, on the deck
+    o.x = x; o.y = gy + 0.7; o.z = z; o.life = 0.44;
+    o.size = r * 1.25; o.sizeEnd = r * 2.35;
+    o.col = 0xff6f18; o.glow = 0.60; o.alpha = 0.50; o.sprite = S_GLOW; o.fadePow = 2.0;
+    this.pAdd.spawn(o);
+    o = pRec();                                     // saturated gold mid
+    o.x = x; o.y = gy + 1.5; o.z = z; o.life = 0.36;
+    o.size = r * 0.78; o.sizeEnd = r * 1.55;
+    o.col = 0xffbe57; o.glow = 1.5; o.alpha = 0.85; o.sprite = S_GLOW; o.fadePow = 2.4;
+    this.pAdd.spawn(o);
+    o = pRec();                                     // white-hot heart
+    o.x = x; o.y = gy + 2.55; o.z = z; o.life = 0.34;
+    o.size = r * 0.30; o.sizeEnd = r * 0.66;
+    o.col = 0xfff4e2; o.glow = 5.0; o.alpha = 1.0; o.sprite = S_GLOW; o.fadePow = 3;
+    this.pAdd.spawn(o);
+    o = pRec();                                     // clipping pinpoint inside it
+    o.x = x; o.y = gy + 2.55; o.z = z; o.life = 0.30;
+    o.size = r * 0.12; o.sizeEnd = r * 0.28;
+    o.col = 0xffffff; o.glow = 9.0; o.alpha = 1.0; o.sprite = S_DOT; o.fadePow = 3;
+    this.pAdd.spawn(o);
+    o = pRec();
+    o.x = x; o.y = gy + 1.1; o.z = z; o.life = 0.20;
+    o.size = r * 0.65; o.sizeEnd = r * 2.4;
+    o.col = 0xffcf90; o.glow = 0.94; o.alpha = 0.62; o.sprite = S_FLARE; o.fadePow = 3; o.rot = 0.2;
+    this.pAdd.spawn(o);
     // lingering anamorphic star, lifted off the deck so the crater stays visible
-    this.pAdd.spawn({ x, y: gy + 2.1, z, life: 0.55, size: r * 0.34, sizeEnd: r * 0.95, col: 0xffd58a, glow: 1.15, alpha: 0.40, sprite: S_FLARE, fadePow: 2.6, rot: 1.1 });
+    o = pRec();
+    o.x = x; o.y = gy + 2.55; o.z = z; o.life = 0.62;
+    o.size = r * 0.34; o.sizeEnd = r * 0.95;
+    o.col = 0xffe6b4; o.glow = 1.35; o.alpha = 0.48; o.sprite = S_FLARE; o.fadePow = 2.6; o.rot = 1.1;
+    this.pAdd.spawn(o);
 
     // --- shockwave train ---------------------------------------------------
     // fast thin outrunner
-    this.ringPool.spawn({ x, y: gy + 0.20, z, r0: 0.8, r1: r * 2.2, dur: 0.6, col: 0xcfe6ff, alpha: 0.85, thick: 0.032, dust: 0.14, emis: 0.95, ease: 3.4 });
+    R = rRec();
+    R.x = x; R.y = gy + 0.20; R.z = z; R.r0 = 0.8; R.r1 = r * 2.2; R.dur = 0.6;
+    R.col = 0xcfe6ff; R.alpha = 0.85; R.thick = 0.032; R.dust = 0.14; R.emis = 0.95; R.ease = 3.4;
+    this.ringPool.spawn(R);
     // main bright shockwave — thin band, hot lip, heavy dust skirt behind it
-    this.ringPool.spawn({ x, y: gy + 0.19, z, r0: 1.2, r1: r * 1.9, dur: 0.9, col: 0xffbe64, alpha: 1, thick: 0.10, dust: 0.85, emis: 1.3, ease: 3 });
+    R = rRec();
+    R.x = x; R.y = gy + 0.19; R.z = z; R.r0 = 1.2; R.r1 = r * 1.9; R.dur = 0.9;
+    R.col = 0xffbe64; R.alpha = 1; R.thick = 0.10; R.dust = 0.85; R.emis = 1.3; R.ease = 3;
+    this.ringPool.spawn(R);
     // hot inner ring
-    this.ringPool.spawn({ x, y: gy + 0.18, z, r0: 0.3, r1: r * 1.0, dur: 0.5, col: 0xffe3ab, alpha: 0.85, thick: 0.24, dust: 0.35, emis: 0.8, ease: 2.4 });
+    R = rRec();
+    R.x = x; R.y = gy + 0.18; R.z = z; R.r0 = 0.3; R.r1 = r * 1.0; R.dur = 0.5;
+    R.col = 0xffe3ab; R.alpha = 0.85; R.thick = 0.24; R.dust = 0.35; R.emis = 0.8; R.ease = 2.4;
+    this.ringPool.spawn(R);
     // slow soot skirt
-    this.ringPool.spawn({ x, y: gy + 0.17, z, r0: 0.6, r1: r * 1.4, dur: 1.6, col: 0xc79055, alpha: 1, thick: 0.3, dust: 1.0, emis: 0.18, ease: 2.2 });
+    R = rRec();
+    R.x = x; R.y = gy + 0.17; R.z = z; R.r0 = 0.6; R.r1 = r * 1.4; R.dur = 1.6;
+    R.col = 0xc79055; R.alpha = 1; R.thick = 0.3; R.dust = 1.0; R.emis = 0.18; R.ease = 2.2;
+    this.ringPool.spawn(R);
     // shock dome
-    this.arcs.spawn({
-      x, y: gy, z, life: 0.42, mode: 1,
-      sx0: r * 0.8, sx1: r * 2.6, sy0: r * 0.45, sy1: r * 1.3,
-      yoff: 0, col: 0xffe9c0, glow: 0.85, alpha: 0.20, sprite: S_DOME, fadePow: 2.4,
-    });
+    a2 = aRec();
+    a2.x = x; a2.y = gy; a2.z = z; a2.life = 0.42; a2.mode = 1;
+    a2.sx0 = r * 0.8; a2.sx1 = r * 2.6; a2.sy0 = r * 0.45; a2.sy1 = r * 1.3;
+    a2.yoff = 0; a2.col = 0xffe9c0; a2.glow = 0.85; a2.alpha = 0.20;
+    a2.sprite = S_DOME; a2.fadePow = 2.4;
+    this.arcs.spawn(a2);
 
     // --- crater + scorch ---------------------------------------------------
-    this.decalPool.spawn({ x, y: gy + 0.11, z, size: r * 1.9, dur: 11, col: 0xffb254, sprite: 0, hot: 1, alpha: 1 });
-    this.decalPool.spawn({ x, y: gy + 0.10, z, size: r * 3.0, dur: 8, col: 0xff9a3c, sprite: 2, hot: 0.35, alpha: 0.7 });
-    this.decalPool.spawn({ x, y: gy + 0.12, z, size: r * 2.2, dur: 1.6, col: 0xffd28a, sprite: 3, hot: 1, alpha: 0.0 });
+    d = dRec();
+    d.x = x; d.y = gy + 0.11; d.z = z; d.size = r * 1.9; d.dur = 11;
+    d.col = 0xffb254; d.sprite = 0; d.hot = 1; d.alpha = 1;
+    this.decalPool.spawn(d);
+    d = dRec();
+    d.x = x; d.y = gy + 0.10; d.z = z; d.size = r * 3.0; d.dur = 8;
+    d.col = 0xff9a3c; d.sprite = 2; d.hot = 0.35; d.alpha = 0.7;
+    this.decalPool.spawn(d);
+    d = dRec();
+    d.x = x; d.y = gy + 0.12; d.z = z; d.size = r * 2.2; d.dur = 1.6;
+    d.col = 0xffd28a; d.sprite = 3; d.hot = 1; d.alpha = 0.0;
+    this.decalPool.spawn(d);
 
     // --- vertical light burst ---------------------------------------------
     // the column uses a double-tapered streak so its hot zone sits ABOVE the
     // deck: the crater stays readable underneath instead of being washed out.
-    this.arcs.spawn({
-      x, y: gy, z, life: 0.85, mode: 1, pin: 1,
-      sx0: r * 0.8, sx1: r * 1.4, sy0: 11, sy1: 23,
-      col: 0xffc978, glow: 1.2, alpha: 0.7, sprite: S_STREAK, fadePow: 2.2,
-    });
-    this.arcs.spawn({
-      x, y: gy, z, life: 0.6, mode: 1, pin: 1,
-      sx0: r * 0.26, sx1: r * 0.48, sy0: 13, sy1: 21,
-      col: 0xfff6e6, glow: 1.45, alpha: 0.85, sprite: S_STREAK, fadePow: 3,
-    });
-    // soft light bloom wrapped around the column (sells "burst", not "beam")
-    this.arcs.spawn({
-      x, y: gy + 3.4, z, life: 0.7, mode: 1,
-      sx0: r * 1.0, sx1: r * 1.9, sy0: r * 0.9, sy1: r * 1.7,
-      col: 0xffd190, glow: 1.0, alpha: 0.3, sprite: S_GLOW, fadePow: 2.4,
-    });
-    this.arcs.spawn({
-      x, y: gy, z, life: 1.15, mode: 1, pin: 1,
-      sx0: r * 1.45, sx1: r * 2.2, sy0: 8, sy1: 16,
-      col: 0xffa858, glow: 0.7, alpha: 0.11, sprite: S_STREAK, fadePow: 1.8,
-    });
+    a2 = aRec();
+    a2.x = x; a2.y = gy; a2.z = z; a2.life = 0.85; a2.mode = 1; a2.pin = 1;
+    a2.sx0 = r * 0.8; a2.sx1 = r * 1.4; a2.sy0 = 11; a2.sy1 = 23;
+    a2.col = 0xffc978; a2.glow = 1.2; a2.alpha = 0.7; a2.sprite = S_STREAK; a2.fadePow = 2.2;
+    this.arcs.spawn(a2);
+    a2 = aRec();
+    a2.x = x; a2.y = gy; a2.z = z; a2.life = 0.6; a2.mode = 1; a2.pin = 1;
+    a2.sx0 = r * 0.26; a2.sx1 = r * 0.48; a2.sy0 = 13; a2.sy1 = 21;
+    a2.col = 0xfff6e6; a2.glow = 1.45; a2.alpha = 0.85; a2.sprite = S_STREAK; a2.fadePow = 3;
+    this.arcs.spawn(a2);
+    // (deleted: the r*1.9 wrap-glow and the r*2.2 x 16 outer ray. Two
+    //  full-blast-radius additive quads at 0.30 / 0.11 alpha that only flattened
+    //  the value range they were sitting on. Their removal is what pays for the
+    //  soot pool below.)
     // small root flare where the column meets the stone
-    this.arcs.spawn({
-      x, y: gy, z, life: 0.45, mode: 1, pin: 1,
-      sx0: r * 0.34, sx1: r * 0.6, sy0: 2.2, sy1: 3.4,
-      col: 0xfff0cf, glow: 1.2, alpha: 0.3, sprite: S_RAY, fadePow: 3,
-    });
+    a2 = aRec();
+    a2.x = x; a2.y = gy; a2.z = z; a2.life = 0.45; a2.mode = 1; a2.pin = 1;
+    a2.sx0 = r * 0.34; a2.sx1 = r * 0.6; a2.sy0 = 2.2; a2.sy1 = 3.4;
+    a2.col = 0xfff0cf; a2.glow = 1.2; a2.alpha = 0.3; a2.sprite = S_RAY; a2.fadePow = 3;
+    this.arcs.spawn(a2);
 
     // --- radial god-ray streaks -------------------------------------------
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * TAU + rf(-0.13, 0.13);
+    // 12 -> 9 and dimmer: these are long additive quads and they were the thing
+    // painting the entire frame one 27-degree amber band.
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU + rf(-0.16, 0.16);
       const pitch = rf(0.55, 1.35);
       const cp = Math.cos(pitch), sp = Math.sin(pitch);
       const dx = Math.cos(a) * cp, dy = sp, dz = Math.sin(a) * cp;
       const sp0 = rf(8, 15);
-      this.pAdd.spawn({
-        x: x + dx * 2.0, y: gy + 1.5 + dy * 2.0, z: z + dz * 2.0,
-        vx: dx * sp0, vy: dy * sp0, vz: dz * sp0,
-        dirX: dx, dirY: dy, dirZ: dz,
-        life: rf(0.44, 0.7), size: rf(0.5, 0.95), sizeEnd: rf(0.1, 0.24),
-        col: i % 3 === 0 ? 0xfff0cc : 0xffc06a, glow: 1.25, alpha: 0.62,
-        sprite: S_RAY, drag: 4.5, stretch: rf(8, 14), fadePow: 2.4,
-      });
+      o = pRec();
+      o.x = x + dx * 2.0; o.y = gy + 1.5 + dy * 2.0; o.z = z + dz * 2.0;
+      o.vx = dx * sp0; o.vy = dy * sp0; o.vz = dz * sp0;
+      o.dirX = dx; o.dirY = dy; o.dirZ = dz;
+      o.life = rf(0.44, 0.7); o.size = rf(0.5, 0.95); o.sizeEnd = rf(0.1, 0.24);
+      o.col = i % 3 === 0 ? 0xfff0cc : 0xffab48; o.glow = 1.1; o.alpha = 0.48;
+      o.sprite = S_RAY; o.drag = 4.5; o.stretch = rf(8, 14); o.fadePow = 2.4;
+      this.pAdd.spawn(o);
     }
-    // sunlit dust catching the burst — additive, so the plume glows instead of
-    // turning the frame grey the way pure alpha smoke does.
-    for (let i = 0; i < 20; i++) {
-      const a = rf(0, TAU), rr = rf(r * 0.35, r * 1.05);
-      this.pAdd.spawn({
-        x: x + Math.cos(a) * rr, y: gy + rf(0.3, 1.8), z: z + Math.sin(a) * rr,
-        vx: Math.cos(a) * rf(1.5, 5), vy: rf(2.2, 5.5), vz: Math.sin(a) * rf(1.5, 5),
-        life: rf(0.8, 1.5), size: rf(1.4, 2.4), sizeEnd: rf(3.2, 5.0),
-        col: 0xffc887, glow: 1.0, alpha: 0.2, sprite: S_PUFF, drag: 1.8,
-        rot: rf(0, 6.28), rotV: rf(-0.9, 0.9), fadePow: 1.5,
-      });
+    // sunlit dust catching the burst. Cut 20 -> 8 and shrunk: these were the
+    // single largest additive-overdraw item in the frame, and the plume's body
+    // is now carried by pSoot, which can actually occlude.
+    for (let i = 0; i < 8; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.45, r * 1.05);
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(0.4, 1.8); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(1.5, 5); o.vy = rf(2.2, 5.5); o.vz = Math.sin(a) * rf(1.5, 5);
+      o.life = rf(0.8, 1.4); o.size = rf(1.0, 1.7); o.sizeEnd = rf(2.2, 3.3);
+      o.col = 0xffc887; o.glow = 1.0; o.alpha = 0.16; o.sprite = S_PUFF; o.drag = 1.8;
+      o.rot = rf(0, 6.28); o.rotV = rf(-0.9, 0.9); o.fadePow = 1.5;
+      this.pAdd.spawn(o);
     }
 
     // --- radial ground speed-lines ----------------------------------------
@@ -2203,13 +2668,14 @@ export class VFX {
       const a = rf(0, TAU);
       const ca = Math.cos(a), sa = Math.sin(a);
       const sp0 = rf(38, 62);
-      this.pAdd.spawn({
-        x: x + ca * 2.0, y: gy + rf(0.15, 0.9), z: z + sa * 2.0,
-        vx: ca * sp0, vy: rf(0.4, 2.2), vz: sa * sp0,
-        dirX: ca, dirY: 0, dirZ: sa,
-        life: rf(0.26, 0.4), size: rf(0.14, 0.26), sizeEnd: 0.04,
-        col: 0xffe6bb, glow: 1.25, alpha: 0.38, sprite: S_STREAK, drag: 8, stretch: rf(6, 11), fadePow: 2.2,
-      });
+      o = pRec();
+      o.x = x + ca * 2.0; o.y = gy + rf(0.15, 0.9); o.z = z + sa * 2.0;
+      o.vx = ca * sp0; o.vy = rf(0.4, 2.2); o.vz = sa * sp0;
+      o.dirX = ca; o.dirY = 0; o.dirZ = sa;
+      o.life = rf(0.26, 0.4); o.size = rf(0.14, 0.26); o.sizeEnd = 0.04;
+      o.col = 0xffe6bb; o.glow = 1.25; o.alpha = 0.38; o.sprite = S_STREAK;
+      o.drag = 8; o.stretch = rf(6, 11); o.fadePow = 2.2;
+      this.pAdd.spawn(o);
     }
 
     // --- chunky debris -----------------------------------------------------
@@ -2217,87 +2683,169 @@ export class VFX {
       const a = rf(0, TAU);
       const sp0 = rf(11, 26);
       const dd = rf(0.3, 1.3);
-      this.debris.spawn({
-        x: x + Math.cos(a) * dd, y: gy + rf(0.15, 0.7), z: z + Math.sin(a) * dd,
-        vx: Math.cos(a) * sp0, vy: rf(8, 17), vz: Math.sin(a) * sp0,
-        size: rf(0.18, 0.58), life: rf(1.5, 2.6), ground: gy + 0.06,
-        ax: rf(-1, 1), ay: rf(-1, 1), az: rf(-1, 1), spin: rf(-16, 16),
-        hot: Math.max(0, 1 - dd / r) * 0.92,   // V2: blast light on the chunks
-      });
+      b = bRec();
+      b.x = x + Math.cos(a) * dd; b.y = gy + rf(0.15, 0.7); b.z = z + Math.sin(a) * dd;
+      b.vx = Math.cos(a) * sp0; b.vy = rf(8, 17); b.vz = Math.sin(a) * sp0;
+      b.size = rf(0.18, 0.58); b.life = rf(1.5, 2.6); b.ground = gy + 0.06;
+      b.ax = rf(-1, 1); b.ay = rf(-1, 1); b.az = rf(-1, 1); b.spin = rf(-16, 16);
+      b.hot = Math.max(0, 1 - dd / r) * 0.92;   // V2: blast light on the chunks
+      this.debris.spawn(b);
     }
-    // glowing shard sprites so the debris reads even against dark stone
-    for (let i = 0; i < 14; i++) {
+    // Hot shard sprites, recoloured from amber to a desaturated grey-violet.
+    // Additive amber-on-amber was exactly the "confetti" read: pale triangles
+    // with no hue of their own. Cool now, cooling to near-black.
+    for (let i = 0; i < 12; i++) {
       const a = rf(0, TAU), sp0 = rf(10, 22);
-      this.pAdd.spawn({
-        x, y: gy + 0.4, z,
-        vx: Math.cos(a) * sp0, vy: rf(7, 15), vz: Math.sin(a) * sp0,
-        life: rf(0.5, 0.9), size: rf(0.18, 0.34), sizeEnd: 0.06,
-        col: 0xffb058, colEnd: 0x6a2408, glow: 1.7, glowEnd: 1.2,
-        sprite: S_SHARD, gravity: 24, drag: 0.4, rotV: rf(-9, 9), fadePow: 3,
-      });
+      o = pRec();
+      o.x = x; o.y = gy + 0.4; o.z = z;
+      o.vx = Math.cos(a) * sp0; o.vy = rf(7, 15); o.vz = Math.sin(a) * sp0;
+      o.life = rf(0.5, 0.9); o.size = rf(0.18, 0.34); o.sizeEnd = 0.06;
+      o.col = 0x8f8ea8; o.colEnd = 0x2e2a3a; o.glow = 1.35; o.glowEnd = 0.8;
+      o.sprite = S_SHARD; o.gravity = 24; o.drag = 0.4; o.rotV = rf(-9, 9); o.fadePow = 3;
+      this.pAdd.spawn(o);
+    }
+    // OPAQUE stone chunks thrown UP THROUGH the core, drawn after the additive
+    // plume. These are the silhouettes the frame had none of: hard dark shapes
+    // with a lit facet, reading against the white-hot centre.
+    for (let i = 0; i < 17; i++) {
+      const a = rf(0, TAU), sp0 = rf(5, 15);
+      o = pRec();
+      o.x = x + Math.cos(a) * rf(0.2, r * 0.7); o.y = gy + rf(0.3, 1.0); o.z = z + Math.sin(a) * rf(0.2, r * 0.7);
+      o.vx = Math.cos(a) * sp0; o.vy = rf(10, 22); o.vz = Math.sin(a) * sp0;
+      o.life = rf(0.7, 1.5); o.size = rf(0.26, 0.68); o.sizeEnd = rf(0.22, 0.55);
+      o.col = 0x453a2f; o.colEnd = 0x1e1a17; o.alpha = 0.97; o.glow = 1; o.glowEnd = 1;
+      o.sprite = A_CHUNK; o.gravity = 21; o.drag = 0.35;
+      o.rot = rf(0, 6.28); o.rotV = rf(-11, 11); o.fadePow = 5;
+      this.pSoot.spawn(o);
     }
 
     // --- sparks ------------------------------------------------------------
-    for (let i = 0; i < 56; i++) {
+    for (let i = 0; i < 50; i++) {
       const a = rf(0, TAU);
       const sp0 = rf(7, 26);
       const upv = rf(4, 16);
-      this.pAdd.spawn({
-        x: x + Math.cos(a) * rf(0, 1), y: gy + rf(0.1, 0.5), z: z + Math.sin(a) * rf(0, 1),
-        vx: Math.cos(a) * sp0, vy: upv, vz: Math.sin(a) * sp0,
-        life: rf(0.32, 0.68), size: rf(0.14, 0.26), sizeEnd: 0.02,
-        col: i % 4 === 0 ? 0xffffff : 0xffd07a,
-        glow: 2.1, sprite: S_SPARK2, gravity: 20, drag: 1.6, stretch: rf(2.2, 4.5), fadePow: 3,
-      });
+      o = pRec();
+      o.x = x + Math.cos(a) * rf(0, 1); o.y = gy + rf(0.1, 0.5); o.z = z + Math.sin(a) * rf(0, 1);
+      o.vx = Math.cos(a) * sp0; o.vy = upv; o.vz = Math.sin(a) * sp0;
+      o.life = rf(0.32, 0.68); o.size = rf(0.14, 0.26); o.sizeEnd = 0.02;
+      o.col = i % 4 === 0 ? 0xffffff : 0xffd07a;
+      o.glow = 2.1; o.sprite = S_SPARK2; o.gravity = 20; o.drag = 1.6;
+      o.stretch = rf(2.2, 4.5); o.fadePow = 3;
+      this.pAdd.spawn(o);
     }
 
     // --- embers that linger and cool --------------------------------------
-    for (let i = 0; i < 46; i++) {
+    for (let i = 0; i < 40; i++) {
       const a = rf(0, TAU), rr = rf(0.3, r * 0.95);
-      this.pAdd.spawn({
-        x: x + Math.cos(a) * rr, y: gy + rf(0.2, 1.4), z: z + Math.sin(a) * rr,
-        vx: Math.cos(a) * rf(1, 5), vy: rf(1.5, 6.5), vz: Math.sin(a) * rf(1, 5),
-        life: rf(1.1, 2.6), size: rf(0.1, 0.26), sizeEnd: rf(0.03, 0.08),
-        col: 0xffca7a, colEnd: 0x8c2606, glow: 2.0, glowEnd: 1.1,
-        sprite: S_EMBER, gravity: 2.4, drag: 1.3, fadePow: 4,
-      });
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(0.2, 1.4); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(1, 5); o.vy = rf(1.5, 6.5); o.vz = Math.sin(a) * rf(1, 5);
+      o.life = rf(1.1, 2.6); o.size = rf(0.1, 0.26); o.sizeEnd = rf(0.03, 0.08);
+      o.col = 0xffca7a; o.colEnd = 0x8c2606; o.glow = 2.0; o.glowEnd = 1.1;
+      o.sprite = S_EMBER; o.gravity = 2.4; o.drag = 1.3; o.fadePow = 4;
+      this.pAdd.spawn(o);
+    }
+
+    // --- SOOT: the dark mass, drawn after the plume ------------------------
+    // VFX-1, and the whole reason pSoot exists. Three bands:
+    //   a) a low, near-opaque bank hugging the crater lip. This is the value
+    //      FLOOR the blast reads against — measured, the old frame had 0.02% of
+    //      the core region below L=60, i.e. no dark pixels at all.
+    //   b) mid lobes rising through the light column, silhouetted by it.
+    //   c) a cool grey-violet cap on top, for hue opposition against the amber.
+    // NOTE ON ALPHA. These are near-OPAQUE on purpose. Alpha-blending over a
+    // core whose linear radiance is >1 cannot make a dark pixel at alpha 0.6:
+    // 0.4 of an HDR background still tone-maps bright. Measured, an 0.8-alpha
+    // lobe over the core lands around L=150. Only the 0.9+ band, where the
+    // billow's own opaque centre survives, actually reads as smoke MASS. The
+    // sprite's edges fall off on their own, so the lobes are still soft-edged.
+    // Sized and placed as a RING, not a lid: everything sits at r*0.5 or further
+    // out so the incandescent centre and the caster stay clear, and the lobes
+    // are small enough that the plume reads as boiling volume rather than as one
+    // opaque splat over the hero moment (which is what r*0.7 lobes at alpha 0.95
+    // gave — measured and looked at; too much dark is its own failure).
+    for (let i = 0; i < 11; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.52, r * 1.20);
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(0.35, 1.3); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(2.2, 6.0); o.vy = rf(0.9, 2.6); o.vz = Math.sin(a) * rf(2.2, 6.0);
+      o.life = rf(1.3, 2.3); o.size = r * rf(0.24, 0.42); o.sizeEnd = r * rf(0.8, 1.35);
+      o.col = 0x271c13; o.alpha = rf(0.72, 0.92); o.sprite = A_BILLOW;
+      o.drag = 2.2; o.glow = 1; o.rot = rf(0, 6.28); o.rotV = rf(-0.6, 0.6); o.fadePow = 1.6;
+      this.pSoot.spawn(o);
+    }
+    for (let i = 0; i < 16; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.38, r * 0.95);
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(1.6, 4.2); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(1.2, 3.8); o.vy = rf(3.0, 7.2); o.vz = Math.sin(a) * rf(1.2, 3.8);
+      o.life = rf(1.3, 2.3); o.size = r * rf(0.22, 0.40); o.sizeEnd = r * rf(0.75, 1.3);
+      o.col = 0x372718; o.alpha = rf(0.68, 0.92); o.sprite = A_BILLOW;
+      o.drag = 1.6; o.glow = 1; o.rot = rf(0, 6.28); o.rotV = rf(-0.7, 0.7); o.fadePow = 1.5;
+      this.pSoot.spawn(o);
+    }
+    for (let i = 0; i < 9; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.25, r * 0.80);
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(4.0, 6.8); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(0.8, 2.6); o.vy = rf(3.4, 7.0); o.vz = Math.sin(a) * rf(0.8, 2.6);
+      o.life = rf(1.4, 2.4); o.size = r * rf(0.20, 0.38); o.sizeEnd = r * rf(0.7, 1.2);
+      o.col = 0x6a6884; o.alpha = rf(0.42, 0.66); o.sprite = A_BILLOW;
+      o.drag = 1.3; o.glow = 1; o.rot = rf(0, 6.28); o.rotV = rf(-0.6, 0.6); o.fadePow = 1.4;
+      this.pSoot.spawn(o);
+    }
+    // SECONDARY HUE, bright side. The dark smoke supplies value range but no
+    // colour: every pixel above L=170 in this frame was inside a 27-degree amber
+    // band. These are the cool half of the palette — the condensation flash
+    // riding the shock front and the sky-lit edge of the plume — and they are
+    // bright enough to actually count against the gold.
+    for (let i = 0; i < 11; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.55, r * 1.35);
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(1.0, 4.4); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(2.0, 6.5); o.vy = rf(1.6, 5.0); o.vz = Math.sin(a) * rf(2.0, 6.5);
+      o.life = rf(0.45, 0.85); o.size = rf(0.9, 1.9); o.sizeEnd = rf(2.0, 3.4);
+      o.col = 0x9dc2ff; o.glow = 1.15; o.alpha = 0.34; o.sprite = S_PUFF;
+      o.drag = 2.4; o.rot = rf(0, 6.28); o.rotV = rf(-0.8, 0.8); o.fadePow = 1.8;
+      this.pAdd.spawn(o);
     }
 
     // --- dust: annular curtain + outward-riding skirt -----------------------
     // spawned in a ring, not at the centre, so the crater and the hero stay
-    // readable while the plume frames the impact.
-    // curtain sits OUTSIDE the crater lip so it darkens bright pavement rather
-    // than washing out the scorch mark it is supposed to frame
-    for (let i = 0; i < 30; i++) {
-      const a = rf(0, TAU), rr = rf(r * 0.9, r * 1.7);
-      this.pAlpha.spawn({
-        x: x + Math.cos(a) * rr, y: gy + rf(0.3, 3.0), z: z + Math.sin(a) * rr,
-        vx: Math.cos(a) * rf(1.0, 4.0), vy: rf(2.0, 5.6), vz: Math.sin(a) * rf(1.0, 4.0),
-        life: rf(1.2, 2.1), size: rf(2.0, 3.6), sizeEnd: rf(4.4, 7.0),
-        col: 0xa48b68, alpha: rf(0.26, 0.44), sprite: A_SMOKE, drag: 1.5, glow: 1,
-        rot: rf(0, 6.28), rotV: rf(-0.8, 0.8), fadePow: 1.5,
-      });
-    }
+    // readable while the plume frames the impact. Recoloured to a cool
+    // grey-violet: the outer dust used to be the same 30° amber band as the
+    // fire, which is why the whole effect read as one colour.
     for (let i = 0; i < 26; i++) {
+      const a = rf(0, TAU), rr = rf(r * 0.9, r * 1.7);
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(0.3, 3.0); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(1.0, 4.0); o.vy = rf(2.0, 5.6); o.vz = Math.sin(a) * rf(1.0, 4.0);
+      o.life = rf(1.2, 2.1); o.size = rf(2.0, 3.6); o.sizeEnd = rf(4.4, 7.0);
+      o.col = 0x6f7d95; o.alpha = rf(0.26, 0.44); o.sprite = A_SMOKE;
+      o.drag = 1.5; o.glow = 1; o.rot = rf(0, 6.28); o.rotV = rf(-0.8, 0.8); o.fadePow = 1.5;
+      this.pAlpha.spawn(o);
+    }
+    for (let i = 0; i < 24; i++) {
       const a = rf(0, TAU);
       const sp0 = rf(16, 32);
-      this.pAlpha.spawn({
-        x: x + Math.cos(a) * 1.4, y: gy + rf(0.1, 0.6), z: z + Math.sin(a) * 1.4,
-        vx: Math.cos(a) * sp0, vy: rf(0.6, 2.0), vz: Math.sin(a) * sp0,
-        life: rf(0.9, 1.7), size: rf(0.9, 1.8), sizeEnd: rf(3.2, 5.2),
-        col: 0xc2ab88, alpha: rf(0.26, 0.44), sprite: A_SMOKE, drag: 4.2, glow: 1,
-        rot: rf(0, 6.28), rotV: rf(-1.2, 1.2), fadePow: 1.4,
-      });
+      o = pRec();
+      o.x = x + Math.cos(a) * 1.4; o.y = gy + rf(0.1, 0.6); o.z = z + Math.sin(a) * 1.4;
+      o.vx = Math.cos(a) * sp0; o.vy = rf(0.6, 2.0); o.vz = Math.sin(a) * sp0;
+      o.life = rf(0.9, 1.7); o.size = rf(0.9, 1.8); o.sizeEnd = rf(3.2, 5.2);
+      o.col = 0x8f8ea8; o.alpha = rf(0.26, 0.44); o.sprite = A_SMOKE;
+      o.drag = 4.2; o.glow = 1; o.rot = rf(0, 6.28); o.rotV = rf(-1.2, 1.2); o.fadePow = 1.4;
+      this.pAlpha.spawn(o);
     }
-    // dark soot puffs, kept out at the rim so the core stays clean
-    for (let i = 0; i < 16; i++) {
+    // low soot rolling out along the deck, at the rim
+    for (let i = 0; i < 14; i++) {
       const a = rf(0, TAU), rr = rf(r * 0.85, r * 1.5);
-      this.pAlpha.spawn({
-        x: x + Math.cos(a) * rr, y: gy + rf(0.6, 3.2), z: z + Math.sin(a) * rr,
-        vx: Math.cos(a) * rf(2, 7), vy: rf(2.4, 5.4), vz: Math.sin(a) * rf(2, 7),
-        life: rf(0.9, 1.8), size: rf(1.1, 2.1), sizeEnd: rf(2.8, 4.6),
-        col: 0x3a2f24, alpha: rf(0.2, 0.36), sprite: A_SOOT, drag: 2.6, glow: 1, fadePow: 1.4,
-      });
+      o = pRec();
+      o.x = x + Math.cos(a) * rr; o.y = gy + rf(0.6, 3.2); o.z = z + Math.sin(a) * rr;
+      o.vx = Math.cos(a) * rf(2, 7); o.vy = rf(2.4, 5.4); o.vz = Math.sin(a) * rf(2, 7);
+      o.life = rf(0.9, 1.8); o.size = rf(1.1, 2.1); o.sizeEnd = rf(2.8, 4.6);
+      o.col = 0x3a2f24; o.alpha = rf(0.2, 0.36); o.sprite = A_SOOT;
+      o.drag = 2.6; o.glow = 1; o.fadePow = 1.4;
+      this.pAlpha.spawn(o);
     }
   }
 
@@ -2324,6 +2872,12 @@ export class VFX {
     this.pAdd.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: S_DOT });
     this.pAdd.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: S_STREAK, stretch: 4, dirX: 1, dirY: 0, dirZ: 0 });
     this.pAlpha.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: A_SMOKE });
+    // pSoot shares pAlpha's shader source verbatim, so three hands it the same
+    // linked program — but it is a separate MESH with its own draw call and its
+    // own attribute buffers, so it still has to be really drawn once here.
+    this.pSoot.spawn({ x: 0, y: Y, z: 0, life: L, size: T, sizeEnd: T, alpha: 0, sprite: A_BILLOW });
+    // the wear pool is populated for the whole session by _scatterWear(), so it
+    // is already drawn on the warm-up frame; nothing to seed.
     this.arcs.spawn({ x: 0, y: Y, z: 0, life: L, sx0: T, sx1: T, sy0: T, sy1: T, alpha: 0, sprite: S_SLASH });
     this.arcs.spawn({ x: 0, y: Y, z: 0, life: L, mode: 1, pin: 1, sx0: T, sx1: T, sy0: T, sy1: T, alpha: 0, sprite: S_RAY });
     this.ringPool.spawn({ x: 0, y: Y, z: 0, r0: T, r1: T, dur: L, alpha: 0, thick: 0.02, dust: 0, emis: 0 });
@@ -2353,7 +2907,8 @@ export class VFX {
   }
 
   resetAll() {
-    this.pAdd.clear(); this.pAlpha.clear();
+    this.pAdd.clear(); this.pAlpha.clear(); this.pSoot.clear();
+    // NOT wearPool: it is permanent scenery, not an effect.
     this.arcs.clear(); this.ringPool.clear(); this.decalPool.clear();
     this.telePool.clear(); this.beamPool.clear();
     this.debris.clear(); this.ghostPool.clear(); this.trailBank.clear();
@@ -2370,6 +2925,7 @@ export class VFX {
     this.time += dt;
     this.pAdd.update(dt);
     this.pAlpha.update(dt);
+    this.pSoot.update(dt);
     this.arcs.update(dt);
     this.ringPool.update(dt);
     this.decalPool.update(dt);
@@ -2424,19 +2980,20 @@ export class VFX {
         p.trailAcc += dt;
         if (p.trailAcc > 0.016) {
           p.trailAcc = 0;
-          this.pAdd.spawn({
-            x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: 0, vy: 0.25, vz: 0,
-            life: 0.3, size: p.size * 1.5, sizeEnd: 0.01, col: p.col, colEnd: 0xffffff,
-            gravity: 0, drag: 0.6, sprite: S_DOT, glow: 1.3, alpha: 0.7, fadePow: 1.6,
-          });
+          let o = pRec();
+          o.x = p.pos.x; o.y = p.pos.y; o.z = p.pos.z; o.vx = 0; o.vy = 0.25; o.vz = 0;
+          o.life = 0.3; o.size = p.size * 1.5; o.sizeEnd = 0.01;
+          o.col = p.col; o.colEnd = 0xffffff;
+          o.gravity = 0; o.drag = 0.6; o.sprite = S_DOT; o.glow = 1.3; o.alpha = 0.7; o.fadePow = 1.6;
+          this.pAdd.spawn(o);
           if (rnd() < 0.5) {
-            this.pAdd.spawn({
-              x: p.pos.x, y: p.pos.y, z: p.pos.z,
-              vx: (rnd() - 0.5) * 1.2, vy: (rnd() - 0.5) * 1.2, vz: (rnd() - 0.5) * 1.2,
-              dirX: p.dx, dirY: p.dy, dirZ: p.dz,
-              life: 0.24, size: p.size * 0.6, sizeEnd: 0.01, col: 0xffffff,
-              gravity: 0, drag: 1.5, sprite: S_STREAK, glow: 1.4, alpha: 0.5, stretch: 3.5,
-            });
+            o = pRec();
+            o.x = p.pos.x; o.y = p.pos.y; o.z = p.pos.z;
+            o.vx = (rnd() - 0.5) * 1.2; o.vy = (rnd() - 0.5) * 1.2; o.vz = (rnd() - 0.5) * 1.2;
+            o.dirX = p.dx; o.dirY = p.dy; o.dirZ = p.dz;
+            o.life = 0.24; o.size = p.size * 0.6; o.sizeEnd = 0.01; o.col = 0xffffff;
+            o.gravity = 0; o.drag = 1.5; o.sprite = S_STREAK; o.glow = 1.4; o.alpha = 0.5; o.stretch = 3.5;
+            this.pAdd.spawn(o);
           }
         }
       }

@@ -24,15 +24,48 @@
     <div class="mmStud bl"></div><div class="mmStud br"></div>
   </div>
 
-  <!-- top-center: team score + match timer -->
+  <!-- top-left, under the minimap: champion roster (both sides, live) -->
+  <div id="teamPanel">
+    <div class="tpRow" id="tpBlue">
+      <span class="tpChip"><i class="tpFace"></i><b class="tpLv" id="tpBlueLv">1</b></span>
+      <span class="tpMid">
+        <span class="tpTop"><b class="tpName">SERA</b><em class="tpKda" id="tpBlueKda">0/0</em></span>
+        <span class="tpBar"><i class="tpHp" id="tpBlueHp"></i><i class="tpMp" id="tpBlueMp"></i></span>
+      </span>
+      <span class="tpUlt" id="tpBlueUlt">R</span>
+    </div>
+    <div class="tpRow red" id="tpRed">
+      <span class="tpChip"><i class="tpFace"></i><b class="tpLv" id="tpRedLv">1</b></span>
+      <span class="tpMid">
+        <span class="tpTop"><b class="tpName">KARGATH</b><em class="tpKda" id="tpRedKda">0/0</em></span>
+        <span class="tpBar"><i class="tpHp" id="tpRedHp"></i><i class="tpMp" id="tpRedMp"></i></span>
+      </span>
+      <span class="tpUlt" id="tpRedUlt">R</span>
+    </div>
+  </div>
+
+  <!-- top-center: team score, match timer, structures still standing, next wave -->
   <div id="scoreboard">
     <div class="sbRow">
+      <span class="sbTow blue" id="towBlue"><i></i><i></i><b></b></span>
       <span id="scoreBlue" class="scoreNum blue">0</span>
       <span class="sbMark"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M6.9 2 13 8.1l-1.4 1.4L5.5 3.4V2h1.4zm10.2 0h1.4v1.4l-9.8 9.8 1.1 1.1-1.4 1.4-1.4-1.4-2.5 2.5.7.7L3.8 19l-1-1 1.4-1.4.7.7 2.5-2.5-1.4-1.4L7.4 12l1.1 1.1L17.1 2zM16 13.9l2.5 2.5.7-.7 1.4 1.4-1 1-1.4 1.4-1-1 .7-.7-2.5-2.5 1.4-1.4-.8-.8 1.4-1.4 1.4 1.4-1.4 1.4-.4.4z"/></svg></span>
       <span id="scoreRed" class="scoreNum red">0</span>
+      <span class="sbTow red" id="towRed"><i></i><i></i><b></b></span>
     </div>
     <div class="sbRule"><i></i><b></b><i></i></div>
-    <div id="gameTimer">00:00</div>
+    <div class="sbFoot">
+      <div id="gameTimer">00:00</div>
+      <span class="sbDot"></span>
+      <div class="objChip" id="objWave">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#2a1a08" d="M4.4 20.6 3 19.2l7.2-7.2 1.4 1.4zm15.2 0-7.2-7.2 1.4-1.4 7.2 7.2z"/>
+          <path fill="#ffd98c" d="M3.6 3.2h3.2l12 12-1.6 1.7-1.7-1.7.1 2.2-2.2-.1 1.7 1.7-1.6 1.6-12-12zm16.8 0h-3.2l-4.6 4.6 2.4 2.4 5.4-5.4z"/>
+          <path fill="#fff4d4" opacity=".55" d="M3.6 3.2h3.2l1.6 1.6-3.2 3.2-1.6-1.6z"/>
+        </svg>
+        <b id="waveTimer">0:00</b>
+      </div>
+    </div>
   </div>
 
   <!-- top-right: economy -->
@@ -48,6 +81,7 @@
 
   <!-- bottom-left: hero plate -->
   <div id="heroPlate">
+    <div class="plateScrim" aria-hidden="true"></div>
     <div id="portrait">
       <div id="portraitImg"></div>
       <div class="portGloss"></div>
@@ -76,22 +110,156 @@
     </div>
   </div>
 
-  <!-- relic sockets: unlock on the level milestones the sim actually grants -->
-  <div id="itemRail" aria-hidden="true">
-    <div class="itemSlot" data-lv="4"><svg viewBox="0 0 24 24"><path d="M12 1.6 15.4 8.2 15 18.4H9L8.6 8.2ZM6.6 19.6h10.8l-1 2.2H7.6Z"/></svg></div>
-    <div class="itemSlot" data-lv="7"><svg viewBox="0 0 24 24"><path d="M12 1.8 21 5v7.4c0 5-3.8 8.4-9 9.8-5.2-1.4-9-4.8-9-9.8V5Zm0 3.4L6.2 7.4v5c0 3.2 2.2 5.4 5.8 6.6 3.6-1.2 5.8-3.4 5.8-6.6v-5Z"/></svg></div>
-    <div class="itemSlot" data-lv="10"><svg viewBox="0 0 24 24"><path d="M2.4 15.6 12.6 7v4.2L21.6 4l-2.6 12.6-6.4-2.6-1.2 6.2Z"/></svg></div>
-    <div class="itemSlot" data-lv="13"><svg viewBox="0 0 24 24"><path d="M12 1.4 19.4 12 12 22.6 4.6 12Zm0 4.6L8.4 12l3.6 5.4L15.6 12Z"/></svg></div>
+  <!-- bottom-centre tray: forge entry, relic sockets, settings -->
+  <div id="tray">
+    <button id="btnShop" class="trayBtn" aria-label="Relic forge">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#120c06" d="M2.3 12.6h19.4v9.3H2.3z"/>
+        <path fill="#7a4a1c" d="M3.2 12.9h17.6v8.2H3.2z"/>
+        <path fill="#a9691f" d="M3.2 12.9h17.6v3.4H3.2z"/>
+        <path fill="#5a3312" d="M3.2 18.2h17.6v2.9H3.2z"/>
+        <path fill="#ffd98c" d="M2 11.2h20v2.3H2z"/>
+        <path fill="#fff3d0" opacity=".7" d="M2 11.2h20v.9H2z"/>
+        <path fill="#120c06" d="M7.1 2.1h9.8l2.4 5.1-2 1.5-1.4-2.4-.5 3.4H8.6l-.5-3.4-1.4 2.4-2-1.5z"/>
+        <path fill="#d9a53f" d="M7.8 3h8.4l1.8 4-1 .7L15.4 5l-.6 3.5H9.2L8.6 5 7.2 7.7l-1-.7z"/>
+        <path fill="#ffe7b4" d="M9.6 3.7h4.8l-.4 1.6H10z"/>
+        <circle cx="12" cy="16.6" r="2.6" fill="#3a86c9"/>
+        <circle cx="12" cy="16.6" r="1.4" fill="#bfe9ff"/>
+        <path fill="#fff" opacity=".8" d="M11.2 15.7h.9v.9h-.9z"/>
+      </svg>
+    </button>
+    <span class="trayDiv"></span>
+    <div id="itemRail" aria-hidden="true">
+      <div class="itemSlot" data-lv="4" title="Dawnedge">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#0e0a05" d="M12 .8 16.2 8.4 15.7 19H8.3L7.8 8.4Zm-6 19h12l-1.3 3.4H7.3Z"/>
+          <path fill="#c6d5ea" d="M12 2.4 15.1 8.7l-.4 9.3H9.3l-.4-9.3Z"/>
+          <path fill="#f4f9ff" d="M12 2.4 13.6 8.7l-.2 9.3h-1.4Z"/>
+          <path fill="#6d82a4" d="M9.3 18h1.6l-.3-9.3-1.7-3.1Z"/>
+          <path fill="#a5711c" d="M6.4 19.6h11.2l-1.1 2.8H7.5Z"/>
+          <path fill="#ffd98c" d="M6.4 19.6h11.2l-.4 1.1H6.8Z"/>
+        </svg>
+      </div>
+      <div class="itemSlot" data-lv="7" title="Aegis of the Sanctum">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#0e0a05" d="M12 1.1 21.6 4.6v7.9c0 5.3-4 9-9.6 10.5C6.4 21.5 2.4 17.8 2.4 12.5V4.6Z"/>
+          <path fill="#2f5d9e" d="M12 2.7 20 5.6v6.9c0 4.4-3.3 7.6-8 9-4.7-1.4-8-4.6-8-9V5.6Z"/>
+          <path fill="#4a86cf" d="M12 2.7 20 5.6v6.9c0 4.4-3.3 7.6-8 9Z"/>
+          <path fill="#ffd98c" d="M12 2.7 20 5.6v1.9L12 4.7 4 7.5V5.6Z"/>
+          <path fill="#e9f2ff" d="m12 7.4 2.1 3.7 4.1.6-3 2.9.7 4.1L12 16.8 8.1 18.7l.7-4.1-3-2.9 4.1-.6Z"/>
+          <path fill="#9fbde2" d="m12 7.4-.1 9.4L8.1 18.7l.7-4.1-3-2.9 4.1-.6Z"/>
+        </svg>
+      </div>
+      <div class="itemSlot" data-lv="10" title="Windstep Greaves">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#0e0a05" d="M4.4 19.6h15.2v3.2H4.4z"/>
+          <path fill="#6a3a22" d="M5.2 10.4h6.2c1.4 3.2 4 4 7.2 5.2 1.3.5 1.6 1.6 1.6 4H4.4V12Z"/>
+          <path fill="#8d5030" d="M5.2 10.4h6.2c.5 1.1 1.2 1.9 2 2.5l-8.2 2.6V12Z"/>
+          <path fill="#c8934a" d="M4.4 19.6h15.8v1.4H4.4z"/>
+          <path fill="#7fe6ff" d="M2 8.6 12 2.2l-1.6 4.6 4.2-1-8.2 6.6 1.4-4.2Z"/>
+          <path fill="#e6fbff" d="M2 8.6 12 2.2l-1.6 4.6-3.4 1.2Z"/>
+          <path fill="#0e0a05" opacity=".5" d="M4.4 16.9h15.6v.9H4.4z"/>
+        </svg>
+      </div>
+      <div class="itemSlot" data-lv="13" title="Rift Heart">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#0e0a05" d="M12 .6 21.2 12 12 23.4 2.8 12Z"/>
+          <path fill="#6a3ac0" d="M12 2.2 19.6 12 12 21.8 4.4 12Z"/>
+          <path fill="#a575f2" d="M12 2.2 19.6 12 12 21.8Z"/>
+          <path fill="#e3d0ff" d="M12 2.2 15.6 12 12 21.8 8.4 12Z"/>
+          <path fill="#fff" opacity=".85" d="M12 2.2 13.9 9 12 12 10.1 9Z"/>
+          <path fill="#ffd98c" d="M12 .6 13.1 3 12 2.2 10.9 3Z"/>
+        </svg>
+      </div>
+    </div>
+    <span class="trayDiv"></span>
+    <button id="btnMenu" class="trayBtn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#0e0a05" d="m10 1.3h4l.5 2.7 2 1.1 2.5-1.1 2 3.4-2 1.9v2.3l2 1.9-2 3.4-2.5-1.1-2 1.1-.5 2.7h-4l-.5-2.7-2-1.1-2.5 1.1-2-3.4 2-1.9V9.3l-2-1.9 2-3.4L7.5 5.1l2-1.1z" transform="translate(0 1.2)"/>
+        <path fill="#c9a24a" d="m10.6 3h2.8l.4 2.4 2.4 1.4 2.2-1 1.4 2.4-1.8 1.7v2.7l1.8 1.7-1.4 2.4-2.2-1-2.4 1.4-.4 2.4h-2.8l-.4-2.4-2.4-1.4-2.2 1L4.2 14l1.8-1.7V9.6L4.2 7.9l1.4-2.4 2.2 1 2.4-1.4z" transform="translate(0 1.2)"/>
+        <path fill="#ffe7b4" d="m10.6 3h2.8l.4 2.4-1.8.8-1.8-.8z" transform="translate(0 1.2)"/>
+        <circle cx="12" cy="13.2" r="4.4" fill="#12203a"/>
+        <circle cx="12" cy="13.2" r="2.5" fill="#7fc4ff"/>
+        <circle cx="11.2" cy="12.3" r="1" fill="#e9f7ff"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- forge / settings popovers (HUD-owned, closed by default) -->
+  <div id="shopPanel" class="hudPanel" aria-hidden="true">
+    <div class="hpHead"><b>RELIC FORGE</b><span class="hpGold"><i class="ico coin"></i><em id="shopGold">0</em></span></div>
+    <ul class="hpList" id="shopList"></ul>
+    <div class="hpFoot">Relics are forged automatically at the milestone level.</div>
+  </div>
+
+  <div id="menuPanel" class="hudPanel" aria-hidden="true">
+    <div class="hpHead"><b>SETTINGS</b></div>
+    <ul class="hpList">
+      <li class="hpOpt" data-opt="dmg"><span>Combat text</span><i class="hpTog on"></i></li>
+      <li class="hpOpt" data-opt="keys"><span>Keyboard hints</span><i class="hpTog"></i></li>
+      <li class="hpOpt" data-opt="motion"><span>Reduced motion</span><i class="hpTog"></i></li>
+    </ul>
+    <div class="hpFoot">Tap the gear again to close.</div>
   </div>
 
   <!-- bottom-right: ability cluster (Wild Rift arc: A anchor + Q/W/E arc + R ultimate) -->
   <div id="abilityCluster">
+    <span class="clusterScrim" aria-hidden="true"></span>
     <button id="btnR" class="abBtn ult" data-key="R" aria-label="Ultimate">
       <span class="abGlow"></span>
       <span class="abFrame"></span>
       <span class="abFace">
-        <!-- R · Dawnfall: point-down blade driven into a shock ring -->
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaR"><path d="M12 18L9.9 6.3L14.1 6.3Z"/><path d="M8.4 4.2H15.6V6.3H8.4Z"/><path d="M11.2 1.7h1.6v2.7h-1.6Z"/><path d="M13.35 1.7 12 3.1 10.65 1.7 12 .5Z"/><path d="M12 15.9c4.53 0 8.2 1.39 8.2 3.1s-3.67 3.1-8.2 3.1-8.2-1.39-8.2-3.1 3.67-3.1 8.2-3.1Zm0 1.7c-3.36 0-6.1.83-6.1 1.4s2.74 1.4 6.1 1.4 6.1-.83 6.1-1.4-2.74-1.4-6.1-1.4Z"/><path opacity=".82" d="M0.7 11.2L5.6 14.6L4.2 15.9Z"/><path opacity=".82" d="M23.3 11.2L18.4 14.6L19.8 15.9Z"/><path opacity=".82" d="M8.2 23.6L10.9 20.4L13.1 20.4L15.8 23.6Z"/></g><clipPath id="icR"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaR" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaR" fill="url(#igR)"/><g clip-path="url(#icR)"><use href="#iaR" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
+        <!-- R · DAWNFALL — the blade driven into the ground, sun cracking behind it -->
+        <svg class="abArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="rBg" cx=".5" cy=".28" r=".95">
+              <stop offset="0" stop-color="#ffdf9c"/><stop offset=".18" stop-color="#ff9a34"/>
+              <stop offset=".5" stop-color="#c33f13"/><stop offset=".8" stop-color="#5e1409"/>
+              <stop offset="1" stop-color="#240609"/>
+            </radialGradient>
+            <linearGradient id="rSteel" x1=".1" y1="0" x2=".9" y2="1">
+              <stop offset="0" stop-color="#ffffff"/><stop offset=".38" stop-color="#d2e0f2"/>
+              <stop offset=".72" stop-color="#8296b8"/><stop offset="1" stop-color="#41527a"/>
+            </linearGradient>
+            <linearGradient id="rGold" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#fff4d6"/><stop offset=".45" stop-color="#ffc95e"/>
+              <stop offset="1" stop-color="#8e5c11"/>
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#rBg)"/>
+          <g fill="#ffeab4" opacity=".26">
+            <path d="M24 17 2 5l20 13zM24 17 46 5 26 18zM24 17 0 22l24-3zM24 17l24 5-24-3zM24 17 12 44l14-26zM24 17l14 27-12-26z"/>
+          </g>
+          <circle cx="24" cy="16.5" r="11.5" fill="#ffeeb8" opacity=".4"/>
+          <circle cx="24" cy="16.5" r="6.5" fill="#fffbe8" opacity=".55"/>
+          <!-- ground + crater -->
+          <path fill="#4e1a0b" d="M0 32c8-3.4 15-5 24-5s16 1.6 24 5v16H0z"/>
+          <path fill="#a04a1c" d="M0 33.6c8-3.2 15-4.8 24-4.8s16 1.6 24 4.8V37H0z"/>
+          <ellipse cx="24" cy="36.6" rx="18" ry="5.6" fill="none" stroke="#2a0d05" stroke-width="3"/>
+          <ellipse cx="24" cy="35.6" rx="18" ry="5.6" fill="none" stroke="#ffd97e" stroke-width="1.7" opacity=".95"/>
+          <ellipse cx="24" cy="34.6" rx="10.5" ry="3.2" fill="#1a0603"/>
+          <ellipse cx="24" cy="33.8" rx="10.5" ry="3.2" fill="#ff8b2c"/>
+          <ellipse cx="24" cy="34.2" rx="6.6" ry="1.9" fill="#2a0a04"/>
+          <!-- dust plumes -->
+          <g fill="#c58a5c" opacity=".38">
+            <ellipse cx="9" cy="31" rx="7" ry="3.4"/><ellipse cx="39" cy="30.4" rx="6.4" ry="3"/>
+          </g>
+          <!-- rock shards -->
+          <g fill="#2b1109"><path d="m6.4 26.6 3.4 1.4-2.2 2.6-2.6-1.8zM39.4 25.4l3.2 2-1.7 2.5-3-1.7zM13.4 22.4l2.3 1.4-1.5 1.9-2-1.1z"/></g>
+          <g fill="#a06341"><path d="m6.8 27 2.6 1.2-1.8 2-2-1.4zM39.6 25.9l2.5 1.6-1.3 1.9-2.4-1.3z"/></g>
+          <!-- blade, driven point-down -->
+          <g stroke="#170905" stroke-width="1.15" stroke-linejoin="round">
+            <path fill="url(#rGold)" d="M21.5 7.4h5v4.6h-5z"/>
+            <path fill="url(#rGold)" d="M17.2 11.6h13.6l-1.9 3.4H19.1z"/>
+            <path fill="url(#rSteel)" d="M19.3 15h9.4L24 35.4z"/>
+            <path fill="#bfe9ff" d="m24 2.6 3 3.5-3 3.5-3-3.5z"/>
+          </g>
+          <path fill="#ffffff" opacity=".62" d="M24 15h3.4L24 32.6z"/>
+          <path fill="#5c6f8f" d="M19.3 15h2.1L24 33.4z"/>
+          <path fill="#ffffff" opacity=".85" d="m24 4 1.4 1.9L24 7.8l-1.4-1.9z"/>
+          <path fill="#fff3d0" opacity=".7" d="M17.2 11.6h13.6l-.5.9H17.7z"/>
+          <g fill="#ffdf9a"><circle cx="9.5" cy="19" r="1"/><circle cx="38.5" cy="15.5" r=".9"/><circle cx="33" cy="23" r=".7"/><circle cx="14.5" cy="13" r=".7"/></g>
+        </svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -105,8 +273,44 @@
     <button id="btnQ" class="abBtn" data-key="Q" aria-label="Ability Q">
       <span class="abFrame"></span>
       <span class="abFace">
-        <!-- Q · crescent slash: one heavy sweep with two trailing echoes -->
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igQ" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaQ"><path d="M2.6 19.9A15 15 0 0 1 20.4 4A44 44 0 0 0 2.6 19.9Z"/><path opacity=".5" d="M7.6 22.4A13.6 13.6 0 0 1 22.7 9A22.6 22.6 0 0 0 7.6 22.4Z"/><path opacity=".28" d="M13.4 23.4A10.6 10.6 0 0 1 23.4 14.4A17.7 17.7 0 0 0 13.4 23.4Z"/></g><clipPath id="icQ"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaQ" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaQ" fill="url(#igQ)"/><g clip-path="url(#icQ)"><use href="#iaQ" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
+        <!-- Q · CRESCENT SLASH — one heavy aqua sweep with two fading echoes -->
+        <svg class="abArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="qBg" cx=".32" cy=".16" r=".96">
+              <stop offset="0" stop-color="#54cadf"/><stop offset=".32" stop-color="#125b76"/>
+              <stop offset=".72" stop-color="#06253a"/><stop offset="1" stop-color="#020d18"/>
+            </radialGradient>
+            <linearGradient id="qArc" x1=".06" y1="1" x2=".94" y2="0">
+              <stop offset="0" stop-color="#1e9fc4"/><stop offset=".26" stop-color="#6ee6ff"/>
+              <stop offset=".58" stop-color="#ffffff"/><stop offset="1" stop-color="#8ff0ff"/>
+            </linearGradient>
+            <linearGradient id="qSteel" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#b3c6e0"/>
+              <stop offset="1" stop-color="#44557a"/>
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#qBg)"/>
+          <ellipse cx="14" cy="6" rx="23" ry="9" fill="#8ff0ff" opacity=".2"/>
+          <path fill="#03151f" d="M0 32h48v16H0z"/>
+          <path fill="#0d3c52" d="M0 32h48v2.6H0z"/>
+          <g transform="rotate(-34 24 24)">
+            <path fill="#5fd6f2" opacity=".3" d="M13 44.6Q24 29.6 35 44.6Q24 36.6 13 44.6Z"/>
+            <path fill="#5fd6f2" opacity=".52" d="M7.5 39.6Q24 18.6 40.5 39.6Q24 28.6 7.5 39.6Z"/>
+            <path fill="url(#qArc)" stroke="#02202e" stroke-width="1.7" stroke-linejoin="round"
+                  d="M1.6 33.4Q24 -3 46.4 33.4Q24 16 1.6 33.4Z"/>
+            <path fill="#c6f6ff" opacity=".92" d="M6 31.4Q24 2 42 31.4Q24 17.4 6 31.4Z"/>
+            <path fill="#ffffff" d="M11 29.6Q24 7 37 29.6Q24 18.6 11 29.6Z"/>
+          </g>
+          <!-- steel edge riding the front of the sweep -->
+          <g transform="rotate(56 38 15)">
+            <g stroke="#03161f" stroke-width="1.1" stroke-linejoin="round">
+              <path fill="url(#qSteel)" d="M38 4.6 40.7 10.2V21h-5.4V10.2z"/>
+              <path fill="#d9a53f" d="M33.4 21h9.2l-.9 2.8h-7.4z"/>
+            </g>
+            <path fill="#ffffff" opacity=".62" d="M38 6.4 39.5 10.4V20H38z"/>
+          </g>
+          <g fill="#d9fbff"><path d="m42 26 1.2 2.4-1.2 2.4-1.2-2.4zM7 19l1 2-1 2-1-2zM35.5 35l.8 1.6-.8 1.6-.8-1.6z"/></g>
+        </svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -120,8 +324,47 @@
     <button id="btnW" class="abBtn" data-key="W" aria-label="Ability W">
       <span class="abFrame"></span>
       <span class="abFace">
-        <!-- W · dash-strike: blade lunging up-right, motion streaks behind -->
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igW" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaW"><path d="M19.24 4.76L17.49 8.7L11.76 14.25L9.75 12.24L15.3 6.51ZM13.73 15.22L12.39 15.87L8.13 11.61L8.78 10.27ZM10.77 14.25L8.22 16.65L7.35 15.78L9.75 13.23ZM8.54 16.71a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 1 1 2.5 0Z"/><path opacity=".85" d="M6.63 7.37L2 13.2L0.8 12Z"/><path opacity=".62" d="M5.24 14.16L1.49 18.89L0.51 17.91Z"/><path opacity=".62" d="M11.04 18.56L7.29 23.29L6.31 22.31Z"/></g><clipPath id="icW"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaW" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaW" fill="url(#igW)"/><g clip-path="url(#icW)"><use href="#iaW" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
+        <!-- W · DUSKSTEP — chevron burst of speed, afterimages trailing -->
+        <svg class="abArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="wBg" cx=".62" cy=".2" r=".96">
+              <stop offset="0" stop-color="#b193f2"/><stop offset=".28" stop-color="#4b2f9c"/>
+              <stop offset=".66" stop-color="#1e1150"/><stop offset="1" stop-color="#0a0620"/>
+            </radialGradient>
+            <linearGradient id="wChev" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stop-color="#7a49e0"/><stop offset=".45" stop-color="#c9a6ff"/>
+              <stop offset="1" stop-color="#f7f1ff"/>
+            </linearGradient>
+            <linearGradient id="wSteel" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stop-color="#48567a"/><stop offset=".45" stop-color="#c0cfe8"/>
+              <stop offset="1" stop-color="#ffffff"/>
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#wBg)"/>
+          <g fill="#c9a6ff" opacity=".2">
+            <path d="M-8 42 10 22h5.6L-2.4 42zM4 48 24 25h5L9 48zM26 50 48 24v6L32 50z"/>
+          </g>
+          <g fill="#160c38" opacity=".5">
+            <path d="M-4 47 15 25h2.6L-1.4 47zM18 50 40 23h2.6L20.6 50z"/>
+          </g>
+          <g transform="rotate(-45 24 24)">
+            <path fill="#a97ff0" opacity=".3" d="M5 15h4.5l9 9-9 9H5l9-9z"/>
+            <path fill="#b78dfa" opacity=".55" d="M13 12h5.5l11 12-11 12H13l11-12z"/>
+            <path fill="url(#wChev)" stroke="#160c38" stroke-width="1.5" stroke-linejoin="round"
+                  d="M22 9h6l13 15-13 15h-6l13-15z"/>
+            <path fill="#ffffff" opacity=".55" d="M22 9h6l4.6 5.3-3 3.4z"/>
+          </g>
+          <!-- blade riding the lead point -->
+          <g transform="rotate(45 33.5 14.5)">
+            <g stroke="#120a2c" stroke-width="1.1" stroke-linejoin="round">
+              <path fill="url(#wSteel)" d="M33.5 4.4 36.1 9.8V20h-5.2V9.8z"/>
+              <path fill="#d9a53f" d="M29 20h9v2.7h-9z"/>
+            </g>
+            <path fill="#ffffff" opacity=".6" d="M33.5 6.2 34.9 10v9.2h-1.4z"/>
+          </g>
+          <path fill="#f7f0ff" d="m40 19.4 1.6 4.4 4.4 1.6-4.4 1.6-1.6 4.4-1.6-4.4-4.4-1.6 4.4-1.6z" opacity=".95"/>
+          <g fill="#e8dcff"><circle cx="10" cy="13" r="1"/><circle cx="17" cy="8" r=".8"/><circle cx="7" cy="20" r=".7"/></g>
+        </svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -135,8 +378,49 @@
     <button id="btnE" class="abBtn" data-key="E" aria-label="Ability E">
       <span class="abFrame"></span>
       <span class="abFace">
-        <!-- E · blade-storm: three curved blades whirling off a hub -->
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igE" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaE"><path d="M11.1 9.77Q11.32 2.22 20.73 4.67Q15.1 6.17 12.75 9.93Z"/><path d="M14.38 12.33Q20.81 16.3 13.98 23.23Q15.5 17.6 13.41 13.69Z"/><path d="M10.52 13.89Q3.88 17.48 1.29 8.1Q5.4 12.23 9.83 12.38Z"/><path opacity=".4" d="M21.92 5.8Q23.41 8.29 23.67 11.18L22.27 11.28Q22.08 8.72 20.73 6.54Z"/><path opacity=".4" d="M12.41 23.69Q9.51 23.74 6.87 22.52L7.48 21.26Q9.8 22.37 12.36 22.29Z"/><path opacity=".4" d="M1.67 6.51Q3.08 3.97 5.46 2.3L6.24 3.46Q4.12 4.91 2.91 7.16Z"/><path d="M12 8.4 15.6 12 12 15.6 8.4 12Z"/></g><clipPath id="icE"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaE" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaE" fill="url(#igE)"/><g clip-path="url(#icE)"><use href="#iaE" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
+        <!-- E · WHIRLREND — three blades orbiting a jade rune -->
+        <svg class="abArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="eBg" cx=".5" cy=".4" r=".88">
+              <stop offset="0" stop-color="#6ce4ae"/><stop offset=".22" stop-color="#158a5f"/>
+              <stop offset=".6" stop-color="#053628"/><stop offset="1" stop-color="#01140e"/>
+            </radialGradient>
+            <linearGradient id="eSteel" x1="0" y1="1" x2=".8" y2="0">
+              <stop offset="0" stop-color="#5b6c8f"/><stop offset=".4" stop-color="#cddbec"/>
+              <stop offset="1" stop-color="#ffffff"/>
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#eBg)"/>
+          <g fill="none" stroke="#8affc0" stroke-linecap="round" opacity=".34">
+            <path stroke-width="2.6" d="M41 13.5A21.5 21.5 0 0 1 42.4 31"/>
+            <path stroke-width="2.6" d="M30 45A21.5 21.5 0 0 1 12.5 41.6"/>
+            <path stroke-width="2.6" d="M4.6 27.5A21.5 21.5 0 0 1 10.6 9.6"/>
+          </g>
+          <g>
+            <g transform="rotate(0 24 24)">
+              <path fill="url(#eSteel)" stroke="#03211a" stroke-width="1.2" stroke-linejoin="round"
+                    d="M27.8 27C29.6 17.4 28.8 8.6 25.4 2.2 21.4 8.8 20.2 17.4 21.4 27Z"/>
+              <path fill="#ffffff" opacity=".6" d="M25.4 3.6C27.2 9.6 28 17.6 27.2 26h-1.7C26.2 17.6 26 9.8 25.4 3.6Z"/>
+            </g>
+            <g transform="rotate(120 24 24)">
+              <path fill="url(#eSteel)" stroke="#03211a" stroke-width="1.2" stroke-linejoin="round"
+                    d="M27.8 27C29.6 17.4 28.8 8.6 25.4 2.2 21.4 8.8 20.2 17.4 21.4 27Z"/>
+              <path fill="#ffffff" opacity=".45" d="M25.4 3.6C27.2 9.6 28 17.6 27.2 26h-1.7C26.2 17.6 26 9.8 25.4 3.6Z"/>
+            </g>
+            <g transform="rotate(240 24 24)">
+              <path fill="url(#eSteel)" stroke="#03211a" stroke-width="1.2" stroke-linejoin="round"
+                    d="M27.8 27C29.6 17.4 28.8 8.6 25.4 2.2 21.4 8.8 20.2 17.4 21.4 27Z"/>
+              <path fill="#ffffff" opacity=".45" d="M25.4 3.6C27.2 9.6 28 17.6 27.2 26h-1.7C26.2 17.6 26 9.8 25.4 3.6Z"/>
+            </g>
+          </g>
+          <circle cx="24" cy="24" r="9" fill="#02211a"/>
+          <circle cx="24" cy="24" r="7.4" fill="#0f6f4e"/>
+          <circle cx="24" cy="24" r="7.4" fill="none" stroke="#d9a53f" stroke-width="1.4"/>
+          <path fill="#8affc0" d="m24 15.6 6.2 8.4-6.2 8.4-6.2-8.4z"/>
+          <path fill="#eafff3" d="m24 18.8 3.6 5.2-3.6 5.2-3.6-5.2z"/>
+          <path fill="#ffffff" d="m24 21.2 1.8 2.8-1.8 2.8-1.8-2.8z"/>
+          <g fill="#c8ffe2"><circle cx="8" cy="15" r=".9"/><circle cx="40" cy="37" r=".9"/><circle cx="13" cy="37" r=".7"/><circle cx="37" cy="10" r=".7"/></g>
+        </svg>
         <svg class="abLock" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2A5.1 5.1 0 0 0 6.9 7.3v2.5H5.4v12.2h13.2V9.8h-1.5V7.3A5.1 5.1 0 0 0 12 2.2zm0 2.4a2.7 2.7 0 0 1 2.7 2.7v2.5H9.3V7.3A2.7 2.7 0 0 1 12 4.6zm0 9.1a1.9 1.9 0 0 1 .9 3.6v2h-1.8v-2a1.9 1.9 0 0 1 .9-3.6z"/></svg>
       </span>
       <span class="abSweep"></span>
@@ -151,8 +435,50 @@
       <span class="abDash"></span>
       <span class="abFrame"></span>
       <span class="abFace">
-        <!-- A · basic attack: upright blade over a swing arc -->
-        <svg class="abIcon" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="igA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".78"/></linearGradient><g id="iaA"><path opacity=".42" d="M2.6 20.6A12.5 12.5 0 0 1 9.4 1.6A26 26 0 0 0 2.6 20.6Z"/><path d="M13.6 3.4L15.4 8.08L15.26 17.8L11.94 17.8L11.8 8.08ZM17.5 17.1L16.95 18.5L10.25 18.5L9.7 17.1ZM14.45 18.5L14.33 22L12.87 22L12.75 18.5ZM14.85 22.7a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 1 1 2.5 0Z"/></g><clipPath id="icA"><path d="M0 0H24L0 24Z"/></clipPath></defs><use href="#iaA" fill="none" stroke="#2a1a10" stroke-width="1.2" stroke-linejoin="round"/><use href="#iaA" fill="url(#igA)"/><g clip-path="url(#icA)"><use href="#iaA" transform="translate(-.45 -.45)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".9" stroke-linejoin="round"/></g></svg>
+        <!-- A · STRIKE — the sword itself, gold swing arc behind -->
+        <svg class="abArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="aBg" cx=".33" cy=".15" r=".96">
+              <stop offset="0" stop-color="#a8c9ee"/><stop offset=".28" stop-color="#31517f"/>
+              <stop offset=".66" stop-color="#0d1a35"/><stop offset="1" stop-color="#040a18"/>
+            </radialGradient>
+            <linearGradient id="aSteel" x1=".1" y1="0" x2=".9" y2="1">
+              <stop offset="0" stop-color="#ffffff"/><stop offset=".38" stop-color="#d8e4f5"/>
+              <stop offset=".7" stop-color="#8497b8"/><stop offset="1" stop-color="#44547a"/>
+            </linearGradient>
+            <linearGradient id="aGold" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#fff4d6"/><stop offset=".45" stop-color="#ffc95e"/>
+              <stop offset="1" stop-color="#8e5c11"/>
+            </linearGradient>
+            <linearGradient id="aArc" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stop-color="#a5711c"/><stop offset=".36" stop-color="#ffd98c"/>
+              <stop offset=".66" stop-color="#fff8e4"/><stop offset="1" stop-color="#ffcf72"/>
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#aBg)"/>
+          <ellipse cx="15" cy="6" rx="23" ry="10" fill="#bcd8ff" opacity=".16"/>
+          <path fill="#050d1e" d="M0 32h48v16H0z"/>
+          <path fill="#17294a" d="M0 32h48v2.6H0z"/>
+          <g transform="rotate(-7 24 33)" opacity=".92">
+            <path fill="url(#aArc)" stroke="#2a1a08" stroke-width="1.2" stroke-linejoin="round"
+                  d="M2 38.6Q24 14 46 38.6Q24 26.6 2 38.6Z"/>
+            <path fill="#fff8e6" opacity=".45" d="M10 35.6Q24 20.6 38 35.6Q24 28 10 35.6Z"/>
+          </g>
+          <g transform="translate(24 24.6) scale(.83) translate(-24 -25.4)">
+            <g stroke="#0d0a05" stroke-width="1.35" stroke-linejoin="round">
+              <path fill="url(#aSteel)" d="M24 4 27.9 12.7V27.6h-7.8V12.7z"/>
+              <path fill="url(#aGold)" d="M15.6 27.6h16.8l2.2 3-1 2.4H14.4l-1-2.4z"/>
+              <path fill="#5d2f1f" d="M21.6 33h4.8v6.4h-4.8z"/>
+              <path fill="url(#aGold)" d="M19.8 39.4h8.4v3.2h-8.4z"/>
+              <circle fill="url(#aGold)" cx="24" cy="44.8" r="2.7"/>
+            </g>
+            <path fill="#ffffff" opacity=".7" d="M24 5.8 26.1 12.9V27H24z"/>
+            <path fill="#63769a" d="M20.1 12.7h2V27.6h-2z"/>
+            <path fill="#fff3d0" opacity=".65" d="M15.6 27.6h16.8l.7 1H15z"/>
+            <g fill="#d9a53f"><path d="M21.6 34.2h4.8v1.1h-4.8z"/><path d="M21.6 36.6h4.8v1.1h-4.8z"/></g>
+          </g>
+          <g fill="#fff0c8" opacity=".9"><path d="m39 21 1.2 2.4-1.2 2.4-1.2-2.4zM8.5 25l1 2-1 2-1-2z"/></g>
+        </svg>
       </span>
       <span class="abSweep"></span>
       <span class="abCd"></span>
@@ -160,14 +486,72 @@
     </button>
   </div>
 
+
   <!-- summoner column: sits left of the ability arc, Wild Rift placement -->
   <div id="sumRail">
+    <span class="sumScrim" aria-hidden="true"></span>
     <button id="sumMend" class="sumSlot" aria-label="Mend">
-      <span class="sumFace"><svg class="sumIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.6C6.1 17.3 2.4 13.7 2.4 9.6a5.1 5.1 0 0 1 9.6-2.5 5.1 5.1 0 0 1 9.6 2.5c0 4.1-3.7 7.7-9.6 12Z"/><path opacity=".55" fill="#fff" d="M7.3 6.6a3.4 3.4 0 0 1 3 1.5 5.4 5.4 0 0 0-4.6 3.2A3.4 3.4 0 0 1 7.3 6.6Z"/></svg></span>
+      <span class="sumFace">
+        <!-- MEND — a dawn phial: green elixir behind glass, gold collar -->
+        <svg class="sumArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="mBg" cx=".5" cy=".28" r=".9">
+              <stop offset="0" stop-color="#6ddba4"/><stop offset=".34" stop-color="#146b4c"/>
+              <stop offset=".74" stop-color="#04301f"/><stop offset="1" stop-color="#011510"/>
+            </radialGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#mBg)"/>
+          <g fill="#b7ffd8" opacity=".3"><path d="m24 4 2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></g>
+          <path fill="#03231a" d="M17 13.5h14v4.2l-2 3.2c4.2 2.6 6.6 6.6 6.6 11.4 0 5.6-5.2 9.4-11.6 9.4s-11.6-3.8-11.6-9.4c0-4.8 2.4-8.8 6.6-11.4l-2-3.2z"/>
+          <path fill="#9fd6e8" d="M18.6 17.2h10.8l-2.2 4.4c4 2.2 6.4 5.8 6.4 10.2 0 4.7-4.3 7.8-9.6 7.8s-9.6-3.1-9.6-7.8c0-4.4 2.4-8 6.4-10.2z"/>
+          <path fill="#57ea9d" d="M18.4 27.4c-.9 1.4-1.4 3-1.4 4.6 0 4.5 3.9 7.2 7 7.2s7-2.7 7-7.2c0-1.6-.5-3.2-1.4-4.6-2.2 1.6-9 1.6-11.2 0z"/>
+          <path fill="#c9ffe4" d="M18.4 27.4c2.2 1.6 9 1.6 11.2 0l1 1.6c-2.8 1.8-10.4 1.8-13.2 0z"/>
+          <path fill="#1c8f5f" d="M20.6 33.4c1.6 1 5.2 1 6.8 0 .4 2-1.6 3.4-3.4 3.4s-3.8-1.4-3.4-3.4z"/>
+          <path fill="#ffffff" opacity=".55" d="M20.4 22.6c-2.4 1.8-3.8 4-4.2 6.4l2 .5c.4-2.2 1.6-4.2 3.6-5.7z"/>
+          <path fill="#d9a53f" d="M16.4 12.2h15.2v5.2H16.4z"/>
+          <path fill="#ffe7b4" d="M16.4 12.2h15.2v1.7H16.4z"/>
+          <path fill="#8c5c13" d="M16.4 15.9h15.2v1.5H16.4z"/>
+          <path fill="#eafff3" d="m24 29.6 1.4 3.2-1.4 1.8-1.4-1.8z" opacity=".9"/>
+        </svg>
+      </span>
       <span class="sumSweep"></span><span class="sumCd"></span>
     </button>
     <button id="sumRecall" class="sumSlot recall" aria-label="Recall">
-      <span class="sumFace"><svg class="sumIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4a8.6 8.6 0 1 1-8.1 5.7l2.4.9A6.1 6.1 0 1 0 12 5.9Z"/><path d="M13.9 1.2 9.3 4.4l4.6 3.2Z"/><path opacity=".85" d="M12 8.6 15.4 12 12 15.4 8.6 12Z"/></svg></span>
+      <span class="sumFace">
+        <!-- RECALL — a waypoint rune rising off its plinth -->
+        <svg class="sumArt" viewBox="0 0 48 48" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <radialGradient id="cBg" cx=".5" cy=".3" r=".9">
+              <stop offset="0" stop-color="#7fb7ff"/><stop offset=".3" stop-color="#2a4b9e"/>
+              <stop offset=".7" stop-color="#0b1747"/><stop offset="1" stop-color="#030818"/>
+            </radialGradient>
+            <linearGradient id="cGem" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#eafaff"/><stop offset=".4" stop-color="#7fd8ff"/>
+              <stop offset="1" stop-color="#1d5fbb"/>
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" fill="url(#cBg)"/>
+          <!-- rising motes spiral -->
+          <g fill="none" stroke="#a8dcff" opacity=".5">
+            <path stroke-width="1.6" d="M14 34c8-2 10-8 6-12s-4-9 4-11"/>
+            <path stroke-width="1.2" d="M34 33c-7-3-8-8-4-12" opacity=".7"/>
+          </g>
+          <!-- plinth -->
+          <path fill="#050c22" d="M6 40.4 24 33l18 7.4L24 47.6z"/>
+          <path fill="#2c4d86" d="M8.4 40.2 24 34.2l15.6 6L24 46z"/>
+          <path fill="#5a89cc" d="M8.4 40.2 24 34.2v11.8z"/>
+          <path fill="#0d1c3d" opacity=".55" d="m24 40.2 15.6-6v1.6L24 41.8z"/>
+          <!-- rune gem -->
+          <path fill="#03102c" d="m24 4.4 10 8.4v13.4L24 36.8 14 26.2V12.8z"/>
+          <path fill="url(#cGem)" d="m24 6.6 8.2 7v11.8L24 34l-8.2-8.6V13.6z"/>
+          <path fill="#0d3a7a" d="m24 6.6 8.2 7v11.8L24 34z"/>
+          <path fill="#dff4ff" d="m24 10.4 4.6 4v7.2L24 26.4l-4.6-4.8v-7.2z"/>
+          <path fill="#ffffff" d="m24 14 2.2 2v3.6L24 22l-2.2-2.4V16z"/>
+          <path fill="#ffd98c" d="m24 2.4 1.6 3.4L24 4.8l-1.6 1z"/>
+          <!-- motes -->
+          <g fill="#d7f0ff"><circle cx="12" cy="21" r="1.1"/><circle cx="37" cy="19" r="1"/><circle cx="16" cy="10" r=".8"/><circle cx="33" cy="29" r=".8"/><circle cx="9" cy="30" r=".7"/></g>
+        </svg>
+      </span>
       <span class="sumSweep"></span><span class="sumCd"></span>
     </button>
   </div>
