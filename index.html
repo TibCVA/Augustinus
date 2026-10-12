@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datako — L’IA, enfin simple</title>
+  <meta name="description" content="Maquette de démonstration : des agents d’IA prêts à l’emploi, branchés sur vos outils, pour toute l’équipe.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0A2036">
+  <link rel="icon" type="image/png" href="assets/img/picto-datako.png">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/vitrine.css">
+  <link rel="stylesheet" href="assets/css/plateforme.css">
+</head>
+<body>
+
+<a class="lien-evitement" href="#contenu" data-evitement>Aller au contenu</a>
+
+<!-- =====================================================================
+     VITRINE DE L'OFFRE
+     ===================================================================== -->
+<div id="vue-vitrine">
+
+  <header class="vt-entete" id="vt-entete">
+    <div class="vt-conteneur vt-entete-interieur">
+      <a href="#/" class="vt-logo" aria-label="Datako, retour en haut de page"><span class="logo logo--clair" role="img" aria-label="Datako"></span></a>
+      <nav class="vt-nav" id="vt-nav" aria-label="Navigation principale">
+        <a href="#methode">Méthode</a>
+        <a href="#agents">Agents</a>
+        <a href="#gains">Vos gains</a>
+        <a href="#controle">Contrôle</a>
+        <a href="#faq">Questions</a>
+        <a href="#/app/accueil" class="vt-nav-demo">Voir la démo</a>
+      </nav>
+      <div class="vt-entete-actions">
+        <a href="#/app/accueil" class="btn btn--primaire btn--petit vt-cta-entete">Voir la démo <i data-icone="fleche" class="ic--fleche"></i></a>
+        <button class="vt-burger" id="vt-burger" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="vt-nav"><i data-icone="menu"></i></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="contenu" tabindex="-1">
+
+    <!-- ===== Accroche ===== -->
+    <section class="vt-hero sombre" aria-labelledby="hero-titre">
+      <div class="vt-hero-fond" aria-hidden="true"></div>
+      <div class="vt-conteneur vt-hero-grille">
+        <div class="vt-hero-texte">
+          <p class="surtitre">L’IA au service de toute l’équipe</p>
+          <h1 class="titre vt-h1" id="hero-titre">L’intelligence artificielle, <em>enfin simple.</em></h1>
+          <p class="chapo vt-hero-chapo">Datako installe chez vous des agents prêts à l’emploi, branchés sur vos outils et vos documents. Vos équipes cliquent, l’IA fait le travail. Vous gardez la main sur tout.</p>
+          <div class="vt-hero-actions">
+            <a href="#/app/accueil" class="btn btn--primaire btn--grand">Voir la démo <i data-icone="fleche" class="ic--fleche"></i></a>
+            <button class="btn btn--contour-clair btn--grand" data-ouvrir-contact>Parler à un expert</button>
+          </div>
+          <ul class="vt-hero-garanties">
+            <li><i data-icone="checkCercle"></i>Aucune compétence technique requise</li>
+            <li><i data-icone="source"></i>Sources toujours citées</li>
+            <li><i data-icone="jauge"></i>Coûts visibles et plafonnables</li>
+          </ul>
+        </div>
+
+        <div class="vt-hero-visuel" aria-hidden="true">
+          <div class="fenetre">
+            <div class="fenetre-barre">
+              <span class="fenetre-points"><i></i><i></i><i></i></span>
+              <span class="fenetre-titre">Datako · Bastide Équipements</span>
+            </div>
+            <div class="fenetre-corps">
+              <div class="fenetre-nav">
+                <span class="logo-picto"></span>
+                <i class="actif"></i><i></i><i></i><i></i>
+              </div>
+              <div class="fenetre-contenu">
+                <p class="fc-date">Lundi 12 octobre</p>
+                <p class="fc-titre">Bonjour Chantal, <em>que faisons-nous aujourd’hui ?</em></p>
+                <div class="fc-demande"><i data-icone="etincelle" class="ic--16"></i>Posez une question à vos documents…</div>
+                <div class="fc-tuiles">
+                  <div class="fc-tuile fc-tuile--animee" id="fc-tuile-animee">
+                    <span class="fc-ic"><i data-icone="facture" class="ic--18"></i></span>
+                    <strong>Factures fournisseurs</strong>
+                    <div class="fc-etapes"><span>Lecture</span><span>Contrôle</span><span>Prêt</span></div>
+                    <div class="fc-progression"><b></b></div>
+                    <p class="fc-etat"><span class="fc-etat-encours">12 factures en cours de lecture…</span><span class="fc-etat-fini"><i data-icone="checkCercle" class="ic--16"></i>12 factures prêtes à valider</span></p>
+                  </div>
+                  <div class="fc-tuile">
+                    <span class="fc-ic fc-ic--bleu"><i data-icone="mail" class="ic--18"></i></span>
+                    <strong>Réponses clients</strong>
+                    <p>5 réponses proposées</p>
+                  </div>
+                  <div class="fc-tuile">
+                    <span class="fc-ic fc-ic--bleu"><i data-icone="devis" class="ic--18"></i></span>
+                    <strong>Devis &amp; appels d’offres</strong>
+                    <p>1 brouillon prêt</p>
+                  </div>
+                  <div class="fc-tuile">
+                    <span class="fc-ic"><i data-icone="synthese" class="ic--18"></i></span>
+                    <strong>Synthèse de la semaine</strong>
+                    <p>Prête depuis 8 h</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="vt-bulle vt-bulle--1"><span class="vt-bulle-ic"><i data-icone="check" class="ic--16"></i></span>Réponse envoyée à l’Hôtel Les Cèdres</div>
+          <div class="vt-bulle vt-bulle--2"><span class="vt-bulle-ic vt-bulle-ic--bleu"><i data-icone="source" class="ic--16"></i></span>Source : contrat-cadre 2025, article 7</div>
+          <div class="vt-bulle vt-bulle--3"><span class="vt-bulle-ic"><i data-icone="horloge" class="ic--16"></i></span><span><strong>13 h 05</strong> gagnées la semaine dernière</span></div>
+        </div>
+      </div>
+      <a href="#constat" class="vt-defiler" aria-label="Découvrir la suite"><i data-icone="chevronBas"></i></a>
+    </section>
+
+    <!-- ===== Constat ===== -->
+    <section class="vt-section" id="constat" aria-labelledby="constat-titre">
+      <div class="vt-conteneur">
+        <div class="vt-entete-section reveler">
+          <p class="surtitre">Le constat</p>
+          <h2 class="titre vt-h2" id="constat-titre">Vos équipes ont accès à l’IA. <em>Elles n’en tirent qu’une fraction.</em></h2>
+          <p class="chapo">Le frein n’est pas la technologie. C’est la distance entre des outils conçus pour des experts et le quotidien de vos équipes.</p>
+        </div>
+        <div class="vt-constats">
+          <article class="vt-constat reveler">
+            <span class="vt-constat-ic"><i data-icone="casseTete" class="ic--24"></i></span>
+            <h3>Des outils pensés pour des experts</h3>
+            <p>Modèles, paramètres, connecteurs, jetons… L’interface décourage avant même la première utilisation.</p>
+          </article>
+          <article class="vt-constat reveler">
+            <span class="vt-constat-ic"><i data-icone="debranche" class="ic--24"></i></span>
+            <h3>Une IA coupée de votre quotidien</h3>
+            <p>Sans accès à vos logiciels ni à vos documents, l’IA reste un assistant généraliste. Les gains restent anecdotiques.</p>
+          </article>
+          <article class="vt-constat reveler">
+            <span class="vt-constat-ic"><i data-icone="alerte" class="ic--24"></i></span>
+            <h3>Des coûts difficiles à anticiper</h3>
+            <p>Abonnements multiples, consommation opaque : impossible de savoir ce que l’on paie, ni ce que cela rapporte.</p>
+          </article>
+        </div>
+        <p class="vt-pivot reveler">Datako comble cette distance. <em>Nous faisons le travail technique, vos équipes profitent du résultat.</em></p>
+      </div>
+    </section>
+
+    <!-- ===== Méthode ===== -->
+    <section class="vt-section vt-section--teinte" id="methode" aria-labelledby="methode-titre">
+      <div class="vt-conteneur">
+        <div class="vt-entete-section reveler">
+          <p class="surtitre">Notre méthode</p>
+          <h2 class="titre vt-h2" id="methode-titre">Trois temps, <em>un seul interlocuteur.</em></h2>
+        </div>
+
+        <div class="vt-etapes reveler" role="tablist" aria-label="Étapes de la méthode">
+          <button class="vt-etape actif" role="tab" id="etape-tab-1" aria-selected="true" aria-controls="etape-1" data-etape="1"><span class="vt-etape-num">01</span><span class="vt-etape-nom">Cadrer</span></button>
+          <button class="vt-etape" role="tab" id="etape-tab-2" aria-selected="false" aria-controls="etape-2" data-etape="2" tabindex="-1"><span class="vt-etape-num">02</span><span class="vt-etape-nom">Mettre en route</span></button>
+          <button class="vt-etape" role="tab" id="etape-tab-3" aria-selected="false" aria-controls="etape-3" data-etape="3" tabindex="-1"><span class="vt-etape-num">03</span><span class="vt-etape-nom">Utiliser au quotidien</span></button>
+          <span class="vt-etapes-ligne" aria-hidden="true"><b id="vt-etapes-progression"></b></span>
+        </div>
+
+        <div class="vt-etape-panneaux reveler">
+          <!-- Étape 1 -->
+          <div class="vt-etape-panneau" id="etape-1" role="tabpanel" aria-labelledby="etape-tab-1">
+            <div class="vt-etape-texte">
+              <p class="vt-etape-sur">Une journée avec vos équipes</p>
+              <h3>Identifier où l’IA vous fera gagner le plus de temps</h3>
+              <p>Un expert Datako rencontre vos équipes, comprend vos processus et repère, à partir de notre catalogue, les tâches répétitives qui méritent d’être confiées à un agent.</p>
+              <p class="vt-obtenez-titre">Ce que vous obtenez</p>
+              <p class="vt-obtenez">Une feuille de route claire : vos premiers agents, les outils à connecter, les gains attendus.</p>
+            </div>
+            <div class="vt-etape-visuel">
+              <div class="vt-feuille">
+                <div class="vt-feuille-entete"><span>Feuille de route</span><span class="badge badge--turquoise">Bastide Équipements</span></div>
+                <ul class="vt-feuille-liste">
+                  <li><span class="vt-feuille-nom">Factures fournisseurs</span><span class="vt-feuille-barre"><b style="--l:100%"></b></span><span class="vt-feuille-gain">18 h / mois</span><span class="badge badge--ok">Priorité 1</span></li>
+                  <li><span class="vt-feuille-nom">Réponses aux e-mails clients</span><span class="vt-feuille-barre"><b style="--l:78%"></b></span><span class="vt-feuille-gain">14 h / mois</span><span class="badge badge--ok">Priorité 1</span></li>
+                  <li><span class="vt-feuille-nom">Devis &amp; appels d’offres</span><span class="vt-feuille-barre"><b style="--l:56%"></b></span><span class="vt-feuille-gain">10 h / mois</span><span class="badge badge--info">Priorité 2</span></li>
+                  <li><span class="vt-feuille-nom">Synthèse de la semaine</span><span class="vt-feuille-barre"><b style="--l:44%"></b></span><span class="vt-feuille-gain">8 h / mois</span><span class="badge badge--info">Priorité 2</span></li>
+                  <li><span class="vt-feuille-nom">Analyse de contrats</span><span class="vt-feuille-barre"><b style="--l:17%"></b></span><span class="vt-feuille-gain">3 h / mois</span><span class="badge">Plus tard</span></li>
+                </ul>
+                <p class="vt-feuille-note">Gains estimés lors de la journée de cadrage (exemple fictif).</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Étape 2 -->
+          <div class="vt-etape-panneau" id="etape-2" role="tabpanel" aria-labelledby="etape-tab-2" hidden>
+            <div class="vt-etape-texte">
+              <p class="vt-etape-sur">Rien à installer de votre côté</p>
+              <h3>Brancher Datako sur vos outils, configurer vos agents, former vos équipes</h3>
+              <p>Nous connectons vos logiciels et vos documents, adaptons chaque agent à vos processus et formons vos collaborateurs à leur utilisation, sur place.</p>
+              <p class="vt-obtenez-titre">Ce que vous obtenez</p>
+              <p class="vt-obtenez">Des agents opérationnels, une équipe formée et un accès unique pour tous, dans Datako ou dans Teams.</p>
+            </div>
+            <div class="vt-etape-visuel">
+              <div class="vt-hub">
+                <svg class="vt-hub-liens" viewBox="0 0 400 300" aria-hidden="true">
+                  <path d="M200 150 L70 60"/><path d="M200 150 L330 60"/><path d="M200 150 L40 160"/>
+                  <path d="M200 150 L360 160"/><path d="M200 150 L90 255"/><path d="M200 150 L310 255"/>
+                </svg>
+                <div class="vt-hub-centre"><span class="logo-picto logo-picto--grand"></span><strong>Datako</strong></div>
+                <span class="vt-hub-noeud" style="--x:17.5%;--y:20%"><i data-icone="facture" class="ic--18"></i>Comptabilité</span>
+                <span class="vt-hub-noeud" style="--x:82.5%;--y:20%"><i data-icone="mail" class="ic--18"></i>Messagerie</span>
+                <span class="vt-hub-noeud" style="--x:10%;--y:53%"><i data-icone="dossier" class="ic--18"></i>Documents</span>
+                <span class="vt-hub-noeud" style="--x:90%;--y:53%"><i data-icone="base" class="ic--18"></i>Gestion commerciale</span>
+                <span class="vt-hub-noeud" style="--x:22.5%;--y:85%"><i data-icone="teams" class="ic--18"></i>Teams</span>
+                <span class="vt-hub-noeud" style="--x:77.5%;--y:85%"><i data-icone="mallette" class="ic--18"></i>CRM</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Étape 3 -->
+          <div class="vt-etape-panneau" id="etape-3" role="tabpanel" aria-labelledby="etape-tab-3" hidden>
+            <div class="vt-etape-texte">
+              <p class="vt-etape-sur">Un accompagnement continu</p>
+              <h3>Vos équipes cliquent, l’IA s’exécute, nous veillons au reste</h3>
+              <p>Chaque collaborateur retrouve ses agents dans un espace unique. Nous suivons l’usage, ajustons les agents et en ajoutons de nouveaux au fil de vos besoins.</p>
+              <p class="vt-obtenez-titre">Ce que vous obtenez</p>
+              <p class="vt-obtenez">Une conseillère dédiée, une maintenance assurée, de nouveaux agents à la demande.</p>
+            </div>
+            <div class="vt-etape-visuel">
+              <div class="vt-suivi">
+                <div class="vt-suivi-carte">
+                  <p class="vt-suivi-libelle">Temps libéré par mois</p>
+                  <p class="vt-suivi-valeur">52 h <span class="badge badge--ok"><i data-icone="tendance"></i>+63 %</span></p>
+                  <div class="vt-suivi-barres" aria-hidden="true">
+                    <i style="--h:21%"></i><i style="--h:52%"></i><i style="--h:65%"></i><i style="--h:60%"></i><i style="--h:40%"></i><i style="--h:100%"></i>
+                  </div>
+                  <div class="vt-suivi-mois" aria-hidden="true"><span>Avr.</span><span>Mai</span><span>Juin</span><span>Juil.</span><span>Août</span><span>Sept.</span></div>
+                </div>
+                <div class="vt-suivi-notif"><span class="vt-bulle-ic"><i data-icone="etincelle" class="ic--16"></i></span><span><strong>Nouvel agent disponible</strong>Relances clients, configuré pour vos outils</span></div>
+                <div class="vt-suivi-notif"><span class="vt-bulle-ic vt-bulle-ic--bleu"><i data-icone="calendrier" class="ic--16"></i></span><span><strong>Point mensuel avec votre conseillère</strong>Mercredi 4 novembre, 10 h</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="vt-etape-pied">
+            <span class="vt-etape-compteur" id="vt-etape-compteur">01 / 03</span>
+            <div class="vt-etape-boutons">
+              <button class="btn btn--contour btn--petit" id="vt-etape-prec" disabled><i data-icone="retour"></i>Précédent</button>
+              <button class="btn btn--sombre btn--petit" id="vt-etape-suiv">Étape suivante<i data-icone="fleche" class="ic--fleche"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Agents ===== -->
+    <section class="vt-section" id="agents" aria-labelledby="agents-titre">
+      <div class="vt-conteneur">
+        <div class="vt-entete-section vt-entete-section--ligne reveler">
+          <div>
+            <p class="surtitre">Des agents prêts à l’emploi</p>
+            <h2 class="titre vt-h2" id="agents-titre">Une bibliothèque d’agents, <em>pour chaque métier.</em></h2>
+          </div>
+          <p class="chapo">Chaque agent accomplit une tâche précise, de bout en bout. Nous l’adaptons à vos processus ; vos équipes n’ont qu’à cliquer.</p>
+        </div>
+        <div class="vt-onglets reveler" role="tablist" aria-label="Métiers" id="vt-onglets-metiers"></div>
+        <div class="vt-agents reveler" id="vt-agents" role="tabpanel" aria-live="polite"></div>
+        <div class="vt-agents-pied reveler">
+          <p><i data-icone="info" class="ic--18"></i>Durées indicatives, affinées pour chaque entreprise lors de la journée de cadrage.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Simulateur de gains ===== -->
+    <section class="vt-section vt-section--simulateur" id="gains" aria-labelledby="gains-titre">
+      <div class="vt-conteneur">
+        <div class="vt-entete-section reveler">
+          <p class="surtitre">Vos gains</p>
+          <h2 class="titre vt-h2" id="gains-titre">Combien de temps <em>votre équipe peut-elle gagner&#8239;?</em></h2>
+        </div>
+
+        <div class="vt-simulateur reveler">
+          <form class="vt-sim-reglages" id="vt-sim" onsubmit="return false">
+            <div class="champ">
+              <label for="sim-tache">Tâche à confier à Datako</label>
+              <select class="saisie" id="sim-tache"></select>
+            </div>
+            <div class="champ vt-sim-champ">
+              <div class="vt-sim-ligne"><label for="sim-volume">Volume par mois</label><output id="sim-volume-val" for="sim-volume"></output></div>
+              <input type="range" class="curseur" id="sim-volume">
+            </div>
+            <div class="champ vt-sim-champ">
+              <div class="vt-sim-ligne"><label for="sim-minutes">Temps passé aujourd’hui, par unité</label><output id="sim-minutes-val" for="sim-minutes"></output></div>
+              <input type="range" class="curseur" id="sim-minutes">
+            </div>
+            <div class="champ vt-sim-champ">
+              <div class="vt-sim-ligne"><label for="sim-part">Part du temps prise en charge par l’agent</label><output id="sim-part-val" for="sim-part"></output></div>
+              <input type="range" class="curseur" id="sim-part" min="50" max="95" step="5">
+            </div>
+            <div class="champ vt-sim-champ">
+              <div class="vt-sim-ligne"><label for="sim-cout">Coût horaire chargé d’un collaborateur</label><output id="sim-cout-val" for="sim-cout"></output></div>
+              <input type="range" class="curseur" id="sim-cout" min="25" max="90" step="1">
+            </div>
+            <div class="vt-sim-methode">
+              <i data-icone="info" class="ic--18"></i>
+              <p><strong>Comment lire ce calcul</strong>Temps libéré = volume × temps passé par unité × part prise en charge par l’agent. La valeur annuelle applique votre coût horaire chargé.</p>
+            </div>
+          </form>
+
+          <div class="vt-sim-resultats sombre" aria-live="polite">
+            <p class="vt-sim-sur">Temps libéré chaque mois</p>
+            <p class="vt-sim-heros"><span id="sim-heures">—</span></p>
+            <div class="vt-sim-comparaison">
+              <div class="vt-sim-barre-ligne">
+                <span class="vt-sim-barre-libelle">Aujourd’hui</span>
+                <span class="vt-sim-barre"><b id="sim-barre-avant"></b></span>
+                <span class="vt-sim-barre-valeur" id="sim-avant">—</span>
+              </div>
+              <div class="vt-sim-barre-ligne">
+                <span class="vt-sim-barre-libelle">Avec Datako</span>
+                <span class="vt-sim-barre"><b id="sim-barre-apres" class="apres"></b></span>
+                <span class="vt-sim-barre-valeur" id="sim-apres">—</span>
+              </div>
+            </div>
+            <div class="vt-sim-tuiles">
+              <div><p class="vt-sim-tuile-valeur" id="sim-jours">—</p><p class="vt-sim-tuile-libelle">jours de travail libérés par an</p></div>
+              <div><p class="vt-sim-tuile-valeur" id="sim-valeur">—</p><p class="vt-sim-tuile-libelle">valeur du temps libéré par an</p></div>
+            </div>
+            <button class="btn btn--primaire btn--bloc" data-ouvrir-contact>Affiner ce calcul avec un expert <i data-icone="fleche" class="ic--fleche"></i></button>
+            <p class="vt-sim-note">Simulation indicative : journées de 7 heures, 11 mois travaillés par an. Les hypothèses sont ajustables ci-contre.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Contrôle ===== -->
+    <section class="vt-section" id="controle" aria-labelledby="controle-titre">
+      <div class="vt-conteneur">
+        <div class="vt-entete-section reveler">
+          <p class="surtitre">Vous gardez la main</p>
+          <h2 class="titre vt-h2" id="controle-titre">L’IA agit. <em>Vous décidez.</em></h2>
+        </div>
+        <div class="vt-controle-grille">
+          <div class="vt-principes">
+            <article class="vt-principe reveler">
+              <span class="vt-principe-ic"><i data-icone="source"></i></span>
+              <div><h3>Sources citées</h3><p>Chaque réponse indique les documents dont elle provient. Vous vérifiez en un clic.</p></div>
+            </article>
+            <article class="vt-principe reveler">
+              <span class="vt-principe-ic"><i data-icone="validation"></i></span>
+              <div><h3>Validation humaine</h3><p>Les actions sensibles (envoi d’un e-mail, export comptable, geste commercial) attendent votre accord.</p></div>
+            </article>
+            <article class="vt-principe reveler">
+              <span class="vt-principe-ic"><i data-icone="cadenas"></i></span>
+              <div><h3>Accès maîtrisés</h3><p>Chacun ne voit que les agents et les documents de son périmètre. Vos données ne servent pas à entraîner les modèles.</p></div>
+            </article>
+            <article class="vt-principe reveler">
+              <span class="vt-principe-ic"><i data-icone="jauge"></i></span>
+              <div><h3>Coûts visibles</h3><p>Une enveloppe mensuelle suivie en temps réel, des alertes et un plafond que vous fixez vous-même.</p></div>
+            </article>
+          </div>
+
+          <div class="vt-panneau reveler" aria-label="Aperçu du tableau de pilotage">
+            <div class="vt-panneau-entete">
+              <span><i data-icone="jauge" class="ic--18"></i>Pilotage · Octobre</span>
+              <span class="badge badge--ok"><i data-icone="check"></i>Dans l’enveloppe</span>
+            </div>
+            <p class="vt-panneau-libelle">Enveloppe du mois</p>
+            <p class="vt-panneau-valeur">31&#8239;% <span>utilisés au 12 octobre</span></p>
+            <div class="jauge-lineaire" aria-hidden="true">
+              <b style="width:31%"></b>
+              <i class="jauge-projection" style="left:91%"></i>
+              <i class="jauge-seuil" style="left:80%"></i>
+            </div>
+            <div class="vt-panneau-legende"><span><i class="pastille pastille--conso"></i>Consommé</span><span><i class="pastille pastille--projection"></i>Projection : 91&#8239;%</span><span><i class="pastille pastille--seuil"></i>Alerte : 80&#8239;%</span></div>
+            <ul class="vt-panneau-reglages">
+              <li><span>Alerte à 80&#8239;% de l’enveloppe</span><span class="interrupteur"><input type="checkbox" checked tabindex="-1" aria-hidden="true"><span></span></span></li>
+              <li><span>Plafond journalier</span><span class="interrupteur"><input type="checkbox" checked tabindex="-1" aria-hidden="true"><span></span></span></li>
+              <li><span>Validation avant tout envoi externe</span><span class="interrupteur"><input type="checkbox" checked tabindex="-1" aria-hidden="true"><span></span></span></li>
+            </ul>
+            <div class="vt-panneau-pause"><i data-icone="pause" class="ic--18"></i>Mettre tous les agents en pause</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Modèle ===== -->
+    <section class="vt-section vt-section--teinte" id="modele" aria-labelledby="modele-titre">
+      <div class="vt-conteneur">
+        <div class="vt-entete-section reveler">
+          <p class="surtitre">Un modèle simple</p>
+          <h2 class="titre vt-h2" id="modele-titre">Un interlocuteur, <em>une seule facture.</em></h2>
+          <p class="chapo">Pas d’abonnement à gérer auprès des fournisseurs d’IA, pas de mauvaise surprise : tout passe par Datako.</p>
+        </div>
+        <div class="vt-modele">
+          <article class="vt-formule reveler">
+            <span class="vt-formule-num">01</span>
+            <h3>Mise en route</h3>
+            <p class="vt-formule-sous">Forfait unique</p>
+            <ul>
+              <li><i data-icone="check"></i>Journée de cadrage avec vos équipes</li>
+              <li><i data-icone="check"></i>Connexion à vos outils et documents</li>
+              <li><i data-icone="check"></i>Configuration de vos premiers agents</li>
+              <li><i data-icone="check"></i>Formation de vos collaborateurs</li>
+            </ul>
+          </article>
+          <article class="vt-formule vt-formule--accent reveler">
+            <span class="vt-formule-num">02</span>
+            <h3>Abonnement</h3>
+            <p class="vt-formule-sous">Mensuel, tout compris</p>
+            <ul>
+              <li><i data-icone="check"></i>Plateforme Datako pour toute l’équipe</li>
+              <li><i data-icone="check"></i>Modèles d’IA inclus, sans abonnement à gérer</li>
+              <li><i data-icone="check"></i>Maintenance des connexions</li>
+              <li><i data-icone="check"></i>Conseillère dédiée et support</li>
+            </ul>
+          </article>
+          <article class="vt-formule reveler">
+            <span class="vt-formule-num">03</span>
+            <h3>Usage</h3>
+            <p class="vt-formule-sous">Transparent et plafonnable</p>
+            <ul>
+              <li><i data-icone="check"></i>Enveloppe mensuelle adaptée à vos volumes</li>
+              <li><i data-icone="check"></i>Suivi en temps réel, par agent et par équipe</li>
+              <li><i data-icone="check"></i>Alertes et plafond fixés par vous</li>
+              <li><i data-icone="check"></i>Recommandations pour optimiser l’usage</li>
+            </ul>
+          </article>
+        </div>
+        <div class="vt-modele-pied reveler">
+          <p><strong>Et ensuite&#8239;?</strong> De nouveaux agents s’ajoutent à tout moment, au fil de vos besoins. Proposition établie selon la taille de votre équipe et le nombre d’agents.</p>
+          <button class="btn btn--sombre" data-ouvrir-contact>Recevoir une proposition <i data-icone="fleche" class="ic--fleche"></i></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Questions fréquentes ===== -->
+    <section class="vt-section" id="faq" aria-labelledby="faq-titre">
+      <div class="vt-conteneur vt-faq-grille">
+        <div class="vt-entete-section reveler">
+          <p class="surtitre">Questions fréquentes</p>
+          <h2 class="titre vt-h2" id="faq-titre">Tout ce que vous voulez savoir, <em>simplement.</em></h2>
+        </div>
+        <div class="vt-faq reveler">
+          <details open>
+            <summary>Faut-il des compétences techniques&#8239;?<i data-icone="plus"></i></summary>
+            <p>Aucune. Nous prenons en charge toute la partie technique : connexions, configuration, maintenance. Vos équipes utilisent des agents aussi simples qu’un bouton.</p>
+          </details>
+          <details>
+            <summary>Que deviennent nos données&#8239;?<i data-icone="plus"></i></summary>
+            <p>Elles restent les vôtres. Les agents n’accèdent qu’aux outils et documents que vous autorisez, avec les droits de chaque utilisateur. Vos données ne sont pas utilisées pour entraîner les modèles d’IA.</p>
+          </details>
+          <details>
+            <summary>Combien de temps faut-il pour démarrer&#8239;?<i data-icone="plus"></i></summary>
+            <p>Tout commence par une journée de cadrage avec vos équipes. Vos premiers agents sont ensuite configurés et vos collaborateurs formés : l’objectif est un usage réel dès les premières semaines.</p>
+          </details>
+          <details>
+            <summary>Et si nous avons besoin d’un nouvel agent&#8239;?<i data-icone="plus"></i></summary>
+            <p>Il suffit de le demander depuis la plateforme. Nous le configurons à partir de notre catalogue ou le créons sur mesure, puis l’ajoutons à votre espace.</p>
+          </details>
+          <details>
+            <summary>Peut-on utiliser Datako dans Teams&#8239;?<i data-icone="plus"></i></summary>
+            <p>Oui. Vos agents sont accessibles depuis l’espace Datako ou directement dans les outils que vos équipes utilisent déjà, comme Microsoft Teams.</p>
+          </details>
+          <details>
+            <summary>Comment maîtrisez-vous les coûts d’usage&#8239;?<i data-icone="plus"></i></summary>
+            <p>L’usage est suivi en temps réel, agent par agent. Vous fixez une enveloppe mensuelle, des seuils d’alerte et un plafond ; vous pouvez suspendre tous les agents en un clic.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Appel final ===== -->
+    <section class="vt-final sombre" id="contact" aria-labelledby="final-titre">
+      <div class="vt-final-fond" aria-hidden="true"></div>
+      <div class="vt-conteneur vt-final-interieur reveler">
+        <p class="surtitre">Passons à l’action</p>
+        <h2 class="titre vt-h2" id="final-titre">Prêt à mettre l’IA <em>au travail&#8239;?</em></h2>
+        <p class="chapo">Découvrez la plateforme en trois minutes, ou parlez de vos besoins avec un expert Datako.</p>
+        <div class="vt-hero-actions">
+          <a href="#/app/accueil" class="btn btn--primaire btn--grand">Voir la démo <i data-icone="fleche" class="ic--fleche"></i></a>
+          <button class="btn btn--contour-clair btn--grand" data-ouvrir-contact>Parler à un expert</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="vt-pied sombre">
+    <div class="vt-conteneur vt-pied-grille">
+      <div class="vt-pied-marque">
+        <span class="logo logo--clair logo--petit" role="img" aria-label="Datako"></span>
+        <p>L’IA au service de vos équipes.</p>
+      </div>
+      <nav class="vt-pied-liens" aria-label="Liens de bas de page">
+        <div>
+          <p>Plateforme</p>
+          <a href="#/app/accueil">Démonstration</a>
+          <a href="#agents">Agents</a>
+          <a href="#controle">Contrôle</a>
+        </div>
+        <div>
+          <p>Offre</p>
+          <a href="#methode">Méthode</a>
+          <a href="#modele">Modèle</a>
+          <a href="#faq">Questions fréquentes</a>
+        </div>
+      </nav>
+    </div>
+    <div class="vt-conteneur vt-pied-bas">
+      <p>© 2026 Datako</p>
+      <p>Maquette de démonstration : contenus, entreprises et données fictifs.</p>
+    </div>
+  </footer>
+</div>
+
+<!-- =====================================================================
+     PLATEFORME (prototype cliquable)
+     ===================================================================== -->
+<div id="vue-plateforme" class="pf" hidden>
+  <aside class="pf-barre" id="pf-barre" aria-label="Menu de la plateforme">
+    <div class="pf-barre-haut">
+      <a href="#/app/accueil" class="pf-logo" aria-label="Accueil de la plateforme"><span class="logo logo--clair logo--petit" role="img" aria-label="Datako"></span></a>
+      <button class="pf-fermer-menu" id="pf-fermer-menu" aria-label="Fermer le menu"><i data-icone="croix"></i></button>
+    </div>
+    <div class="pf-entreprise">
+      <span class="pf-monogramme" id="pf-monogramme">BÉ</span>
+      <div><strong id="pf-entreprise-nom">Bastide Équipements</strong><span id="pf-entreprise-detail">48 salariés · Lyon</span></div>
+    </div>
+    <nav class="pf-nav" aria-label="Navigation de la plateforme">
+      <p class="pf-nav-titre">Mon espace</p>
+      <a href="#/app/accueil" data-nav="accueil"><i data-icone="accueil"></i><span>Accueil</span></a>
+      <a href="#/app/documents" data-nav="documents"><i data-icone="conversation"></i><span>Mes documents</span></a>
+      <a href="#/app/agents" data-nav="agents"><i data-icone="grille"></i><span>Agents</span><span class="pf-nav-compte" id="pf-nav-compte">4</span></a>
+      <p class="pf-nav-titre">Espace dirigeant</p>
+      <a href="#/app/pilotage" data-nav="pilotage"><i data-icone="jauge"></i><span>Pilotage</span></a>
+      <a href="#/app/impact" data-nav="impact"><i data-icone="tendance"></i><span>Impact</span></a>
+      <a href="#/app/reglages" data-nav="reglages"><i data-icone="reglages"></i><span>Réglages</span></a>
+    </nav>
+    <div class="pf-barre-bas">
+      <a class="pf-teams" href="#/app/reglages/teams"><i data-icone="teams"></i><span><strong>Aussi dans Teams</strong>Vos agents, là où vous travaillez</span></a>
+      <div class="pf-conseiller">
+        <span class="avatar avatar--turquoise">CR</span>
+        <div><strong>Camille Roux</strong><span>Conseillère Datako</span></div>
+        <button class="pf-conseiller-btn" data-action="contacter-conseiller" aria-label="Contacter votre conseillère"><i data-icone="conversation" class="ic--18"></i></button>
+      </div>
+    </div>
+  </aside>
+  <div class="pf-voile" id="pf-voile" hidden></div>
+
+  <div class="pf-principal">
+    <header class="pf-entete">
+      <button class="pf-ouvrir-menu" id="pf-ouvrir-menu" aria-label="Ouvrir le menu" aria-controls="pf-barre" aria-expanded="false"><i data-icone="menu"></i></button>
+      <p class="pf-fil" id="pf-fil">Accueil</p>
+      <span class="badge badge--info pf-demo"><i data-icone="info"></i><span>Démonstration · données fictives</span></span>
+      <div class="pf-entete-actions">
+        <div class="pf-notifs-zone">
+          <button class="pf-cloche" id="pf-cloche" aria-label="Notifications (3 nouvelles)" aria-expanded="false" aria-controls="pf-notifs"><i data-icone="cloche"></i><span class="pf-cloche-point" id="pf-cloche-point"></span></button>
+          <div class="pf-notifs" id="pf-notifs" hidden></div>
+        </div>
+        <div class="pf-persona" id="pf-persona"></div>
+        <a href="#/" class="btn btn--fantome btn--petit pf-quitter"><i data-icone="sortir"></i><span>Quitter la démo</span></a>
+      </div>
+    </header>
+    <div class="pf-bandeau-pause" id="pf-bandeau-pause" role="status" hidden>
+      <i data-icone="pause"></i>
+      <p><strong>Tous les agents sont en pause.</strong> Aucune tâche n’est exécutée et aucun crédit n’est consommé.</p>
+      <button class="btn btn--sombre btn--petit" data-action="reprendre-agents"><i data-icone="lecture"></i>Reprendre</button>
+    </div>
+    <main class="pf-contenu" id="pf-contenu" tabindex="-1"></main>
+  </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="assets/js/donnees.js"></script>
+<script src="assets/js/icones.js"></script>
+<script src="assets/js/graphiques.js"></script>
+<script src="assets/js/commun.js"></script>
+<script src="assets/js/vitrine.js"></script>
+<script src="assets/js/plateforme.js"></script>
+<script src="assets/js/routeur.js"></script>
+</body>
+</html>
