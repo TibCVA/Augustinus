@@ -12,9 +12,9 @@
 /* ---------- En-tête flottant ---------- */
 
 .vt-entete {
-  position: fixed; z-index: 50; top: 14px; left: 50%; transform: translateX(-50%);
+  position: fixed; z-index: 50; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  width: min(1240px, calc(100% - 24px)); padding: 8px 8px 8px 22px;
+  width: min(1240px, calc(100% - 32px)); padding: 8px 8px 8px 22px;
   border-radius: 999px; border: 1px solid transparent;
   transition: background .3s, border-color .3s, box-shadow .3s;
 }
@@ -36,7 +36,7 @@
 .vt-hero {
   position: relative;
   display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); align-items: center; gap: clamp(32px, 5vw, 80px);
-  max-width: 1240px; min-height: min(100svh, 940px); margin: 0 auto; padding: 140px 32px 80px;
+  max-width: 1240px; margin: 0 auto; padding: 140px 32px 80px;
 }
 .vt-hero::before {
   content: ""; position: absolute; z-index: -1; inset: 0 -20vw 0 30%;

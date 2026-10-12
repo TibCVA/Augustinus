@@ -86,7 +86,7 @@
 /* ---------- Dock (navigation) ---------- */
 
 .dock {
-  position: fixed; z-index: 80; left: 50%; bottom: 18px; transform: translateX(-50%);
+  position: fixed; z-index: 80; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
   display: flex; align-items: center; gap: 4px; padding: 6px;
   border-radius: 999px; background: rgba(10, 32, 54, .94);
   backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
@@ -388,6 +388,7 @@
 .feuille {
   position: fixed; z-index: 151; left: 50%; bottom: 0; transform: translateX(-50%);
   width: min(940px, calc(100% - 24px)); height: calc(100% - 36px); overflow: auto; overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   border-radius: 34px 34px 0 0; background: var(--papier); box-shadow: 0 -20px 80px rgba(6, 20, 34, .3);
   animation: feuilleMonte .45s var(--ease) both;
 }
@@ -523,10 +524,10 @@
 }
 
 @media (max-width: 640px) {
-  .pf-barre { padding: 12px 14px; }
+  .pf-barre { padding: 12px 16px; }
   .pf-entreprise-nom, .pf-demo, .pf-quitter-texte, .pf-persona-nom { display: none; }
   .pf-persona-btn { padding-right: 8px; }
-  .pf-contenu { padding: 8px 14px 130px; }
+  .pf-contenu { padding: 8px 16px 130px; }
   .auj-titre { font-size: 2.5rem; }
   .ct { padding: 22px 20px 0; gap: 18px; }
   .ct-boutons, .ct-correction-cadre { position: static; margin: 0 -20px; padding: 6px 20px 22px; box-shadow: none; }
@@ -537,13 +538,13 @@
   .auj-fini { padding: 34px 24px; }
   .auj-fini .titre { padding-right: 0; }
   .auj-fini .tampon { display: none; }
-  .dock { left: 10px; right: 10px; bottom: 10px; transform: none; justify-content: space-between; }
+  .dock { left: 16px; right: 16px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: none; justify-content: space-between; }
   .dock-lien { flex-direction: column; gap: 2px; height: 54px; padding: 0 8px; font-size: .7rem; flex: 1; justify-content: center; }
   .dock-lien .dock-compte { position: absolute; top: 3px; left: 50%; margin-left: 6px; min-width: 18px; height: 18px; font-size: .66rem; }
   .dock-sep { display: none; }
   .dock-demander { height: 54px; padding: 0 16px; }
   .dock-demander-texte, .dock-raccourci { display: none; }
-  .toasts { bottom: 86px; }
+  .toasts { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
   .feuille { width: 100%; height: calc(100% - 16px); border-radius: 26px 26px 0 0; }
   .fe-tete { grid-template-columns: 1fr; gap: 14px; padding-right: 0; }
   .fe-temps > li { grid-template-columns: 34px minmax(0, 1fr); gap: 14px; }

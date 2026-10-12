@@ -2,18 +2,23 @@
    Datako — Routeur : bascule entre la vitrine et la plateforme
    - Adresses « #/app/... »  → plateforme (ex. #/app/equipe, #/app/studio)
    - Toute autre adresse      → vitrine (ex. #journee pour une section)
+   - Liens courts à partager  → #demo, #equipe, #bilan, #studio
    ========================================================================== */
 
 (function () {
   var vitrine = document.getElementById('vue-vitrine');
   var plateforme = document.getElementById('vue-plateforme');
   var mode = null;
+  var RACCOURCIS = { demo: 'aujourdhui', aujourdhui: 'aujourdhui', equipe: 'equipe', bilan: 'bilan', studio: 'studio' };
 
   hydraterIcones(document);
   Typo.appliquer(vitrine);
 
   function router() {
     var h = location.hash || '';
+    // Liens courts (#demo, #studio…) : faciles à partager, ils ouvrent la plateforme
+    var court = h.replace(/^#/, '');
+    if (RACCOURCIS[court] && !document.getElementById(court)) { location.replace('#/app/' + RACCOURCIS[court]); return; }
     if (h.indexOf('#/app') === 0) {
       if (mode !== 'plateforme') {
         mode = 'plateforme';
@@ -35,7 +40,7 @@
       vitrine.hidden = false;
       document.body.classList.remove('mode-plateforme');
     }
-    document.title = 'Datako — L’IA travaille, vous validez';
+    document.title = 'Datako';
     Vitrine.afficher();
 
     var id = h.replace(/^#\/?/, '');

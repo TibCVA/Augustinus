@@ -80,7 +80,7 @@ assets/js/icones.js        Jeu d’icônes
 outils/assembler.js        Fabrique le fichier unique livrable/datako-maquette.html
 ```
 
-Adresses utiles pendant une démonstration :
+Adresses utiles pendant une démonstration. Pour un lien à partager, utilisez les versions courtes : `#demo`, `#equipe`, `#bilan` et `#studio`.
 
 - `#/app/aujourdhui` : la pile de travaux à valider
 - `#/app/equipe` : l’équipe et son rythme de la semaine

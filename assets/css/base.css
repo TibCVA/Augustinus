@@ -360,7 +360,7 @@ fieldset.champ > legend { padding: 0; margin-bottom: 8px; }
 /* ---------- Notifications ---------- */
 
 .toasts {
-  position: fixed; left: 50%; bottom: 104px; z-index: 300; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: calc(104px + env(safe-area-inset-bottom, 0px)); z-index: 300; transform: translateX(-50%);
   display: grid; gap: 8px; justify-items: center; width: min(460px, calc(100% - 32px)); pointer-events: none;
 }
 .toast {
