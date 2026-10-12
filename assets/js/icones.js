@@ -67,7 +67,18 @@ var ICONES = {
   boussole: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
   lien: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   chargement: '<path d="M12 3a9 9 0 1 0 9 9"/>',
-  copier: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>'
+  copier: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  recu: '<path d="M6 2.5h12v19l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"/><path d="M9 7.5h6M9 11h6M9 14.5h3.5"/>',
+  soleil: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/>',
+  pile: '<rect x="4" y="9" width="16" height="11" rx="2.5"/><path d="M6.5 6h11M9 3h6"/>',
+  equipe: '<circle cx="12" cy="7.5" r="3"/><circle cx="5" cy="10" r="2.2"/><circle cx="19" cy="10" r="2.2"/><path d="M6.5 20a5.5 5.5 0 0 1 11 0"/><path d="M1.5 18.5a3.5 3.5 0 0 1 4.5-3.3M22.5 18.5a3.5 3.5 0 0 0-4.5-3.3"/>',
+  bilan: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  atelier: '<path d="m14.5 4 5.5 5.5-9.5 9.5H5v-5.5z"/><path d="m12 6.5 5.5 5.5"/><path d="M3 21h18"/>',
+  archive: '<rect x="3.5" y="3" width="17" height="18" rx="2"/><path d="M10 3v2h2v2h-2v2h2v2h-2v2"/><rect x="9" y="14" width="4" height="4" rx="1"/>',
+  code: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16"/>',
+  tampon: '<path d="M9 3h6l-1 7h3a2 2 0 0 1 2 2v2H5v-2a2 2 0 0 1 2-2h3z"/><path d="M5 17h14M7 21h10"/>',
+  plusTard: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5h4"/>',
+  publier: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/>'
 };
 
 function icone(nom, classe) {

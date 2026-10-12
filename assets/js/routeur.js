@@ -1,7 +1,7 @@
 /* ==========================================================================
    Datako — Routeur : bascule entre la vitrine et la plateforme
-   - Adresses « #/app/... »  → plateforme (ex. #/app/pilotage)
-   - Toute autre adresse      → vitrine (ex. #methode pour une section)
+   - Adresses « #/app/... »  → plateforme (ex. #/app/equipe, #/app/studio)
+   - Toute autre adresse      → vitrine (ex. #journee pour une section)
    ========================================================================== */
 
 (function () {
@@ -11,7 +11,6 @@
 
   hydraterIcones(document);
   Typo.appliquer(vitrine);
-  Typo.appliquer(plateforme);
 
   function router() {
     var h = location.hash || '';
@@ -22,6 +21,7 @@
         vitrine.hidden = true;
         plateforme.hidden = false;
         document.body.classList.add('mode-plateforme');
+        window.scrollTo(0, 0);
       }
       Plateforme.afficher(h.replace(/^#\/app\/?/, ''));
       return;
@@ -34,20 +34,17 @@
       plateforme.hidden = true;
       vitrine.hidden = false;
       document.body.classList.remove('mode-plateforme');
-      document.title = 'Datako — L’IA, enfin simple';
     }
+    document.title = 'Datako — L’IA travaille, vous validez';
     Vitrine.afficher();
 
     var id = h.replace(/^#\/?/, '');
     var cible = id ? document.getElementById(id) : null;
-    if (cible) {
-      requestAnimationFrame(function () { cible.scrollIntoView({ block: 'start' }); });
-    } else if (venaitDeLaPlateforme || h === '#/') {
-      window.scrollTo(0, 0);
-    }
+    if (cible) requestAnimationFrame(function () { cible.scrollIntoView({ behavior: venaitDeLaPlateforme ? 'auto' : 'smooth', block: 'start' }); });
+    else if (venaitDeLaPlateforme || h === '#/') window.scrollTo(0, 0);
   }
 
-  // Lien d'évitement : vise le contenu de la vue affichée sans changer d'adresse
+  // Lien d'évitement : vise le contenu de la vue affichée
   document.querySelector('[data-evitement]').addEventListener('click', function (e) {
     e.preventDefault();
     var cible = document.getElementById(mode === 'plateforme' ? 'pf-contenu' : 'contenu');

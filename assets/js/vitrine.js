@@ -1,260 +1,207 @@
 /* ==========================================================================
-   Datako — Interactions de la vitrine
+   Datako — Vitrine : en-tête, pile de travaux à valider, journée type
+   (le ciel suit la lecture), calcul en une phrase, contact.
    ========================================================================== */
 
 var Vitrine = (function () {
-  var initialisee = false;
-  var minuterieHero = null;
-  var reduit = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var entete = document.getElementById('vt-entete');
 
-  /* ---------- En-tête : fond au défilement, menu mobile, lien actif ---------- */
-  function initEntete() {
-    var entete = document.getElementById('vt-entete');
-    var nav = document.getElementById('vt-nav');
-    var burger = document.getElementById('vt-burger');
+  /* ---------- En-tête : fond dès que l'on fait défiler ---------- */
+  function surDefilement() { entete.classList.toggle('est-defile', window.scrollY > 24); }
+  window.addEventListener('scroll', surDefilement, { passive: true });
 
-    function majFond() { entete.classList.toggle('est-colle', window.scrollY > 40 || nav.classList.contains('ouvert')); }
-    window.addEventListener('scroll', majFond, { passive: true });
-    majFond();
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-contact]')) { e.preventDefault(); ouvrirContact(); }
+  });
 
-    function fermerMenu() {
-      nav.classList.remove('ouvert');
-      burger.setAttribute('aria-expanded', 'false');
-      burger.setAttribute('aria-label', 'Ouvrir le menu');
-      burger.innerHTML = icone('menu');
-      majFond();
-    }
-    burger.addEventListener('click', function () {
-      var ouvert = nav.classList.toggle('ouvert');
-      burger.setAttribute('aria-expanded', String(ouvert));
-      burger.setAttribute('aria-label', ouvert ? 'Fermer le menu' : 'Ouvrir le menu');
-      burger.innerHTML = icone(ouvert ? 'croix' : 'menu');
-      majFond();
-    });
-    nav.addEventListener('click', function (e) { if (e.target.closest('a')) fermerMenu(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && nav.classList.contains('ouvert')) { fermerMenu(); burger.focus(); } });
+  /* ---------- 1. La pile de travaux (hero) ---------- */
+  var pile = document.getElementById('vt-pile');
+  var compteur = document.getElementById('vt-temps');
+  var HEURES_VALIDATION = ['8 h 41', '8 h 42', '8 h 44'];
+  var file, rendues, validees;
 
-    // Lien actif selon la section visible
-    if ('IntersectionObserver' in window) {
-      var liens = {};
-      nav.querySelectorAll('a[href^="#"]:not([href^="#/"])').forEach(function (a) { liens[a.getAttribute('href').slice(1)] = a; });
-      var obs = new IntersectionObserver(function (entrees) {
-        entrees.forEach(function (en) {
-          if (en.isIntersecting && liens[en.target.id]) {
-            Object.keys(liens).forEach(function (k) { liens[k].classList.remove('actif'); liens[k].removeAttribute('aria-current'); });
-            liens[en.target.id].classList.add('actif');
-            liens[en.target.id].setAttribute('aria-current', 'true');
-          }
-        });
-      }, { rootMargin: '-45% 0px -50% 0px' });
-      Object.keys(liens).forEach(function (id) { var s = document.getElementById(id); if (s) obs.observe(s); });
-    }
+  function travail(id) {
+    for (var i = 0; i < DONNEES.travaux.length; i++) if (DONNEES.travaux[i].id === id) return DONNEES.travaux[i];
   }
 
-  /* ---------- Apparition progressive des blocs ---------- */
-  function initRevelation() {
-    var blocs = document.querySelectorAll('#vue-vitrine .reveler');
-    if (!('IntersectionObserver' in window) || reduit) { blocs.forEach(function (b) { b.classList.add('visible'); }); return; }
-    var obs = new IntersectionObserver(function (entrees) {
+  function carteHtml(t) {
+    var a = Cartes.agent(t.agent);
+    return '<div class="vt-carte-tete">' + Cartes.pastille(a, 'petite') +
+        '<span class="vt-carte-agent">' + esc(a.nom) + '</span>' +
+        '<span class="vt-carte-heure">' + esc(t.heure) + '</span></div>' +
+      '<h3 class="vt-carte-titre">' + esc(t.titre) + ' <em>' + esc(t.accent) + '</em></h3>' +
+      '<div class="vt-carte-apercu">' + Cartes.apercu(t.apercu, { compact: true }) + '</div>' +
+      '<div class="vt-carte-pied">' +
+        '<button type="button" class="btn btn--valider btn--petit" data-vt="valider">' + icone('check') + 'Valider</button>' +
+        '<button type="button" class="btn btn--fantome btn--petit" data-vt="plus-tard">Plus tard</button>' +
+        '<span class="vt-carte-gain">' + Format.duree(t.minutes) + ' de travail</span>' +
+      '</div>';
+  }
+
+  function demarrerPile() {
+    file = ['t-factures', 't-emails', 't-relances'];
+    rendues = 0; validees = 0;
+    compteur.textContent = '0 min';
+    pile.innerHTML = '';
+    file.forEach(function (id) {
+      var el = document.createElement('article');
+      el.className = 'vt-carte';
+      el.setAttribute('data-id', id);
+      el.innerHTML = carteHtml(travail(id));
+      pile.appendChild(el);
+    });
+    Typo.appliquer(pile);
+    ranger();
+  }
+
+  // Attribue à chaque carte son rang dans la pile (0 = dessus)
+  function ranger() {
+    file.forEach(function (id, rang) {
+      var el = pile.querySelector('[data-id="' + id + '"]');
+      el.setAttribute('data-rang', rang);
+      el.style.zIndex = 10 - rang;
+      if (rang === 0) { el.removeAttribute('inert'); el.removeAttribute('aria-hidden'); }
+      else { el.setAttribute('inert', ''); el.setAttribute('aria-hidden', 'true'); }
+    });
+  }
+
+  function animerCompteur(de, a) {
+    var debut = null;
+    function pas(t) {
+      if (!debut) debut = t;
+      var p = Math.min(1, (t - debut) / 700);
+      compteur.textContent = Typo.corriger(Format.duree(de + (a - de) * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) requestAnimationFrame(pas);
+    }
+    requestAnimationFrame(pas);
+  }
+
+  pile.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-vt]');
+    if (!b) return;
+    var action = b.getAttribute('data-vt');
+    if (action === 'rejouer') { demarrerPile(); pile.querySelector('[data-vt="valider"]').focus(); return; }
+    var carte = b.closest('.vt-carte');
+    var id = carte.getAttribute('data-id');
+
+    if (action === 'plus-tard') {
+      file.push(file.shift());
+      ranger();
+      pile.querySelector('[data-rang="0"] [data-vt="valider"]').focus();
+      return;
+    }
+
+    if (action === 'valider') {
+      carte.setAttribute('inert', '');
+      var tampon = document.createElement('div');
+      tampon.className = 'tampon';
+      tampon.setAttribute('aria-hidden', 'true');
+      tampon.innerHTML = 'Validé<strong>' + HEURES_VALIDATION[validees] + '</strong>';
+      Typo.appliquer(tampon);
+      carte.appendChild(tampon);
+      validees++;
+      var avant = rendues;
+      rendues += travail(id).minutes;
+      animerCompteur(avant, rendues);
+      setTimeout(function () {
+        carte.classList.add('s-envole');
+        file.shift();
+        if (file.length) ranger();
+        setTimeout(function () {
+          carte.remove();
+          if (!file.length) finDePile();
+          else pile.querySelector('[data-rang="0"] [data-vt="valider"]').focus();
+        }, 450);
+      }, 700);
+    }
+  });
+
+  function finDePile() {
+    var el = document.createElement('article');
+    el.className = 'vt-carte vt-carte--fin';
+    el.setAttribute('data-rang', '0');
+    el.innerHTML =
+      '<h3 class="vt-carte-titre">Tout est validé. <em>' + Format.duree(rendues) + ' rendue.</em></h3>' +
+      '<p>Avant 9 h, Chantal a bouclé ce qui lui prenait sa matinée. Les factures sont dans Pennylane, les réponses sont parties.</p>' +
+      '<a href="#/app/aujourdhui" class="btn btn--valider">Voir la démo complète ' + icone('fleche') + '</a>' +
+      '<button type="button" class="vt-carte-rejouer" data-vt="rejouer">Recommencer</button>';
+    Typo.appliquer(el);
+    pile.appendChild(el);
+    el.querySelector('a').focus({ preventScroll: true });
+  }
+
+  /* ---------- 2. Une journée : le ciel suit la lecture ---------- */
+  var etapes = document.getElementById('vt-etapes');
+  var ciel = document.getElementById('vt-ciel');
+  var cielHeure = document.getElementById('vt-ciel-heure');
+  var cielQui = document.getElementById('vt-ciel-qui');
+
+  etapes.innerHTML = DONNEES.vitrine.journee.map(function (e, i) {
+    var titre = esc(e.titre).replace(/\*(.+?)\*/g, '<em>$1</em>');
+    var qui = e.humain
+      ? '<span class="puce puce--sable vt-etape-qui">' + icone(e.qui === 'Fin de journée' ? 'horloge' : 'validation') + esc(e.qui) + '</span>'
+      : '<span class="puce puce--teal vt-etape-qui">' + icone('etincelle') + 'Datako · ' + esc(e.agent) + '</span>';
+    return '<li class="vt-etape' + (e.humain ? ' vt-etape--humain' : '') + (i === 0 ? ' est-active' : '') + '" data-index="' + i + '">' +
+      '<div class="vt-etape-meta"><span class="vt-etape-heure">' + esc(e.heure) + '</span>' + qui + '</div>' +
+      '<h3>' + titre + '</h3><p>' + esc(e.texte) + '</p></li>';
+  }).join('');
+
+  function activerEtape(i) {
+    var e = DONNEES.vitrine.journee[i];
+    etapes.querySelectorAll('.vt-etape').forEach(function (li, j) { li.classList.toggle('est-active', j === i); });
+    ciel.setAttribute('data-ciel', e.ciel);
+    cielHeure.textContent = Typo.corriger(e.heure);
+    cielQui.textContent = e.humain ? e.qui : 'Datako travaille';
+  }
+
+  if ('IntersectionObserver' in window) {
+    var observateur = new IntersectionObserver(function (entrees) {
       entrees.forEach(function (en) {
-        if (en.isIntersecting) { en.target.classList.add('visible'); obs.unobserve(en.target); }
+        if (en.isIntersecting) activerEtape(+en.target.getAttribute('data-index'));
       });
-    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-    blocs.forEach(function (b) { obs.observe(b); });
+    }, { rootMargin: '-48% 0px -48% 0px' });
+    etapes.querySelectorAll('.vt-etape').forEach(function (li) { observateur.observe(li); });
   }
 
-  /* ---------- Fenêtre produit : l'agent « Factures » au travail ---------- */
-  function animerHero() {
-    var tuile = document.getElementById('fc-tuile-animee');
-    if (!tuile) return;
-    if (reduit) { tuile.classList.add('e3'); return; }
-    var etats = ['e1', 'e2', 'e3'];
-    var i = 0;
-    function suivant() {
-      if (i < etats.length) {
-        tuile.classList.add(etats[i]);
-        i++;
-        minuterieHero = setTimeout(suivant, i === etats.length ? 3200 : 1300);
-      } else {
-        tuile.classList.remove('e1', 'e2', 'e3');
-        i = 0;
-        minuterieHero = setTimeout(suivant, 900);
-      }
-    }
-    clearTimeout(minuterieHero);
-    minuterieHero = setTimeout(suivant, 900);
-  }
+  /* ---------- 3. Le calcul en une phrase ---------- */
+  var selPersonnes = document.getElementById('vt-personnes');
+  var selHeures = document.getElementById('vt-heures');
+  var selTache = document.getElementById('vt-tache');
+  var S = DONNEES.vitrine.simulateur;
 
-  /* ---------- Méthode en trois étapes ---------- */
-  function initEtapes() {
-    var onglets = Array.prototype.slice.call(document.querySelectorAll('.vt-etape'));
-    var prec = document.getElementById('vt-etape-prec');
-    var suiv = document.getElementById('vt-etape-suiv');
-    var compteur = document.getElementById('vt-etape-compteur');
-    var progression = document.getElementById('vt-etapes-progression');
-    var actuelle = 1;
-
-    function aller(n, focus) {
-      actuelle = Math.max(1, Math.min(3, n));
-      onglets.forEach(function (o, i) {
-        var actif = i + 1 === actuelle;
-        o.classList.toggle('actif', actif);
-        o.classList.toggle('fait', i + 1 < actuelle);
-        o.setAttribute('aria-selected', String(actif));
-        o.tabIndex = actif ? 0 : -1;
-        document.getElementById('etape-' + (i + 1)).hidden = !actif;
-      });
-      if (focus) onglets[actuelle - 1].focus();
-      compteur.textContent = '0' + actuelle + ' / 03';
-      progression.style.width = ((actuelle - 1) / 2 * 100) + '%';
-      prec.disabled = actuelle === 1;
-      suiv.innerHTML = actuelle === 3 ? 'Voir la démo' + icone('fleche', 'ic--fleche') : 'Étape suivante' + icone('fleche', 'ic--fleche');
-    }
-
-    onglets.forEach(function (o) {
-      o.addEventListener('click', function () { aller(Number(o.dataset.etape)); });
-      o.addEventListener('keydown', function (e) {
-        if (e.key === 'ArrowRight') { e.preventDefault(); aller(actuelle === 3 ? 1 : actuelle + 1, true); }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); aller(actuelle === 1 ? 3 : actuelle - 1, true); }
-      });
-    });
-    prec.addEventListener('click', function () { aller(actuelle - 1); });
-    suiv.addEventListener('click', function () {
-      if (actuelle === 3) { location.hash = '#/app/accueil'; return; }
-      aller(actuelle + 1);
-    });
-    aller(1);
-  }
-
-  /* ---------- Bibliothèque d'agents par métier ---------- */
-  function initAgents() {
-    var zoneOnglets = document.getElementById('vt-onglets-metiers');
-    var zoneAgents = document.getElementById('vt-agents');
-
-    zoneOnglets.innerHTML = DONNEES.metiers.map(function (m, i) {
-      return '<button class="vt-onglet" role="tab" id="onglet-' + m.id + '" aria-controls="vt-agents" aria-selected="' + (i === 0) + '" tabindex="' + (i === 0 ? 0 : -1) + '" data-metier="' + m.id + '">' +
-        icone(m.icone) + esc(m.nom) + '</button>';
+  function options(sel, liste, choisi) {
+    sel.innerHTML = liste.map(function (o) {
+      return '<option value="' + o.v + '"' + (String(o.v) === String(choisi) ? ' selected' : '') + '>' + esc(Typo.corriger(o.t)) + '</option>';
     }).join('');
-
-    function afficher(idMetier) {
-      var agents = DONNEES.agents.filter(function (a) { return a.metier === idMetier; }).slice(0, 2);
-      zoneAgents.setAttribute('aria-labelledby', 'onglet-' + idMetier);
-      zoneAgents.innerHTML = agents.map(function (a) {
-        return '<article class="vt-agent">' +
-          '<div class="vt-agent-haut"><span class="vt-agent-ic">' + icone(a.icone, 'ic--24') + '</span>' +
-          (a.statut === 'nouveau' ? '<span class="badge badge--turquoise">' + icone('etincelle') + 'Nouveau</span>' : '') + '</div>' +
-          '<h3>' + esc(a.nom) + '</h3>' +
-          '<p>' + esc(a.description) + '</p>' +
-          '<div class="vt-agent-gain"><span class="sr-only">Temps nécessaire : ' + esc(a.avant) + ' aujourd’hui, ' + esc(a.apres) + ' avec Datako, ' + esc(a.unite) + '.</span>' +
-            '<span class="avant" aria-hidden="true">' + esc(a.avant) + '</span>' + icone('fleche', 'ic--16') +
-            '<span class="apres" aria-hidden="true">' + esc(a.apres) + '</span><span class="unite" aria-hidden="true">' + esc(a.unite) + '</span></div>' +
-          '<div class="vt-agent-outils">' + a.outils.map(function (o) { return '<span class="badge">' + icone('prise') + esc(o) + '</span>'; }).join('') + '</div>' +
-        '</article>';
-      }).join('') +
-      '<article class="vt-agent vt-agent--mesure">' +
-        '<span class="vt-agent-ic">' + icone('plus', 'ic--24') + '</span>' +
-        '<h3>Un besoin spécifique&#8239;?</h3>' +
-        '<p>Nous concevons l’agent sur mesure, à partir de vos processus et de vos outils.</p>' +
-        '<button class="lien" data-ouvrir-contact>Décrire mon besoin ' + icone('fleche') + '</button>' +
-      '</article>';
-      Typo.appliquer(zoneAgents);
-    }
-
-    var boutons = Array.prototype.slice.call(zoneOnglets.querySelectorAll('.vt-onglet'));
-    function choisir(b, focus) {
-      boutons.forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); x.tabIndex = x === b ? 0 : -1; });
-      if (focus) b.focus();
-      afficher(b.dataset.metier);
-    }
-    boutons.forEach(function (b, i) {
-      b.addEventListener('click', function () { choisir(b); });
-      b.addEventListener('keydown', function (e) {
-        if (e.key === 'ArrowRight') { e.preventDefault(); choisir(boutons[(i + 1) % boutons.length], true); }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); choisir(boutons[(i - 1 + boutons.length) % boutons.length], true); }
-      });
-    });
-    afficher(DONNEES.metiers[0].id);
   }
+  options(selPersonnes, Array.from({ length: 15 }, function (_, i) { return { v: i + 1, t: String(i + 1) }; }), S.personnes);
+  options(selHeures, Array.from({ length: 16 }, function (_, i) { return { v: i + 1, t: (i + 1) + ' h' }; }), S.heures);
+  options(selTache, DONNEES.vitrine.taches.map(function (t) { return { v: t.id, t: t.libelle }; }), S.tache);
 
-  /* ---------- Simulateur de gains ---------- */
-  function initSimulateur() {
-    var S = DONNEES.simulateur;
-    var champTache = document.getElementById('sim-tache');
-    var volume = document.getElementById('sim-volume');
-    var minutes = document.getElementById('sim-minutes');
-    var part = document.getElementById('sim-part');
-    var cout = document.getElementById('sim-cout');
-
-    champTache.innerHTML = S.taches.map(function (t) { return '<option value="' + t.id + '">' + esc(t.libelle) + '</option>'; }).join('');
-    part.value = S.partAutomatisee;
-    cout.value = S.coutHoraire;
-
-    function tacheCourante() { return S.taches.find(function (t) { return t.id === champTache.value; }); }
-
-    function remplissage(input) {
-      var p = (input.value - input.min) / (input.max - input.min) * 100;
-      input.style.setProperty('--p', p + '%');
+  function calculer() {
+    var p = +selPersonnes.value, h = +selHeures.value;
+    document.getElementById('vt-personnes-libelle').textContent = p > 1 ? 'personnes passent' : 'personne passe';
+    var gain = Math.round(p * h * S.part * 2) / 2;
+    var texteGain = gain < 1 ? Math.round(gain * 60) + ' minutes'
+      : (String(gain).replace('.', ',') + (gain >= 2 ? ' heures' : ' heure'));
+    var j = gain / 7, texteJours;
+    if (j < 0.35) texteJours = 'quelques heures de travail';
+    else if (j < 0.75) texteJours = 'une demi-journée de travail';
+    else if (j < 1.15) texteJours = 'environ une journée de travail';
+    else {
+      var n = Math.floor(j * 2) / 2;
+      texteJours = 'plus ' + (n === 1 ? 'd’une journée' : n === 1.5 ? 'd’une journée et demie' : 'de ' + String(n).replace('.', ',') + ' journées') + ' de travail';
     }
-
-    function chargerTache() {
-      var t = tacheCourante();
-      volume.min = t.volumeMin; volume.max = t.volumeMax; volume.step = t.pas; volume.value = t.volume;
-      minutes.min = 1; minutes.max = t.minutesMax; minutes.step = 1; minutes.value = t.minutes;
-      calculer();
-    }
-
-    function calculer() {
-      var t = tacheCourante();
-      var v = Number(volume.value), m = Number(minutes.value), p = Number(part.value) / 100, c = Number(cout.value);
-      var avant = v * m / 60;
-      var liberees = avant * p;
-      var apres = avant - liberees;
-      var joursAn = liberees * S.moisParAn / S.heuresParJour;
-      var valeurAn = liberees * S.moisParAn * c;
-
-      document.getElementById('sim-volume-val').textContent = Typo.corriger(Format.nombre(v) + ' ' + t.unite);
-      document.getElementById('sim-minutes-val').textContent = Typo.corriger(Format.heures(m / 60));
-      document.getElementById('sim-part-val').textContent = Typo.corriger(Math.round(p * 100) + ' %');
-      document.getElementById('sim-cout-val').textContent = Typo.corriger(c + ' € / heure');
-
-      document.getElementById('sim-heures').textContent = Typo.corriger(liberees >= 10 ? Format.nombre(Math.round(liberees)) + ' h' : Format.heures(liberees));
-      document.getElementById('sim-avant').textContent = Typo.corriger(Format.heures(avant));
-      document.getElementById('sim-apres').textContent = Typo.corriger(Format.heures(apres));
-      document.getElementById('sim-barre-avant').style.width = '100%';
-      document.getElementById('sim-barre-apres').style.width = Math.max(2, (1 - p) * 100) + '%';
-      document.getElementById('sim-jours').textContent = Typo.corriger(Format.nombre(joursAn, joursAn < 10 ? 1 : 0));
-      document.getElementById('sim-valeur').textContent = Typo.corriger(Format.euros(Math.round(valeurAn / 10) * 10, 0));
-
-      [volume, minutes, part, cout].forEach(remplissage);
-    }
-
-    champTache.addEventListener('change', chargerTache);
-    [volume, minutes, part, cout].forEach(function (i) { i.addEventListener('input', calculer); });
-    chargerTache();
+    document.getElementById('vt-gain').textContent = Typo.corriger(texteGain);
+    document.getElementById('vt-jours').textContent = texteJours;
   }
+  [selPersonnes, selHeures, selTache].forEach(function (s) { s.addEventListener('change', calculer); });
+  calculer();
 
-  function init() {
-    if (initialisee) return;
-    initialisee = true;
-    initEntete();
-    initRevelation();
-    initEtapes();
-    initAgents();
-    initSimulateur();
-  }
+  demarrerPile();
 
-  function afficher() {
-    init();
-    animerHero();
-  }
-
-  function masquer() { clearTimeout(minuterieHero); }
-
-  return { afficher: afficher, masquer: masquer };
+  return {
+    afficher: function () { surDefilement(); },
+    masquer: function () {}
+  };
 })();
-
-/* Boutons « Parler à un expert », où qu'ils soient */
-document.addEventListener('click', function (e) {
-  var b = e.target.closest('[data-ouvrir-contact]');
-  if (b) { e.preventDefault(); ouvrirContact(); }
-});
