@@ -1,6 +1,6 @@
 # Datako — Maquette de l’interface client
 
-Maquette cliquable de l’interface qu’utilisent les collaborateurs d’une PME cliente de Datako. Le principe : **le client n’utilise pas l’IA, il valide son travail.** Chaque nuit, des agents préparent le travail répétitif ; le matin, chacun le valide en quelques clics.
+Maquette cliquable de l’interface utilisée par les salariés d’une PME cliente de Datako. Le principe : les agents préparent le travail répétitif, et chacun le valide en quelques clics. La journée type de la démonstration va de 9 h 00 à 17 h 30.
 
 Toutes les entreprises, personnes et données sont **fictives** (PME de démonstration : *Bastide Équipements*). Aucune IA n’est réellement branchée : les réponses sont scénarisées.
 
@@ -21,13 +21,13 @@ Toutes les entreprises, personnes et données sont **fictives** (PME de démonst
 
 | Espace | Ce qu’on y fait |
 |---|---|
-| **Aujourd’hui** | La pile des travaux préparés cette nuit. Pour chacun : *Valider* (un tampon s’appose), *Corriger* (l’agent revoit sa copie), *Voir le détail* ou *Plus tard*. |
-| **Équipe** | Les agents et leur rythme de la semaine. La direction peut mettre un agent en pause. La conseillère Datako y propose de nouveaux agents. |
-| **Bilan** | Réservé à la direction : temps rendu, enveloppe d’usage plafonnée, bouton pause, accès par e-mail et par rôle. |
+| **Aujourd’hui** | Les tâches préparées par les agents. Pour chacune : *Valider*, *Corriger* (on donne une consigne à l’agent), *Voir le détail* ou *Plus tard*. En bas, le planning du jour. |
+| **Équipe** | Les agents et leurs horaires de la semaine. La direction peut mettre un agent en pause. La conseillère Datako y propose de nouveaux agents. |
+| **Bilan** | Réservé à la direction : temps gagné, enveloppe d’usage plafonnée, mise en pause des agents, accès par e-mail et par rôle. |
 
 En plus de ces trois espaces :
 
-- **La fiche d’agent** est le même écran pour tous les agents : *ce que vous lui confiez → ce qu’il fait → ce qu’il vous rend*.
+- **La fiche d’agent** est le même écran pour tous les agents : *ce qu’il utilise → ce qu’il fait → ce qu’il produit*.
 - **Le bouton « Demander »** (ou la touche `/`) permet de confier une tâche, de poser une question aux documents ou de lancer un agent.
 
 ---
@@ -35,7 +35,7 @@ En plus de ces trois espaces :
 ## 3. Démonstration conseillée (2 minutes)
 
 1. **Chantal, responsable administrative (60 s)**
-   - Sur la carte des factures, cliquez sur *Corriger*, choisissez la suggestion puis *Renvoyer à l’agent*.
+   - Sur la carte des factures, cliquez sur *Corriger*, choisissez la suggestion puis *Envoyer la consigne*.
    - Cliquez sur *Valider* et validez la pile jusqu’au bout.
 2. **Fiche d’agent (20 s)** : cliquez sur un agent dans la liste de gauche.
 3. **Demander (15 s)** : appuyez sur `/` puis tapez « Quelle est la garantie du four FM-10 ? ». La réponse cite ses sources.
@@ -51,7 +51,7 @@ Adresses directes : `#aujourdhui`, `#equipe`, `#bilan`, `#agent-factures` (aussi
 
 | Je veux changer… | Fichier à ouvrir |
 |---|---|
-| L’entreprise, les personnes, les agents, les travaux du matin, le bilan | `assets/js/donnees.js` (seul fichier de données, commenté) |
+| L’entreprise, les personnes, les agents, leurs horaires, les tâches du jour, le bilan | `assets/js/donnees.js` (seul fichier de données, commenté) |
 | Les couleurs | `assets/css/base.css`, en tête de fichier |
 
 Après une modification, régénérer le fichier unique :

@@ -703,7 +703,8 @@ fieldset.champ > legend { padding: 0; margin-bottom: 8px; }
 /* Le fil de la journée */
 .fil { margin-top: 72px; padding: 30px 34px 26px; border-radius: var(--r-xl); background: rgba(255, 255, 255, .62); border: 1px solid var(--trait); }
 .fil-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.fil-legende { display: flex; gap: 16px; font-size: .8rem; color: var(--muted); }
+.fil-legende { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .8rem; color: var(--muted); }
+.fil-legende span:last-child { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .fil-legende span { display: inline-flex; align-items: center; gap: 6px; }
 .fil-legende i { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--teal); }
 .fil-legende i.plein { background: var(--teal); }
@@ -721,11 +722,6 @@ fieldset.champ > legend { padding: 0; margin-bottom: 8px; }
 .fil-texte span { color: var(--muted); }
 .fil-groupe--droite { transform: translateX(calc(-100% + 10px)); justify-items: end; text-align: right; }
 .fil-groupe--droite .fil-points { flex-direction: row-reverse; }
-.fil-maintenant { position: absolute; top: 20px; height: 21px; width: 0; border-left: 2px solid var(--navy); }
-.fil-maintenant span {
-  position: absolute; top: -22px; left: 0; transform: translateX(-50%);
-  padding: 3px 9px; border-radius: 999px; background: var(--navy); color: #fff; font-size: .72rem; font-weight: 600; white-space: nowrap;
-}
 
 /* ==========================================================================
    ÉQUIPE — la partition de la semaine
@@ -988,7 +984,7 @@ fieldset.champ > legend { padding: 0; margin-bottom: 8px; }
   .bl-chiffres div:nth-child(-n+2) { border-top: 0; }
   .fil { padding: 24px 20px; }
   .fil-piste { height: auto; margin: 14px 0 0; }
-  .fil-ligne, .fil-ligne-faite, .fil-heures, .fil-maintenant { display: none; }
+  .fil-ligne, .fil-ligne-faite, .fil-heures { display: none; }
   .fil-groupe, .fil-groupe--droite { position: static; transform: none; display: flex; align-items: flex-start; gap: 12px; text-align: left; padding: 12px 0; border-top: 1px solid var(--trait); }
   .fil-groupe--droite .fil-points { flex-direction: row; }
   .fil-groupe:first-child { border-top: 0; }
@@ -1066,13 +1062,15 @@ fieldset.champ > legend { padding: 0; margin-bottom: 8px; }
    Datako — Données de démonstration
    --------------------------------------------------------------------------
    C'est LE fichier à modifier pour adapter la maquette : entreprise fictive,
-   personnes, agents, travaux du matin, bilan.
+   personnes, agents, tâches du jour, bilan.
    Toutes ces données sont FICTIVES.
 
    Rappel du principe : chaque « agent » Datako est une skill créée dans
-   Claude, accompagnée d'une fiche (nom, icône, rôles, logiciels, rythme,
-   actions soumises à validation). La plateforme affiche tous les agents
-   avec le MÊME écran : ce qu'on lui confie → ce qu'il fait → ce qu'il rend.
+   Claude, accompagnée d'une fiche (nom, icône, rôles, logiciels, horaires,
+   actions soumises à validation). L'interface affiche tous les agents
+   avec le MÊME écran : ce qu'il utilise → ce qu'il fait → ce qu'il produit.
+
+   Journée type de la démonstration : de 9 h 00 à 17 h 30.
    ========================================================================== */
 
 var DONNEES = {
@@ -1091,8 +1089,9 @@ var DONNEES = {
     jour: 'Lundi 12 octobre',
     jourSemaine: 1,          // 1 = lundi … 7 = dimanche
     heure: '9 h 05',
-    heureDecimale: 9.08,
-    mois: 'octobre'
+    mois: 'octobre',
+    debutJournee: 9,         // le planning du jour va de 9 h 00…
+    finJournee: 17.5         // … à 17 h 30
   },
 
   conseillere: { prenom: 'Camille', nom: 'Roux', initiales: 'CR', role: 'Votre conseillère Datako' },
@@ -1113,26 +1112,26 @@ var DONNEES = {
     client:     'Service client'
   },
 
-  /* ---------- L'équipe d'agents ----------
+  /* ---------- Les agents ----------
      rythme.passages : jours (1 = lundi) et heure de chaque passage.
-     Un agent « à la demande » n'a pas de passage : on le lance soi-même. */
+     Un agent « à la demande » n'a pas d'horaire : on le lance soi-même. */
   agents: [
     {
       id: 'factures', nom: 'Contrôle des factures', icone: 'facture', teinte: 'teal',
       skill: 'controle-factures', version: 'v3', majLe: '3 octobre',
-      mission: 'Lit les factures fournisseurs reçues, les compare aux bons de commande et prépare l’export comptable.',
+      mission: 'Contrôle les factures fournisseurs avec les bons de commande et prépare leur saisie en comptabilité.',
       roles: ['finance', 'direction'],
       logiciels: ['Outlook', 'Pennylane'],
       peutLire: 'la boîte factures@, les bons de commande et les factures déjà saisies',
       attendAccord: ['écrire dans Pennylane', 'envoyer un e-mail à un fournisseur'],
-      rythme: { type: 'horaire', libelle: 'Chaque matin à 7 h', passages: [{ jours: [1, 2, 3, 4, 5], heure: 7 }] },
-      entree: { type: 'planifie', texte: 'Les factures arrivées dans la boîte factures@ depuis son dernier passage, et les bons de commande ouverts dans Pennylane.' },
+      rythme: { type: 'horaire', libelle: 'Chaque jour à 9 h', passages: [{ jours: [1, 2, 3, 4, 5], heure: 9 }] },
+      entree: { type: 'planifie', texte: 'Les factures reçues dans la boîte factures@ depuis le dernier passage et les bons de commande en cours dans Pennylane.' },
       etapes: [
         '12 factures trouvées dans la boîte factures@',
-        'Montants, dates et références lus sur chaque facture',
-        'Comparaison avec les 31 bons de commande ouverts',
+        'Lecture des montants, dates et références',
+        'Comparaison avec les 31 bons de commande en cours',
         'Recherche de doublons sur les 12 derniers mois',
-        'Fichier de contrôle et export Pennylane préparés'
+        'Préparation du fichier de contrôle et de la saisie Pennylane'
       ],
       travail: 't-factures',
       semaineDerniere: '5 passages · 61 factures'
@@ -1140,18 +1139,18 @@ var DONNEES = {
     {
       id: 'emails', nom: 'Réponses aux e-mails clients', icone: 'mail', teinte: 'bleu',
       skill: 'reponses-clients', version: 'v5', majLe: '28 septembre',
-      mission: 'Prépare une réponse à chaque demande client, dans votre ton, avec les bonnes informations de commande.',
+      mission: 'Rédige une réponse à chaque demande client à partir du suivi des commandes.',
       roles: ['finance', 'client', 'direction'],
       logiciels: ['Outlook', 'Sellsy'],
       peutLire: 'la boîte contact@ et le suivi des commandes',
       attendAccord: ['envoyer un e-mail'],
-      rythme: { type: 'horaire', libelle: 'Chaque jour à 7 h 15 et 13 h 30', passages: [{ jours: [1, 2, 3, 4, 5], heure: 7.25 }, { jours: [1, 2, 3, 4, 5], heure: 13.5 }] },
-      entree: { type: 'planifie', texte: 'Les e-mails reçus sur contact@ depuis son dernier passage.' },
+      rythme: { type: 'horaire', libelle: 'Chaque jour à 9 h et 14 h', passages: [{ jours: [1, 2, 3, 4, 5], heure: 9 }, { jours: [1, 2, 3, 4, 5], heure: 14 }] },
+      entree: { type: 'planifie', texte: 'Les e-mails reçus sur contact@ depuis le dernier passage.' },
       etapes: [
-        '5 demandes reçues sur contact@ depuis hier 13 h 30',
-        'Commandes et livraisons retrouvées dans Sellsy',
-        'Réponses rédigées dans le ton de Bastide Équipements',
-        'Une demande de devis transmise à Julien Roche'
+        '5 demandes reçues sur contact@ depuis vendredi 14 h',
+        'Recherche des commandes et des livraisons dans Sellsy',
+        'Rédaction des réponses',
+        'Repérage d’une demande de devis, pour Julien Roche'
       ],
       travail: 't-emails',
       semaineDerniere: '10 passages · 38 réponses'
@@ -1159,18 +1158,18 @@ var DONNEES = {
     {
       id: 'relances', nom: 'Relances clients', icone: 'horloge', teinte: 'sable',
       skill: 'relances-clients', version: 'v2', majLe: '15 septembre',
-      mission: 'Repère les factures clients en retard et prépare des relances au bon ton, du plus courtois au plus ferme.',
+      mission: 'Repère les factures clients impayées et prépare les relances, avec un ton adapté au retard.',
       roles: ['finance', 'direction'],
       logiciels: ['Pennylane', 'Outlook'],
-      peutLire: 'les factures clients et leur échéance',
-      attendAccord: ['envoyer un e-mail', 'créer un rappel dans l’agenda'],
-      rythme: { type: 'horaire', libelle: 'Lundi et jeudi à 7 h 30', passages: [{ jours: [1, 4], heure: 7.5 }] },
-      entree: { type: 'planifie', texte: 'Les factures clients échues et non réglées dans Pennylane.' },
+      peutLire: 'les factures clients et leurs échéances',
+      attendAccord: ['envoyer un e-mail', 'ajouter un rendez-vous à l’agenda'],
+      rythme: { type: 'horaire', libelle: 'Lundi et jeudi à 9 h', passages: [{ jours: [1, 4], heure: 9 }] },
+      entree: { type: 'planifie', texte: 'Les factures clients impayées dans Pennylane.' },
       etapes: [
-        '4 factures échues et non réglées trouvées dans Pennylane',
-        'Historique des relances précédentes vérifié',
-        'Ton choisi selon le retard et la relation client',
-        '4 relances rédigées, 1 appel conseillé'
+        '4 factures impayées trouvées dans Pennylane',
+        'Vérification des relances déjà envoyées',
+        'Choix du ton selon le retard',
+        'Rédaction de 4 relances'
       ],
       travail: 't-relances',
       semaineDerniere: '2 passages · 9 relances'
@@ -1178,18 +1177,18 @@ var DONNEES = {
     {
       id: 'synthese', nom: 'Synthèse de la semaine', icone: 'synthese', teinte: 'marine',
       skill: 'synthese-hebdo', version: 'v4', majLe: '22 septembre',
-      mission: 'Chaque lundi, l’essentiel de la semaine écoulée en une page : ventes, commandes, points d’attention.',
+      mission: 'Résume la semaine en une page : ventes, commandes et points à surveiller.',
       roles: ['direction'],
       logiciels: ['Sellsy', 'Pennylane'],
       peutLire: 'les ventes, les commandes et la trésorerie',
       attendAccord: ['envoyer un e-mail'],
-      rythme: { type: 'horaire', libelle: 'Chaque lundi à 7 h 45', passages: [{ jours: [1], heure: 7.75 }] },
-      entree: { type: 'planifie', texte: 'Les ventes et commandes de la semaine écoulée (Sellsy) et la trésorerie (Pennylane).' },
+      rythme: { type: 'horaire', libelle: 'Chaque vendredi à 17 h 30', passages: [{ jours: [5], heure: 17.5 }] },
+      entree: { type: 'planifie', texte: 'Les ventes et les commandes de la semaine (Sellsy) et la trésorerie (Pennylane).' },
       etapes: [
-        'Ventes et commandes de la semaine 41 extraites de Sellsy',
-        'Comparaison avec la semaine 40 et le même mois l’an dernier',
-        'Points d’attention repérés : devis sans réponse, retards',
-        'Synthèse d’une page mise en forme (PDF)'
+        'Extraction des ventes et des commandes de la semaine 41',
+        'Comparaison avec la semaine 40',
+        'Repérage des points à surveiller',
+        'Mise en forme de la synthèse (PDF)'
       ],
       travail: 't-synthese',
       semaineDerniere: '1 passage'
@@ -1206,17 +1205,17 @@ var DONNEES = {
       entree: {
         type: 'formulaire',
         champs: [
-          { id: 'client', type: 'choix', libelle: 'Pour quel client ?', options: ['Hôtel des Alpes', 'Brasserie du Parc', 'Clinique Saint-Roch'] },
-          { id: 'besoin', type: 'texte', libelle: 'Que faut-il chiffrer ?', valeur: 'Un lave-vaisselle à capot et un four mixte 10 niveaux pour la cuisine du restaurant, installation comprise.' },
-          { id: 'piece', type: 'fichier', libelle: 'Une pièce jointe ? (facultatif)', exemple: 'demande-client.pdf' }
+          { id: 'client', type: 'choix', libelle: 'Client', options: ['Hôtel des Alpes', 'Brasserie du Parc', 'Clinique Saint-Roch'] },
+          { id: 'besoin', type: 'texte', libelle: 'Ce qu’il faut chiffrer', valeur: 'Un lave-vaisselle à capot et un four mixte 10 niveaux pour la cuisine du restaurant, installation comprise.' },
+          { id: 'piece', type: 'fichier', libelle: 'Pièce jointe (facultatif)', exemple: 'demande-client.pdf' }
         ],
         bouton: 'Préparer le devis'
       },
       etapes: [
-        'Demande du client lue',
-        'Références trouvées au catalogue : LV-500, FM-10',
-        'Tarifs et remises des 3 derniers devis de ce client appliqués',
-        'Devis mis en forme sur votre modèle (Word)'
+        'Lecture de la demande',
+        'Recherche des références au catalogue : LV-500, FM-10',
+        'Application des tarifs et de la remise habituelle du client',
+        'Mise en forme sur votre modèle de devis (Word)'
       ],
       travail: 't-devis',
       semaineDerniere: '6 devis'
@@ -1224,10 +1223,10 @@ var DONNEES = {
     {
       id: 'documents', nom: 'Questions sur vos documents', icone: 'documents', teinte: 'teal',
       skill: 'documents-bastide', version: 'v2', majLe: '1er octobre',
-      mission: 'Répond aux questions de l’équipe à partir de vos documents, en citant ses sources. N’invente jamais.',
+      mission: 'Répond aux questions de l’équipe à partir de vos documents, en citant ses sources. S’il ne trouve pas la réponse, il le dit.',
       roles: ['finance', 'commercial', 'client', 'direction'],
       logiciels: ['SharePoint'],
-      peutLire: 'les contrats, fiches produits et procédures sur SharePoint',
+      peutLire: 'les contrats, les fiches produits et les procédures sur SharePoint',
       attendAccord: [],
       rythme: { type: 'demande', libelle: 'À la demande' },
       entree: {
@@ -1242,85 +1241,85 @@ var DONNEES = {
       },
       etapes: [
         'Recherche dans 1 240 documents SharePoint',
-        '3 passages pertinents retenus',
-        'Réponse rédigée avec ses sources'
+        'Sélection de 3 passages utiles',
+        'Rédaction de la réponse avec ses sources'
       ],
       semaineDerniere: '14 questions'
     }
   ],
 
-  /* ---------- Les travaux préparés ce matin ----------
-     Chaque travail apparaît sous forme de carte dans « Aujourd'hui ».
+  /* ---------- Les tâches à valider ----------
+     Chaque tâche apparaît sous forme de carte dans « Aujourd'hui ».
      apercu.type : 'liste' | 'email' | 'tableau' | 'document'
      Les actions sont celles qui attendent un accord humain. */
   travaux: [
     {
-      id: 't-factures', agent: 'factures', persona: 'chantal', heure: '7 h 02', minutes: 54,
-      titre: '12 factures contrôlées,', accent: 'deux points à regarder.',
-      resume: '10 factures sont conformes à leur bon de commande. Deux méritent votre œil avant l’export comptable.',
+      id: 't-factures', agent: 'factures', persona: 'chantal', heure: '9 h 01', minutes: 54,
+      titre: '12 factures contrôlées,', accent: '2 à vérifier.',
+      resume: '10 factures sont conformes au bon de commande. 2 sont à vérifier avant la saisie en comptabilité.',
       apercu: {
         type: 'liste',
         lignes: [
           { statut: 'ok', texte: '10 factures conformes', detail: '18 942,60 € TTC au total' },
-          { statut: 'alerte', texte: 'Fournitures Rhône : prix au-dessus du bon de commande', detail: '+ 36,00 € TTC sur la facture FR-2291' },
+          { statut: 'alerte', texte: 'Fournitures Rhône : prix supérieur au bon de commande', detail: 'Écart de 36,00 € TTC sur la facture FR-2291' },
           { statut: 'alerte', texte: 'Groupe Froid Alpes : facture reçue deux fois', detail: 'GFA-4410 · 2 616,00 € TTC, déjà payée le 2 octobre' }
         ]
       },
-      detail: 'Sur les **12 factures** arrivées depuis vendredi :\n\n- **10 sont conformes** : quantités, prix et TVA correspondent au bon de commande.\n- **Fournitures Rhône (FR-2291)** facture le carton de gants à 18,00 € HT au lieu de 15,00 € HT prévus au bon de commande CMD-4466 : 36,00 € TTC d’écart sur 10 cartons.\n- **Groupe Froid Alpes (GFA-4410)** a été reçue deux fois : la première a été payée le 2 octobre. La seconde ne doit pas être saisie.',
+      detail: 'Sur les **12 factures** reçues depuis vendredi :\n\n- **10 sont conformes** : quantités, prix et TVA correspondent au bon de commande.\n- **Fournitures Rhône (FR-2291)** facture le carton de gants 18,00 € HT au lieu de 15,00 € HT (bon de commande CMD-4466), soit 36,00 € TTC d’écart sur 10 cartons.\n- La facture **Groupe Froid Alpes (GFA-4410)** a été reçue deux fois. Elle a déjà été payée le 2 octobre : le doublon ne doit pas être saisi.',
       fichiers: [{ nom: 'controle-factures-12-octobre.xlsx', type: 'xlsx', taille: '48 Ko' }],
       actions: [
-        { id: 'a1', libelle: 'Envoyer les 10 factures conformes vers Pennylane', logiciel: 'Pennylane', fait: '10 factures envoyées vers Pennylane' },
+        { id: 'a1', libelle: 'Saisir les 10 factures conformes dans Pennylane', logiciel: 'Pennylane', fait: '10 factures saisies dans Pennylane' },
         { id: 'a2', libelle: 'Demander un avoir de 36 € à Fournitures Rhône', logiciel: 'Outlook', fait: 'Demande d’avoir envoyée à Fournitures Rhône' },
-        { id: 'a3', libelle: 'Écarter le doublon Groupe Froid Alpes', logiciel: 'Pennylane', fait: 'Doublon écarté : 2 616 € de double paiement évité' }
+        { id: 'a3', libelle: 'Écarter le doublon Groupe Froid Alpes', logiciel: 'Pennylane', fait: 'Doublon écarté : paiement en double de 2 616 € évité' }
       ],
       correction: {
-        consigne: 'Mets la facture Fournitures Rhône de côté jusqu’à l’avoir',
+        consigne: 'Garde la facture Fournitures Rhône en attente jusqu’à réception de l’avoir',
         apres: {
-          resume: '10 factures partent en comptabilité. La facture Fournitures Rhône reste de côté jusqu’à réception de l’avoir.',
+          resume: '10 factures sont prêtes pour la comptabilité. La facture Fournitures Rhône reste en attente jusqu’à réception de l’avoir.',
           actions: [
-            { id: 'a1', libelle: 'Envoyer les 10 factures conformes vers Pennylane', logiciel: 'Pennylane', fait: '10 factures envoyées vers Pennylane' },
+            { id: 'a1', libelle: 'Saisir les 10 factures conformes dans Pennylane', logiciel: 'Pennylane', fait: '10 factures saisies dans Pennylane' },
             { id: 'a2', libelle: 'Demander un avoir de 36 € à Fournitures Rhône et garder sa facture en attente', logiciel: 'Outlook', fait: 'Avoir demandé, facture Fournitures Rhône mise en attente' },
-            { id: 'a3', libelle: 'Écarter le doublon Groupe Froid Alpes', logiciel: 'Pennylane', fait: 'Doublon écarté : 2 616 € de double paiement évité' }
+            { id: 'a3', libelle: 'Écarter le doublon Groupe Froid Alpes', logiciel: 'Pennylane', fait: 'Doublon écarté : paiement en double de 2 616 € évité' }
           ]
         }
       }
     },
     {
-      id: 't-emails', agent: 'emails', persona: 'chantal', heure: '7 h 15', minutes: 25,
-      titre: '5 réponses aux clients,', accent: 'prêtes à partir.',
-      resume: 'Chaque réponse s’appuie sur le suivi réel de la commande. Une demande de devis a été transmise à Julien.',
+      id: 't-emails', agent: 'emails', persona: 'chantal', heure: '9 h 02', minutes: 25,
+      titre: '5 e-mails clients traités :', accent: '4 réponses prêtes.',
+      resume: 'Chaque réponse s’appuie sur le suivi de la commande dans Sellsy. Le 5e e-mail est une demande de devis, à transmettre à Julien Roche.',
       apercu: {
         type: 'email',
         a: 'Sandrine Vidal · Hôtel des Alpes',
         objet: 'Re : Livraison du lave-vaisselle LV-500',
-        corps: 'Bonjour Madame Vidal,\n\nVotre lave-vaisselle LV-500 (commande CMD-4471) a quitté notre entrepôt ce matin. Il vous sera livré jeudi 15 octobre entre 8 h et 12 h ; le transporteur vous appellera la veille.\n\nBien cordialement,\nChantal Morel',
+        corps: 'Bonjour Madame Vidal,\n\nVotre lave-vaisselle LV-500 (commande CMD-4471) a quitté notre entrepôt ce matin. Il vous sera livré jeudi 15 octobre entre 9 h et 12 h. Le transporteur vous appellera la veille.\n\nBien cordialement,\nChantal Morel',
         source: 'Suivi de la commande CMD-4471 dans Sellsy',
-        autres: ['Brasserie du Parc · copie de facture', 'Clinique Saint-Roch · délai d’une pièce détachée', 'Boulangerie Fayol · changement d’adresse', 'Lycée Ampère · demande de devis, transmise à Julien']
+        autres: ['Brasserie du Parc · copie de facture', 'Clinique Saint-Roch · délai d’une pièce détachée', 'Boulangerie Fayol · changement d’adresse']
       },
-      detail: '**5 demandes** sont arrivées sur contact@ depuis hier 13 h 30. Pour chacune, Datako a retrouvé la commande ou la facture concernée dans Sellsy, puis rédigé une réponse dans votre ton habituel.\n\nLa demande du **Lycée Ampère** est une demande de devis : elle a été transmise à Julien Roche plutôt que de recevoir une réponse générique.',
+      detail: '**5 e-mails** sont arrivés sur contact@ depuis vendredi 14 h. Pour chacun, Datako a retrouvé la commande ou la facture dans Sellsy et rédigé une réponse.\n\nL’e-mail du **Lycée Ampère** est une demande de devis : il est à transmettre à Julien Roche.',
       fichiers: [],
       actions: [
-        { id: 'a1', libelle: 'Envoyer les 4 réponses depuis Outlook', logiciel: 'Outlook', fait: '4 réponses envoyées depuis Outlook' },
+        { id: 'a1', libelle: 'Envoyer les 4 réponses depuis Outlook', logiciel: 'Outlook', fait: '4 réponses envoyées' },
         { id: 'a2', libelle: 'Transmettre la demande du Lycée Ampère à Julien Roche', logiciel: 'Outlook', fait: 'Demande transmise à Julien Roche' }
       ],
       correction: {
-        consigne: 'Un ton un peu plus chaleureux',
+        consigne: 'Prends un ton un peu plus chaleureux',
         apres: {
           apercu: {
             type: 'email',
             a: 'Sandrine Vidal · Hôtel des Alpes',
             objet: 'Re : Livraison du lave-vaisselle LV-500',
-            corps: 'Bonjour Madame Vidal,\n\nBonne nouvelle : votre lave-vaisselle LV-500 (commande CMD-4471) est parti de notre entrepôt ce matin ! Il arrivera jeudi 15 octobre entre 8 h et 12 h, et le transporteur vous appellera la veille pour caler le créneau.\n\nN’hésitez pas à m’appeler si besoin. Belle semaine à toute l’équipe de l’hôtel,\nChantal Morel',
+            corps: 'Bonjour Madame Vidal,\n\nBonne nouvelle : votre lave-vaisselle LV-500 (commande CMD-4471) a quitté notre entrepôt ce matin. Il vous sera livré jeudi 15 octobre entre 9 h et 12 h. Le transporteur vous appellera la veille pour confirmer l’horaire.\n\nN’hésitez pas à m’appeler en cas de besoin. Bonne semaine à toute l’équipe de l’hôtel,\nChantal Morel',
             source: 'Suivi de la commande CMD-4471 dans Sellsy',
-            autres: ['Brasserie du Parc · copie de facture', 'Clinique Saint-Roch · délai d’une pièce détachée', 'Boulangerie Fayol · changement d’adresse', 'Lycée Ampère · demande de devis, transmise à Julien']
+            autres: ['Brasserie du Parc · copie de facture', 'Clinique Saint-Roch · délai d’une pièce détachée', 'Boulangerie Fayol · changement d’adresse']
           }
         }
       }
     },
     {
-      id: 't-relances', agent: 'relances', persona: 'chantal', heure: '7 h 30', minutes: 30,
-      titre: '4 factures clients en retard,', accent: '18 450 € à récupérer.',
-      resume: 'Le ton de chaque relance dépend du retard. Pour Traiteur Delorme, un appel est conseillé.',
+      id: 't-relances', agent: 'relances', persona: 'chantal', heure: '9 h 03', minutes: 30,
+      titre: '4 factures clients impayées,', accent: '18 450 € à encaisser.',
+      resume: 'Le ton de chaque relance dépend du retard. Pour Traiteur Delorme, un appel est recommandé.',
       apercu: {
         type: 'tableau',
         colonnes: ['Client', 'Montant', 'Retard', 'Ton'],
@@ -1328,19 +1327,19 @@ var DONNEES = {
           ['Brasserie du Parc', '2 340 €', '18 j', 'Courtois'],
           ['Clinique Saint-Roch', '9 870 €', '32 j', 'Courtois'],
           ['Camping Les Pins', '1 980 €', '47 j', 'Ferme'],
-          ['Traiteur Delorme', '4 260 €', '61 j', 'Ferme + appel']
+          ['Traiteur Delorme', '4 260 €', '61 j', 'Ferme, avec appel']
         ]
       },
-      detail: '**4 factures** sont échues et non réglées, pour **18 450 €** au total.\n\n- Moins de 45 jours de retard : relance **courtoise**, rappel de la facture en pièce jointe.\n- Plus de 45 jours : relance **ferme**, rappel des pénalités prévues aux conditions générales.\n- **Traiteur Delorme** en est à sa troisième relance : un appel est plus efficace qu’un nouvel e-mail.',
+      detail: '**4 factures** sont impayées, pour **18 450 €** au total.\n\n- Moins de 45 jours de retard : relance **courtoise**, avec la facture en pièce jointe.\n- Plus de 45 jours : relance **ferme**, avec le rappel des pénalités de retard prévues aux conditions générales.\n- **Traiteur Delorme** a déjà reçu deux relances : un appel est recommandé.',
       fichiers: [{ nom: 'relances-12-octobre.pdf', type: 'pdf', taille: '212 Ko' }],
       actions: [
         { id: 'a1', libelle: 'Envoyer les 4 relances depuis Outlook', logiciel: 'Outlook', fait: '4 relances envoyées' },
-        { id: 'a2', libelle: 'Ajouter « Appeler Traiteur Delorme » à mon agenda demain 10 h', logiciel: 'Outlook', fait: 'Rappel ajouté à votre agenda' }
+        { id: 'a2', libelle: 'Ajouter à mon agenda : appeler Traiteur Delorme demain à 10 h', logiciel: 'Outlook', fait: 'Appel ajouté à votre agenda' }
       ],
       correction: {
-        consigne: 'Reste courtois avec Traiteur Delorme, c’est un bon client',
+        consigne: 'Garde un ton courtois avec Traiteur Delorme : c’est un bon client',
         apres: {
-          resume: 'Le ton de chaque relance dépend du retard. Traiteur Delorme reçoit une relance courtoise, avec un appel conseillé.',
+          resume: 'Le ton de chaque relance dépend du retard. Traiteur Delorme reçoit une relance courtoise ; un appel reste recommandé.',
           apercu: {
             type: 'tableau',
             colonnes: ['Client', 'Montant', 'Retard', 'Ton'],
@@ -1348,27 +1347,27 @@ var DONNEES = {
               ['Brasserie du Parc', '2 340 €', '18 j', 'Courtois'],
               ['Clinique Saint-Roch', '9 870 €', '32 j', 'Courtois'],
               ['Camping Les Pins', '1 980 €', '47 j', 'Ferme'],
-              ['Traiteur Delorme', '4 260 €', '61 j', 'Courtois + appel']
+              ['Traiteur Delorme', '4 260 €', '61 j', 'Courtois, avec appel']
             ]
           }
         }
       }
     },
     {
-      id: 't-synthese', agent: 'synthese', persona: 'marc', heure: '7 h 45', minutes: 60,
-      titre: 'Votre semaine en une page :', accent: 'ventes en hausse de 8 %.',
-      resume: 'Bonne semaine commerciale. Trois devis importants attendent une réponse depuis dix jours.',
+      id: 't-synthese', agent: 'synthese', persona: 'marc', jour: 'vendredi', heure: '17 h 30', minutes: 60,
+      titre: 'Semaine 41 :', accent: 'ventes en hausse de 8 %.',
+      resume: 'Les ventes progressent. 3 devis importants sont sans réponse depuis 10 jours.',
       apercu: {
         type: 'document',
         entete: 'Synthèse · semaine 41',
         lignes: [
           ['Chiffre d’affaires', '214 300 € HT', '+ 8 %'],
           ['Commandes', '63', 'dont 4 de plus de 10 000 €'],
-          ['Devis sans réponse', '52 000 €', '3 devis de plus de 10 jours'],
-          ['Factures en retard', '18 450 €', 'relances préparées']
+          ['Devis sans réponse', '52 000 €', '3 devis, depuis 10 jours'],
+          ['Factures impayées', '18 450 €', 'relances lundi']
         ]
       },
-      detail: '**Semaine 41 (du 5 au 9 octobre)**\n\n- **Ventes** : 214 300 € HT, + 8 % par rapport à la semaine 40, portées par la restauration collective.\n- **Commandes** : 63, dont 4 de plus de 10 000 €.\n- **À surveiller** : 3 devis de plus de 10 000 € sans réponse depuis 10 jours (52 000 € au total) : Hôtel du Lac, Clinique Saint-Roch, Lycée Ampère.\n- **Trésorerie** : 18 450 € de factures en retard ; les relances sont prêtes chez Chantal.',
+      detail: '**Semaine 41 (du 5 au 9 octobre)**\n\n- **Ventes** : 214 300 € HT, en hausse de 8 % par rapport à la semaine 40, grâce à la restauration collective.\n- **Commandes** : 63, dont 4 de plus de 10 000 €.\n- **À surveiller** : 3 devis de plus de 10 000 € sont sans réponse depuis 10 jours (52 000 € au total) : Hôtel du Lac, Clinique Saint-Roch et Collège Jean-Moulin.\n- **Trésorerie** : 18 450 € de factures impayées. Les relances sont prévues lundi.',
       fichiers: [{ nom: 'synthese-semaine-41.pdf', type: 'pdf', taille: '386 Ko' }],
       actions: [
         { id: 'a1', libelle: 'Envoyer la synthèse aux 3 commerciaux', logiciel: 'Outlook', fait: 'Synthèse envoyée aux 3 commerciaux' }
@@ -1376,7 +1375,7 @@ var DONNEES = {
       correction: {
         consigne: 'Ajoute le détail des 3 devis sans réponse',
         apres: {
-          resume: 'Bonne semaine commerciale. Le détail des trois devis en attente est ajouté en fin de synthèse.',
+          resume: 'Les ventes progressent. Le détail des 3 devis sans réponse est ajouté à la synthèse.',
           apercu: {
             type: 'document',
             entete: 'Synthèse · semaine 41',
@@ -1385,16 +1384,16 @@ var DONNEES = {
               ['Commandes', '63', 'dont 4 de plus de 10 000 €'],
               ['Hôtel du Lac', '24 500 €', 'devis du 30 septembre'],
               ['Clinique Saint-Roch', '15 300 €', 'devis du 1er octobre'],
-              ['Lycée Ampère', '12 200 €', 'devis du 2 octobre']
+              ['Collège Jean-Moulin', '12 200 €', 'devis du 2 octobre']
             ]
           }
         }
       }
     },
     {
-      id: 't-devis', agent: 'devis', persona: 'marc', jour: 'hier', heure: '18 h 10', minutes: 35,
-      titre: 'Devis Hôtel des Alpes :', accent: '14 820 € HT, à approuver.',
-      resume: 'Préparé à la demande de Julien Roche. Au-delà de 10 000 €, votre accord est requis avant l’envoi.',
+      id: 't-devis', agent: 'devis', persona: 'marc', jour: 'vendredi', heure: '16 h 40', minutes: 35,
+      titre: 'Devis Hôtel des Alpes :', accent: '14 820 € HT, à valider.',
+      resume: 'Demandé par Julien Roche. Au-delà de 10 000 €, votre accord est nécessaire avant l’envoi.',
       demandePar: 'Julien Roche',
       apercu: {
         type: 'document',
@@ -1403,11 +1402,11 @@ var DONNEES = {
           ['Lave-vaisselle à capot LV-500', '1', '7 300 €'],
           ['Four mixte 10 niveaux FM-10', '1', '7 500 €'],
           ['Installation et mise en service', '1', '800 €'],
-          ['Remise client fidèle (5 %)', '', '− 780 €'],
+          ['Remise habituelle (5 %)', '', '− 780 €'],
           ['Total HT', '', '14 820 €']
         ]
       },
-      detail: 'Devis préparé à partir de la demande de Julien Roche et des **3 derniers devis** acceptés par l’Hôtel des Alpes.\n\n- Références retrouvées au catalogue : **LV-500** et **FM-10**.\n- **Remise de 5 %**, identique à celle des derniers devis de ce client.\n- Délai de livraison indiqué : 3 semaines, selon le stock actuel.',
+      detail: 'Devis préparé à partir de la demande de Julien Roche et des **3 derniers devis** acceptés par l’Hôtel des Alpes.\n\n- Références du catalogue : **LV-500** et **FM-10**.\n- **Remise de 5 %**, comme sur les derniers devis de ce client.\n- Délai de livraison : 3 semaines, selon le stock actuel.',
       fichiers: [{ nom: 'devis-D-2026-118.docx', type: 'docx', taille: '94 Ko' }],
       actions: [
         { id: 'a1', libelle: 'Envoyer le devis à Sandrine Vidal (Hôtel des Alpes)', logiciel: 'Outlook', fait: 'Devis envoyé à l’Hôtel des Alpes' },
@@ -1416,8 +1415,8 @@ var DONNEES = {
       correction: {
         consigne: 'Passe la remise à 3 %',
         apres: {
-          accent: '15 132 € HT, à approuver.',
-          resume: 'Remise ramenée à 3 % comme demandé. Au-delà de 10 000 €, votre accord est requis avant l’envoi.',
+          accent: '15 132 € HT, à valider.',
+          resume: 'Remise ramenée à 3 %. Au-delà de 10 000 €, votre accord est nécessaire avant l’envoi.',
           apercu: {
             type: 'document',
             entete: 'Devis D-2026-118 · Hôtel des Alpes',
@@ -1425,7 +1424,7 @@ var DONNEES = {
               ['Lave-vaisselle à capot LV-500', '1', '7 300 €'],
               ['Four mixte 10 niveaux FM-10', '1', '7 500 €'],
               ['Installation et mise en service', '1', '800 €'],
-              ['Remise client fidèle (3 %)', '', '− 468 €'],
+              ['Remise (3 %)', '', '− 468 €'],
               ['Total HT', '', '15 132 €']
             ]
           }
@@ -1442,18 +1441,18 @@ var DONNEES = {
     },
     'Quel délai de paiement avons-nous avec Groupe Froid Alpes ?': {
       texte: 'Le contrat cadre prévoit un paiement **à 45 jours fin de mois** [1]. Un escompte de 1 % s’applique en cas de paiement sous 10 jours, selon l’avenant de janvier 2026 [2].',
-      sources: ['Contrat cadre Groupe Froid Alpes.pdf', 'Avenant n° 2 — janvier 2026.pdf']
+      sources: ['Contrat cadre Groupe Froid Alpes.pdf', 'Avenant n° 2, janvier 2026.pdf']
     },
     'Comment traiter un retour SAV ?': {
-      texte: 'La procédure tient en trois temps [1] :\n\n- ouvrir un ticket dans Sellsy avec le numéro de série ;\n- envoyer au client l’étiquette de retour prépayée ;\n- prévenir l’atelier, qui s’engage à diagnostiquer sous 48 h [2].',
-      sources: ['Procédure SAV — version 4.docx', 'Engagements de service atelier.pdf']
+      texte: 'La procédure compte trois étapes [1] :\n\n- ouvrir un ticket dans Sellsy avec le numéro de série ;\n- envoyer au client l’étiquette de retour prépayée ;\n- prévenir l’atelier, qui établit un diagnostic sous 48 h [2].',
+      sources: ['Procédure SAV, version 4.docx', 'Engagements de service de l’atelier.pdf']
     }
   },
-  reponseInconnue: 'Je n’ai pas trouvé de réponse fiable dans vos documents. Plutôt que d’inventer, je transmets la question à Camille, votre conseillère Datako : si le sujet revient souvent, elle ajoutera les bons documents.',
+  reponseInconnue: 'Je n’ai pas trouvé la réponse dans vos documents. La question est transmise à Camille, votre conseillère Datako, qui pourra ajouter les documents manquants.',
 
   /* ---------- Agents proposés par la conseillère ---------- */
   bientot: [
-    { id: 'notes-de-frais', nom: 'Notes de frais', icone: 'recu', texte: 'Vérifie chaque justificatif et prépare l’export comptable, chaque vendredi.' },
+    { id: 'notes-de-frais', nom: 'Notes de frais', icone: 'recu', texte: 'Vérifie les justificatifs et prépare la saisie comptable, chaque vendredi.' },
     { id: 'interventions', nom: 'Planning des interventions', icone: 'calendrier', texte: 'Propose le planning des techniciens selon les urgences et les trajets.' },
     { id: 'appels-offres', nom: 'Veille appels d’offres', icone: 'boussole', texte: 'Repère chaque semaine les marchés publics qui correspondent à votre catalogue.' }
   ],
@@ -1471,7 +1470,7 @@ var DONNEES = {
     journee: 7,
     chiffres: [
       { valeur: '642', libelle: 'factures contrôlées' },
-      { valeur: '5 870 €', libelle: 'de doublons évités' },
+      { valeur: '5 870 €', libelle: 'de paiements en double évités' },
       { valeur: '318', libelle: 'réponses aux clients' },
       { valeur: '41 200 €', libelle: 'encaissés après relance' },
       { valeur: '24', libelle: 'devis préparés' }
@@ -1778,7 +1777,7 @@ var Cartes = (function () {
       return '<ul class="ap-liste">' + ap.lignes.map(function (l) {
         return '<li class="ap-liste-ligne ap-liste-ligne--' + l.statut + '">' +
           '<span class="ap-statut" aria-hidden="true">' + (l.statut === 'ok' ? icone('check') : '!') + '</span>' +
-          '<span class="sr-only">' + (l.statut === 'ok' ? 'Conforme : ' : 'À regarder : ') + '</span>' +
+          '<span class="sr-only">' + (l.statut === 'ok' ? 'Conforme : ' : 'À vérifier : ') + '</span>' +
           '<span class="ap-liste-texte"><strong>' + esc(l.texte) + '</strong>' + (l.detail ? '<span>' + esc(l.detail) + '</span>' : '') + '</span>' +
         '</li>';
       }).join('') + '</ul>';
@@ -1829,7 +1828,7 @@ var Cartes = (function () {
     var f = e.target.closest('[data-fichier]');
     if (!f) return;
     e.preventDefault();
-    notifier('Démonstration : « ' + f.getAttribute('data-fichier') + ' » s’ouvrirait ici.', 'telecharger');
+    notifier('Démonstration : le fichier « ' + f.getAttribute('data-fichier') + ' » n’est pas disponible.', 'telecharger');
   });
 
   return { agent: agent, pastille: pastille, apercu: apercu, fichiers: fichiers };
@@ -1841,11 +1840,11 @@ var Cartes = (function () {
    Datako — Plateforme client
    --------------------------------------------------------------------------
    Trois espaces seulement, dans un dock en bas de l'écran :
-   - Aujourd'hui : la pile des travaux préparés cette nuit, à valider ;
-   - Équipe      : les agents et leur rythme (la « partition » de la semaine) ;
-   - Bilan       : le temps rendu, l'enveloppe d'usage, les accès (direction).
-   Chaque agent s'ouvre sur la MÊME fiche : ce qu'on lui confie → ce qu'il
-   fait → ce qu'il rend. C'est ce qui permet de brancher n'importe quelle
+   - Aujourd'hui : la pile des tâches préparées par les agents, à valider ;
+   - Équipe      : les agents et leurs horaires de la semaine ;
+   - Bilan       : le temps gagné, l'enveloppe d'usage, les accès (direction).
+   Chaque agent s'ouvre sur la MÊME fiche : ce qu'il utilise → ce qu'il
+   fait → ce qu'il produit. C'est ce qui permet de brancher n'importe quelle
    skill sans écrire d'écran sur mesure.
    ========================================================================== */
 
@@ -1949,8 +1948,8 @@ var Plateforme = (function () {
     et.statut = 'valide';
     et.heure = heure;
     retirerDeLaPile(id);
-    var message = !faits.length ? 'Travail classé : aucune action envoyée.'
-      : faits[0] + (faits.length > 1 ? ' · et ' + Format.pluriel(faits.length - 1, 'autre action', 'autres actions') : '');
+    var message = !faits.length ? 'Tâche classée, aucune action effectuée.'
+      : faits[0] + (faits.length > 1 ? ' (et ' + Format.pluriel(faits.length - 1, 'autre action', 'autres actions') + ')' : '');
     setTimeout(function () { notifier(message); }, 250);
   }
 
@@ -1976,7 +1975,7 @@ var Plateforme = (function () {
         if (ps.jours.indexOf(jour) >= 0 && ps.heure > maint && (!mieux || ps.heure < mieux.h)) mieux = { h: ps.heure, agent: a };
       });
     });
-    return mieux ? { texte: 'à ' + heureDec(mieux.h), agent: mieux.agent.nom } : { texte: 'demain à 7 h', agent: '' };
+    return mieux ? { texte: 'à ' + heureDec(mieux.h), agent: mieux.agent.nom } : { texte: 'demain à 9 h', agent: '' };
   }
 
   /* ======================================================================
@@ -1998,8 +1997,8 @@ var Plateforme = (function () {
         '<div class="pf-persona">' +
           '<button type="button" class="pf-persona-btn" id="pf-persona-btn" data-action="menu-persona" aria-haspopup="true" aria-expanded="false" aria-controls="pf-menu">' +
             '<span class="avatar avatar--petit" aria-hidden="true">' + p.initiales + '</span><span class="pf-persona-nom">' + esc(p.prenom + ' ' + p.nom) + '</span>' +
-            '<span class="sr-only">, changer de point de vue</span>' + icone('chevronBas') + '</button>' +
-          '<div class="pf-menu" id="pf-menu" role="menu" aria-label="Changer de point de vue" hidden>' +
+            '<span class="sr-only">, changer d’utilisateur</span>' + icone('chevronBas') + '</button>' +
+          '<div class="pf-menu" id="pf-menu" role="menu" aria-label="Changer d’utilisateur" hidden>' +
             '<p class="pf-menu-titre">Voir la démo en tant que</p>' + item(D.personas.chantal) + item(D.personas.marc) +
             '<p class="pf-menu-note">Démonstration : entreprise, personnes et données fictives.</p>' +
           '</div>' +
@@ -2023,7 +2022,7 @@ var Plateforme = (function () {
     barre.innerHTML = barreClient();
     dock.innerHTML = dockHtml(vue);
     bandeau.hidden = !Etat.pause;
-    bandeau.innerHTML = bandeau.hidden ? '' : icone('pause') + '<span><strong>L’équipe Datako est en pause.</strong> Aucun travail n’est préparé ni envoyé.</span>' +
+    bandeau.innerHTML = bandeau.hidden ? '' : icone('pause') + '<span><strong>Les agents sont en pause.</strong> Aucune tâche n’est préparée ni envoyée.</span>' +
       '<button type="button" class="btn btn--sombre btn--petit" data-action="pause">Reprendre</button>';
     [barre, dock, bandeau].forEach(function (el) { Typo.appliquer(el); });
   }
@@ -2042,10 +2041,10 @@ var Plateforme = (function () {
       if (etatTravail(t.id).statut === 'valide') { rendu += t.minutes; faits++; }
     });
     var n = reste.length;
-    var accroche = n === 0 ? 'Tout est validé.' : n === 1 ? 'Un travail vous attend.' : MOTS[n] + ' travaux vous attendent.';
+    var accroche = n === 0 ? 'Tout est validé.' : n === 1 ? 'Une tâche à valider.' : MOTS[n] + ' tâches à valider.';
     var sous = n === 0
-      ? 'Votre équipe Datako vous a rendu ' + Format.duree(rendu) + ' ce matin.'
-      : 'Préparés cette nuit par votre équipe Datako : environ ' + Format.duree(total - rendu) + ' de travail, à valider en quelques minutes.';
+      ? 'Datako vous a fait gagner ' + Format.duree(rendu) + ' ce matin.'
+      : 'Préparées par Datako : environ ' + Format.duree(total - rendu) + ' de travail, à valider en quelques minutes.';
 
     var gauche =
       '<aside class="auj-gauche">' +
@@ -2056,13 +2055,13 @@ var Plateforme = (function () {
         '</div>' +
         '<div class="auj-progres">' +
           '<div class="auj-barre" aria-hidden="true">' + mes.map(function (t) { return '<span class="' + (etatTravail(t.id).statut === 'valide' ? 'est-fait' : '') + '"></span>'; }).join('') + '</div>' +
-          '<p class="auj-progres-texte"><span><strong>' + faits + '</strong> sur ' + mes.length + (faits > 1 ? ' validés' : ' validé') + '</span><span>Temps rendu : <strong>' + Format.duree(rendu) + '</strong></span></p>' +
+          '<p class="auj-progres-texte"><span><strong>' + faits + '</strong> sur ' + mes.length + (faits > 1 ? ' validées' : ' validée') + '</span><span>Temps gagné : <strong>' + Format.duree(rendu) + '</strong></span></p>' +
         '</div>' +
-        '<nav aria-label="Travaux du jour"><ul class="auj-sommaire">' + mes.map(function (t) {
+        '<nav aria-label="Tâches du jour"><ul class="auj-sommaire">' + mes.map(function (t) {
           var et = etatTravail(t.id), a = agentParId(t.agent), dessus = reste[0] === t.id;
           return '<li><button type="button" data-action="' + (et.statut === 'valide' ? 'ouvrir-agent' : 'mettre-dessus') + '" data-travail="' + t.id + '" data-agent="' + a.id + '"' + (dessus ? ' aria-current="true"' : '') + '>' +
             Cartes.pastille(a, 'petite') + '<span class="auj-sommaire-nom">' + esc(a.nom) + '</span>' +
-            (et.statut === 'valide' ? '<span class="puce puce--teal">' + icone('check') + 'Validé</span>' : '<span class="puce puce--bleu">À valider</span>') +
+            (et.statut === 'valide' ? '<span class="puce puce--teal">' + icone('check') + 'Validée</span>' : '<span class="puce puce--bleu">À valider</span>') +
           '</button></li>';
         }).join('') + '</ul></nav>' +
       '</aside>';
@@ -2071,12 +2070,12 @@ var Plateforme = (function () {
       ? '<div class="pile-pf" data-reste="' + Math.min(2, n - 1) + '">' + carteTravail(reste[0], mes.length - n + 1, mes.length) + '</div>'
       : blocFini(rendu);
 
-    return '<div class="auj">' + gauche + '<section class="auj-droite" aria-label="Travaux à valider">' + droite + '</section></div>' + filJournee();
+    return '<div class="auj">' + gauche + '<section class="auj-droite" aria-label="Tâches à valider">' + droite + '</section></div>' + filJournee();
   }
 
   function carteTravail(id, rang, nb) {
     var t = vueTravail(id), et = etatTravail(id), a = agentParId(t.agent);
-    var quand = (t.demandePar ? 'Demandé par ' + t.demandePar + ' ' + t.jour + ' à ' + t.heure : 'Préparé à ' + t.heure) + ' · ' + Format.duree(t.minutes) + ' de travail';
+    var quand = (t.demandePar ? 'Demandé par ' + t.demandePar + ' ' : 'Préparé ') + (t.jour ? t.jour + ' ' : '') + 'à ' + t.heure + ' · ' + Format.duree(t.minutes) + ' de travail';
     var actions = t.actions.map(function (ac) {
       return '<li><label class="case"><input type="checkbox" data-coche="' + ac.id + '"' + (et.coches[ac.id] !== false ? ' checked' : '') + '>' +
         '<span>' + esc(ac.libelle) + '<span class="logiciel">' + esc(ac.logiciel) + '</span></span></label></li>';
@@ -2084,11 +2083,11 @@ var Plateforme = (function () {
     var bas = Etat.correction === id
       ? '<div class="ct-correction-cadre"><div class="ct-correction">' +
           '<label for="ct-consigne">Que faut-il changer ?</label>' +
-          '<textarea id="ct-consigne" class="saisie" placeholder="Dites-le comme à un collègue."></textarea>' +
+          '<textarea id="ct-consigne" class="saisie" placeholder="Écrivez votre consigne"></textarea>' +
           '<p class="message-erreur" role="alert" hidden></p>' +
           (!et.corrige && t.correction ? '<div class="ct-suggestions"><span class="sr-only">Suggestion :</span><button type="button" class="ct-suggestion" data-action="suggestion">' + esc(t.correction.consigne) + '</button></div>' : '') +
           '<div class="ct-correction-boutons">' +
-            '<button type="button" class="btn btn--sombre" data-action="renvoyer">' + icone('regenerer') + 'Renvoyer à l’agent</button>' +
+            '<button type="button" class="btn btn--sombre" data-action="renvoyer">' + icone('regenerer') + 'Envoyer la consigne</button>' +
             '<button type="button" class="btn btn--fantome" data-action="annuler-correction">Annuler</button>' +
           '</div>' +
         '</div></div>'
@@ -2108,10 +2107,10 @@ var Plateforme = (function () {
       '</header>' +
       '<h2 class="ct-titre" id="ct-titre">' + esc(t.titre) + ' <em>' + esc(t.accent) + '</em></h2>' +
       '<p class="ct-resume">' + esc(t.resume) + '</p>' +
-      (et.corrige ? '<span class="puce puce--bleu ct-corrige">' + icone('crayon') + 'Corrigé selon votre demande : « ' + esc(et.consigne) + ' »</span>' : '') +
+      (et.corrige ? '<span class="puce puce--bleu ct-corrige">' + icone('crayon') + 'Corrigé : « ' + esc(et.consigne) + ' »</span>' : '') +
       '<div class="ct-apercu">' + Cartes.apercu(t.apercu) + '</div>' +
       Cartes.fichiers(t.fichiers) +
-      '<div class="ct-accord"><p class="ct-accord-titre">' + icone('validation') + 'En attente de votre accord</p><ul>' + actions + '</ul></div>' +
+      '<div class="ct-accord"><p class="ct-accord-titre">' + icone('validation') + 'Actions à valider</p><ul>' + actions + '</ul></div>' +
       bas +
     '</article>';
   }
@@ -2126,12 +2125,12 @@ var Plateforme = (function () {
     });
     return '<div class="auj-fini" id="auj-fini" tabindex="-1">' +
       '<div class="tampon" aria-hidden="true">Validé<strong>' + heureTexte(Etat.horloge) + '</strong></div>' +
-      '<h2 class="titre">Rien d’autre <em>pour ce matin.</em></h2>' +
-      '<p>' + Format.pluriel(nbActions, 'action faite', 'actions faites') + ' dans vos logiciels, chacune avec votre accord. Datako vous a rendu ' + Format.duree(rendu) + ' : le reste de la matinée est à vous.</p>' +
+      '<h2 class="titre">Plus rien <em>à valider.</em></h2>' +
+      '<p>' + Format.pluriel(nbActions, 'action effectuée', 'actions effectuées') + ' dans vos logiciels, toutes avec votre accord. Temps gagné : ' + Format.duree(rendu) + '.</p>' +
       '<p class="auj-fini-prochain">' + icone('horloge') + 'Prochain passage ' + pro.texte + (pro.agent ? ' · ' + esc(pro.agent) : '') + '</p>' +
       '<div class="auj-fini-actions">' +
-        '<button type="button" class="btn btn--valider" data-action="recap">Revoir ce qui est parti</button>' +
-        '<button type="button" class="btn btn--verre" data-action="demander">Confier autre chose</button>' +
+        '<button type="button" class="btn btn--valider" data-action="recap">Voir les actions effectuées</button>' +
+        '<button type="button" class="btn btn--verre" data-action="demander">Faire une demande</button>' +
       '</div>' +
     '</div>';
   }
@@ -2149,10 +2148,11 @@ var Plateforme = (function () {
       if (g && ps.h - g.fin <= 0.75) { g.items.push(ps); g.fin = ps.h; }
       else groupes.push({ debut: ps.h, fin: ps.h, items: [ps] });
     });
-    var DEB = 6, FIN = 20;
+    var DEB = D.date.debutJournee, FIN = D.date.finJournee;
     function pos(h) { return ((h - DEB) / (FIN - DEB) * 100).toFixed(2); }
     var heures = '';
-    for (var h = DEB; h <= FIN; h += 2) heures += '<span style="left:' + pos(h) + '%">' + h + ' h</span>';
+    for (var h = DEB; h <= FIN; h += 1) heures += '<span style="left:' + pos(h) + '%">' + h + ' h</span>';
+    if (FIN % 1) heures += '<span style="left:100%">' + heureCourte(FIN) + '</span>';
 
     var liste = groupes.map(function (g) {
       var fait = g.fin < maint, gauche = +pos(g.debut);
@@ -2165,12 +2165,11 @@ var Plateforme = (function () {
     }).join('');
 
     return '<section class="fil" aria-labelledby="fil-titre">' +
-      '<div class="fil-tete"><h2 class="pf-section-titre" id="fil-titre">La journée de <em>votre équipe</em></h2>' +
-        '<div class="fil-legende" aria-hidden="true"><span><i class="plein"></i>Passé</span><span><i></i>À venir</span></div></div>' +
+      '<div class="fil-tete"><h2 class="pf-section-titre" id="fil-titre">Planning <em>du jour</em></h2>' +
+        '<div class="fil-legende"><span aria-hidden="true"><i class="plein"></i>Fait</span><span aria-hidden="true"><i></i>À venir</span><span>Il est ' + heureTexte(Etat.horloge) + '</span></div></div>' +
       '<div class="fil-piste">' +
         '<div class="fil-heures" aria-hidden="true">' + heures + '</div>' +
         '<div class="fil-ligne" aria-hidden="true"></div><div class="fil-ligne-faite" style="width:' + pos(maint) + '%" aria-hidden="true"></div>' +
-        '<div class="fil-maintenant" style="left:' + pos(maint) + '%"><span>' + heureTexte(Etat.horloge) + '</span></div>' +
         (groupes.length ? '<ul class="fil-groupes">' + liste + '</ul>' : '<p class="fe-vide">Aucun passage prévu aujourd’hui.</p>') +
       '</div>' +
     '</section>';
@@ -2183,11 +2182,11 @@ var Plateforme = (function () {
   function vueEquipe() {
     var p = persona(), visibles = agentsVisibles(), total = tousLesAgents().length;
     var titre = p.direction
-      ? MOTS[total] + ' agents travaillent <em>pour ' + esc(D.entreprise.nom) + '.</em>'
-      : MOTS[visibles.length] + ' agents travaillent <em>avec vous.</em>';
+      ? 'Les agents <em>de ' + esc(D.entreprise.nom) + '</em>'
+      : 'Vos agents <em>et leurs horaires</em>';
     var sous = p.direction
-      ? 'Chacun a son rythme. Vous voyez toute l’équipe et pouvez mettre un agent en pause à tout moment.'
-      : 'Chacun a son rythme. Vous voyez les agents de votre métier, ' + D.roles[p.role].toLowerCase() + ' ; la direction voit toute l’équipe.';
+      ? 'Vous voyez les ' + total + ' agents et pouvez mettre chacun en pause à tout moment.'
+      : 'Vous voyez les ' + visibles.length + ' agents de votre service. La direction voit tous les agents.';
     var jour = D.date.jourSemaine, maint = maintenant();
 
     var lignes = visibles.map(function (a) {
@@ -2220,26 +2219,26 @@ var Plateforme = (function () {
     var idees = D.bientot;
 
     return '<header class="eq-tete">' +
-        '<p class="auj-date">Votre équipe Datako</p>' +
+        '<p class="auj-date">Équipe</p>' +
         '<h1 class="titre pf-titre" style="margin-top:14px">' + titre + '</h1>' +
         '<p class="pf-sous">' + sous + '</p>' +
       '</header>' +
       '<div class="partition-cadre"><table class="partition">' +
-        '<caption class="sr-only">Rythme de chaque agent sur la semaine</caption>' +
+        '<caption class="sr-only">Horaires de chaque agent sur la semaine</caption>' +
         '<thead><tr><th scope="col">Agent</th>' + JOURS.map(function (j, i) {
           return '<th scope="col" class="' + (i + 1 === jour ? 'est-aujourdhui' : '') + '">' + j + (i + 1 === jour ? '<small>aujourd’hui</small>' : '') + '</th>';
         }).join('') + (p.direction ? '<th scope="col">Statut</th>' : '') + '</tr></thead>' +
         '<tbody>' + lignes + '</tbody></table></div>' +
       (idees.length ? '<section class="eq-bientot" aria-labelledby="eq-bientot-titre">' +
         '<div class="eq-bientot-tete"><span class="avatar" aria-hidden="true">' + D.conseillere.initiales + '</span>' +
-          '<div><h2 class="pf-section-titre" id="eq-bientot-titre">Bientôt dans <em>votre équipe</em></h2>' +
-          '<p>Proposés par ' + D.conseillere.prenom + ', votre conseillère Datako, d’après les tâches qui reviennent chez vous.</p></div></div>' +
+          '<div><h2 class="pf-section-titre" id="eq-bientot-titre">Agents <em>proposés</em></h2>' +
+          '<p>' + D.conseillere.prenom + ', votre conseillère Datako, vous propose ces agents à partir de vos tâches récurrentes.</p></div></div>' +
         '<ul class="eq-bientot-liste">' + idees.map(function (b) {
           var dit = Etat.interesse[b.id];
           return '<li class="eq-idee"><span class="pastille teinte-marine" aria-hidden="true">' + icone(b.icone) + '</span>' +
             '<h3>' + esc(b.nom) + '</h3><p>' + esc(b.texte) + '</p>' +
             '<button type="button" class="btn btn--' + (dit ? 'fantome' : 'contour') + ' btn--petit" data-action="interesse" data-idee="' + b.id + '"' + (dit ? ' aria-disabled="true"' : '') + '>' +
-              (dit ? icone('check') + 'Camille vous rappelle' : 'Ça m’intéresse') + '</button></li>';
+              (dit ? icone('check') + 'Demande envoyée' : 'Ça m’intéresse') + '</button></li>';
         }).join('') + '</ul></section>' : '');
   }
 
@@ -2252,7 +2251,7 @@ var Plateforme = (function () {
     if (!p.direction) {
       return '<div class="reserve"><span class="pastille pastille--grande teinte-marine" aria-hidden="true">' + icone('cadenas') + '</span>' +
         '<h1 class="titre">Réservé à <em>la direction.</em></h1>' +
-        '<p class="pf-sous">Chacun ne voit que ce qui le concerne. Le bilan, l’enveloppe d’usage et les accès sont visibles par Marc Bastide.</p>' +
+        '<p class="pf-sous">Le bilan, l’enveloppe d’usage et la gestion des accès sont réservés à la direction.</p>' +
         '<button type="button" class="btn btn--sombre" data-action="persona" data-persona="marc">Voir la démo en tant que Marc</button></div>';
     }
     var B = D.bilan;
@@ -2267,34 +2266,34 @@ var Plateforme = (function () {
     return '<section class="bl-hero" aria-labelledby="bl-titre">' +
         '<div>' +
           '<p class="auj-date">Bilan · depuis ' + B.depuis + '</p>' +
-          '<h1 class="titre bl-titre" id="bl-titre">Datako a rendu <em>' + B.heures + ' heures</em> à votre équipe.</h1>' +
-          '<p class="pf-sous">Soit ' + Math.round(B.heures / B.journee) + ' journées de travail, passées avec vos clients plutôt qu’à saisir, vérifier et relancer.</p>' +
+          '<h1 class="titre bl-titre" id="bl-titre">Datako a fait gagner <em>' + B.heures + ' heures</em> à votre équipe.</h1>' +
+          '<p class="pf-sous">Soit ' + Math.round(B.heures / B.journee) + ' journées de travail de ' + B.journee + ' heures.</p>' +
           '<p class="bl-legende">' + B.parMois.map(function (m, k) {
             return '<span><i style="background:' + COULEURS[k] + '" aria-hidden="true"></i>' + m.mois + ' <small>' + m.heures + ' h' + (m.enCours ? ', en cours' : '') + '</small></span>';
           }).join('') + '</p>' +
         '</div>' +
-        '<figure class="bl-points-cadre"><div class="bl-points" role="img" aria-label="' + B.heures + ' points, un par heure rendue : ' + resumePoints + '">' + points + '</div>' +
-          '<figcaption class="bl-points-note">Un point = une heure rendue</figcaption></figure>' +
+        '<figure class="bl-points-cadre"><div class="bl-points" role="img" aria-label="' + B.heures + ' points, un par heure gagnée : ' + resumePoints + '">' + points + '</div>' +
+          '<figcaption class="bl-points-note">Un point = une heure gagnée</figcaption></figure>' +
       '</section>' +
       '<div class="bl-chiffres">' + B.chiffres.map(function (c) { return '<div><span class="chiffre">' + esc(c.valeur) + '</span><span>' + esc(c.libelle) + '</span></div>'; }).join('') + '</div>' +
-      '<p class="bl-qualite"><strong>' + B.qualite.sansCorrection + ' %</strong> des travaux validés sans correction, en <strong>' + B.qualite.minutesValidation + ' minutes</strong> en moyenne.</p>' +
+      '<p class="bl-qualite"><strong>' + B.qualite.sansCorrection + ' %</strong> des tâches validées sans correction. Temps moyen de validation : <strong>' + B.qualite.minutesValidation + ' minutes</strong>.</p>' +
 
       '<div class="bl-grille">' +
         '<section class="bl-carte" aria-labelledby="bl-env">' +
           '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-env">Enveloppe d’usage <em>· ' + D.date.mois + '</em></h2>' +
-            '<span class="puce puce--teal">' + icone('bouclier') + 'Plafond garanti</span></div>' +
+            '<span class="puce puce--teal">' + icone('bouclier') + 'Montant plafonné</span></div>' +
           '<div class="enveloppe" role="img" aria-label="' + E.consomme + ' % consommés au ' + E.jour + ' ' + D.date.mois + ', ' + E.projection + ' % prévus en fin de mois, alerte à ' + E.alerte + ' %">' +
             '<div class="enveloppe-proj" style="left:' + E.consomme + '%;width:' + (E.projection - E.consomme) + '%"></div>' +
             '<div class="enveloppe-conso" style="width:' + E.consomme + '%"></div>' +
             '<div class="enveloppe-repere" style="left:' + E.alerte + '%"><span>Alerte ' + E.alerte + ' %</span></div>' +
-            '<span class="enveloppe-etiquette" style="left:' + E.consomme + '%">' + E.consomme + ' % au ' + E.jour + '</span>' +
+            '<span class="enveloppe-etiquette" style="left:' + E.consomme + '%">' + E.consomme + ' % au ' + E.jour + ' ' + D.date.mois + '</span>' +
             '<span class="enveloppe-etiquette enveloppe-etiquette--proj" style="left:' + E.projection + '%">' + E.projection + ' % prévus</span>' +
           '</div>' +
-          '<p class="bl-carte-texte">Au rythme actuel, ' + D.date.mois + ' se terminera sous votre plafond. Si le plafond est atteint, les agents se mettent en pause d’eux-mêmes : aucun dépassement n’est possible.</p>' +
-          '<button type="button" class="btn btn--' + (Etat.pause ? 'valider' : 'contour') + ' bl-pause" data-action="pause">' + icone(Etat.pause ? 'lecture' : 'pause') + (Etat.pause ? 'Reprendre le travail' : 'Mettre l’équipe en pause') + '</button>' +
+          '<p class="bl-carte-texte">Au rythme actuel, ' + D.date.mois + ' se terminera à ' + E.projection + ' % de l’enveloppe. Si le plafond est atteint, les agents s’arrêtent automatiquement : aucun dépassement n’est possible.</p>' +
+          '<button type="button" class="btn btn--' + (Etat.pause ? 'valider' : 'contour') + ' bl-pause" data-action="pause">' + icone(Etat.pause ? 'lecture' : 'pause') + (Etat.pause ? 'Relancer les agents' : 'Mettre tous les agents en pause') + '</button>' +
         '</section>' +
         '<section class="bl-carte" aria-labelledby="bl-usage">' +
-          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-usage">Où va <em>l’usage</em></h2></div>' +
+          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-usage">Usage <em>par agent</em></h2></div>' +
           '<ul class="usage">' + B.parAgent.map(function (u) {
             var a = agentParId(u.agent);
             return '<li>' + Cartes.pastille(a, 'petite') + '<span class="usage-barre"><span>' + esc(a.nom) + '</span><i style="width:' + (u.part / B.parAgent[0].part * 100) + '%" aria-hidden="true"></i></span><span class="usage-pct">' + u.part + ' %</span></li>';
@@ -2305,20 +2304,20 @@ var Plateforme = (function () {
       '<div class="bl-grille">' +
         '<section class="bl-carte" aria-labelledby="bl-acces">' +
           '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-acces">Qui a <em>accès</em></h2>' +
-            '<button type="button" class="btn btn--sombre btn--petit" data-action="inviter">' + icone('plus') + 'Inviter par e-mail</button></div>' +
+            '<button type="button" class="btn btn--sombre btn--petit" data-action="inviter">' + icone('plus') + 'Inviter</button></div>' +
           '<ul class="acces">' + Etat.acces.map(function (u) {
             return '<li><span class="avatar" aria-hidden="true">' + u.initiales + '</span>' +
               '<span class="acces-qui"><strong>' + esc(u.nom) + '</strong><span>' + esc(u.email) + '</span></span>' +
               '<span class="acces-droits"><span class="puce">' + esc(D.roles[u.role]) + '</span><small>' + esc(u.agents) + '</small></span></li>';
           }).join('') + '</ul>' +
-          '<p class="bl-note">Connexion par lien envoyé par e-mail, sans mot de passe. Le rôle décide des agents que chacun voit.</p>' +
+          '<p class="bl-note">Connexion par lien envoyé par e-mail, sans mot de passe. Chacun voit les agents de son rôle.</p>' +
         '</section>' +
         '<section class="bl-carte" aria-labelledby="bl-logiciels">' +
-          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-logiciels">Logiciels <em>reliés</em></h2></div>' +
+          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-logiciels">Logiciels <em>connectés</em></h2></div>' +
           '<ul class="logiciels-relies">' + B.logiciels.map(function (l) {
-            return '<li>' + esc(l.nom) + '<small>' + icone('check') + 'Relié depuis ' + l.depuis + '</small></li>';
+            return '<li>' + esc(l.nom) + '<small>' + icone('check') + 'Connecté depuis ' + l.depuis + '</small></li>';
           }).join('') + '</ul>' +
-          '<p class="bl-note">Reliés et entretenus par Datako. Les accès sont rangés dans un coffre-fort : une fois enregistrés, personne ne peut les relire.</p>' +
+          '<p class="bl-note">Connexions installées et suivies par Datako. Les identifiants sont stockés de façon sécurisée.</p>' +
         '</section>' +
       '</div>';
   }
@@ -2339,11 +2338,11 @@ var Plateforme = (function () {
     var pause = enPause(a);
     var aDejaTourne = !!tid || (lc && lc.statut === 'fini');
 
-    /* 1. Ce que vous lui confiez */
+    /* 1. Ce qu'il utilise, ou votre demande */
     var entree;
     if (a.entree.type === 'planifie') {
       entree = '<p class="fe-texte">' + esc(a.entree.texte) + '</p>' +
-        '<div><button type="button" class="btn btn--contour btn--petit" data-action="lancer" data-agent="' + a.id + '"' + (enCours || pause ? ' disabled' : '') + '>' + icone('regenerer') + 'Relancer maintenant</button>' +
+        '<div><button type="button" class="btn btn--contour btn--petit" data-action="lancer" data-agent="' + a.id + '"' + (enCours || pause ? ' disabled' : '') + '>' + icone('regenerer') + 'Lancer maintenant</button>' +
         (pause ? ' <span class="puce puce--sable">En pause</span>' : '') + '</div>';
     } else if (a.entree.type === 'formulaire') {
       entree = '<form class="fe-form" data-form="lancer" data-agent="' + a.id + '">' + a.entree.champs.map(function (c) {
@@ -2357,7 +2356,7 @@ var Plateforme = (function () {
     } else if (a.entree.type === 'question') {
       entree = '<form class="fe-form" data-form="lancer" data-agent="' + a.id + '">' +
         '<div class="champ"><label class="champ-libelle" for="fe-question">' + esc(a.entree.libelle) + '</label>' +
-        '<input class="saisie" id="fe-question" name="question" autocomplete="off" placeholder="Posez-la comme à un collègue" value="' + esc(Etat.question) + '"></div>' +
+        '<input class="saisie" id="fe-question" name="question" autocomplete="off" placeholder="Saisissez votre question" value="' + esc(Etat.question) + '"></div>' +
         '<div class="ct-suggestions"><span class="sr-only">Exemples :</span>' + a.entree.suggestions.map(function (s) {
           return '<button type="button" class="ct-suggestion" data-action="suggestion-question">' + esc(s) + '</button>';
         }).join('') + '</div>' +
@@ -2367,17 +2366,17 @@ var Plateforme = (function () {
     }
 
     /* 2. Ce qu'il fait */
-    var quand = enCours ? 'en cours' : (lc && lc.statut === 'fini') ? 'à ' + lc.heure : tid ? (travailBrut(tid).jour ? travailBrut(tid).jour + ' à ' : 'ce matin à ') + travailBrut(tid).heure : '';
+    var quand = enCours ? 'en cours' : (lc && lc.statut === 'fini') ? 'à ' + lc.heure : tid ? (travailBrut(tid).jour || 'aujourd’hui') + ' à ' + travailBrut(tid).heure : '';
     var etapes = '<ol class="fe-etapes">' + a.etapes.map(function (e, i) {
       var st = enCours ? (i < lc.etape ? 'fait' : i === lc.etape ? 'encours' : 'attente') : (aDejaTourne ? 'fait' : 'attente');
       return '<li class="est-' + st + '"><span class="fe-etape-icone" aria-hidden="true">' + (st === 'fait' ? icone('check') : st === 'encours' ? icone('chargement') : '') + '</span>' +
         '<span>' + esc(e) + (st === 'encours' ? '<span class="sr-only"> (en cours)</span>' : '') + '</span></li>';
     }).join('') + '</ol>';
 
-    /* 3. Ce qu'il vous rend */
+    /* 3. Ce qu'il produit */
     var resultat;
     if (enCours) {
-      resultat = '<p class="fe-vide"><span class="points" aria-hidden="true"><i></i><i></i><i></i></span> Datako travaille…</p>';
+      resultat = '<p class="fe-vide"><span class="points" aria-hidden="true"><i></i><i></i><i></i></span> En cours…</p>';
     } else if (a.id === 'documents') {
       if (lc && lc.statut === 'fini') {
         resultat = '<p class="fe-texte"><strong>« ' + esc(lc.valeurs.question) + ' »</strong></p>' +
@@ -2392,7 +2391,7 @@ var Plateforme = (function () {
       var toutDecide = t.actions.every(function (ac) { return et.actions[ac.id]; });
       resultat = '<div class="fe-detail">' + miseEnForme(t.detail || t.resume) + '</div>' +
         Cartes.apercu(t.apercu) + Cartes.fichiers(t.fichiers) +
-        '<div class="fe-actions"><p class="fe-actions-titre">' + icone('validation') + (toutDecide ? 'Vos décisions' : 'En attente de votre accord') + '</p>' +
+        '<div class="fe-actions"><p class="fe-actions-titre">' + icone('validation') + (toutDecide ? 'Vos décisions' : 'Actions à valider') + '</p>' +
         t.actions.map(function (ac) {
           var s = et.actions[ac.id];
           return '<div class="fe-action' + (s === 'fait' ? ' est-fait' : s === 'refuse' ? ' est-refuse' : '') + '">' +
@@ -2416,15 +2415,15 @@ var Plateforme = (function () {
             (pause ? '<span class="puce puce--sable">' + icone('pause') + 'En pause</span>' : '') + '</div></div>' +
         '</header>' +
         '<ol class="fe-temps">' +
-          '<li><div class="fe-temps-contenu"><h3 class="fe-temps-titre">Ce que vous lui confiez</h3>' + entree + '</div></li>' +
+          '<li><div class="fe-temps-contenu"><h3 class="fe-temps-titre">' + (a.entree.type === 'planifie' ? 'Ce qu’il utilise' : 'Votre demande') + '</h3>' + entree + '</div></li>' +
           '<li class="' + (aDejaTourne || enCours ? '' : 'est-attente') + '"><div class="fe-temps-contenu"><h3 class="fe-temps-titre">Ce qu’il fait' + (quand ? '<small>' + esc(quand) + '</small>' : '') + '</h3>' + etapes + '</div></li>' +
-          '<li class="' + ((aDejaTourne && !enCours) ? '' : 'est-attente') + '"><div class="fe-temps-contenu" aria-live="polite"><h3 class="fe-temps-titre">Ce qu’il vous rend</h3>' + resultat + '</div></li>' +
+          '<li class="' + ((aDejaTourne && !enCours) ? '' : 'est-attente') + '"><div class="fe-temps-contenu" aria-live="polite"><h3 class="fe-temps-titre">Ce qu’il produit</h3>' + resultat + '</div></li>' +
         '</ol>' +
         '<div class="fe-limites">' +
-          '<div><h3>' + icone('oeil') + 'Ce qu’il peut lire</h3><p>' + esc(majuscule(a.peutLire)) + '.</p></div>' +
-          '<div><h3>' + icone('validation') + 'Ce qui attend votre accord</h3><p>' + (a.attendAccord.length ? esc(majuscule(a.attendAccord.join(', '))) + '.' : 'Rien : cet agent lit et répond, il n’agit jamais seul.') + '</p></div>' +
+          '<div><h3>' + icone('oeil') + 'Accès en lecture</h3><p>' + esc(majuscule(a.peutLire)) + '.</p></div>' +
+          '<div><h3>' + icone('validation') + 'Actions soumises à votre accord</h3><p>' + (a.attendAccord.length ? esc(majuscule(a.attendAccord.join(', '))) + '.' : 'Aucune : cet agent ne fait que lire et répondre.') + '</p></div>' +
         '</div>' +
-        '<p class="fe-pied"><span class="avatar avatar--petit" aria-hidden="true">' + D.conseillere.initiales + '</span>Réglé par ' + D.conseillere.prenom + ', votre conseillère Datako · mis à jour ' + (/^\d|^1er/.test(a.majLe) ? 'le ' : '') + esc(a.majLe) + '</p>' +
+        '<p class="fe-pied"><span class="avatar avatar--petit" aria-hidden="true">' + D.conseillere.initiales + '</span>Paramétré par ' + D.conseillere.prenom + ', votre conseillère Datako · mis à jour ' + (/^\d|^1er/.test(a.majLe) ? 'le ' : '') + esc(a.majLe) + '</p>' +
       '</div>';
   }
 
@@ -2550,7 +2549,7 @@ var Plateforme = (function () {
     var options = [];
     agentsVisibles().forEach(function (a) {
       if (a.rythme.type === 'demande') {
-        options.push({ groupe: 'Confier une tâche', agent: a, libelle: a.id === 'devis' ? 'Préparer un devis' : a.id === 'documents' ? 'Poser une question sur vos documents' : a.nom });
+        options.push({ groupe: 'Faire une demande', agent: a, libelle: a.id === 'devis' ? 'Préparer un devis' : a.id === 'documents' ? 'Poser une question sur vos documents' : a.nom });
       } else {
         options.push({ groupe: 'Lancer un agent maintenant', agent: a, libelle: a.nom, lancer: true });
       }
@@ -2558,9 +2557,9 @@ var Plateforme = (function () {
     var html =
       '<h2 id="modale-titre" class="sr-only">Demander à Datako</h2>' +
       '<div class="palette-saisie">' + icone('etincelle') +
-        '<input type="text" id="palette-q" autocomplete="off" placeholder="Que voulez-vous confier à Datako ?" aria-label="Que voulez-vous confier à Datako ?" aria-controls="palette-liste" autofocus></div>' +
+        '<input type="text" id="palette-q" autocomplete="off" placeholder="Que voulez-vous demander à Datako ?" aria-label="Que voulez-vous demander à Datako ?" aria-controls="palette-liste" autofocus></div>' +
       '<div class="palette-liste" id="palette-liste"></div>' +
-      '<p class="palette-pied">Astuce : touche « / » pour ouvrir cette fenêtre. Un besoin nouveau est transmis à ' + D.conseillere.prenom + ', votre conseillère.</p>';
+      '<p class="palette-pied">Raccourci : touche « / ». Les demandes qu’aucun agent ne couvre sont transmises à ' + D.conseillere.prenom + ', votre conseillère.</p>';
     var m = Modale.ouvrir(html, { classe: 'modale--palette' });
     var champ = m.querySelector('#palette-q'), liste = m.querySelector('#palette-liste');
     var courantes = [];
@@ -2571,12 +2570,12 @@ var Plateforme = (function () {
         return !nq || normaliser(o.libelle + ' ' + o.agent.nom + ' ' + (MOTS_CLES[o.agent.id] || '') + ' ' + o.agent.mission).indexOf(nq) >= 0;
       });
       var docs = agentParId('documents');
-      if (q.length > 12 && /\?$/.test(q) && voitAgent(docs)) courantes.unshift({ groupe: 'Confier une tâche', agent: docs, libelle: 'Poser cette question à vos documents', question: q });
+      if (q.length > 12 && /\?$/.test(q) && voitAgent(docs)) courantes.unshift({ groupe: 'Faire une demande', agent: docs, libelle: 'Chercher la réponse dans vos documents', question: q });
       if (q && !courantes.length) courantes.push({ transmettre: q });
       var groupe = null, h = '';
       courantes.forEach(function (o, i) {
         if (o.transmettre) {
-          h += '<p class="palette-groupe">Nouveau besoin</p><button type="button" class="palette-option" data-i="' + i + '"><span class="pastille teinte-marine" aria-hidden="true">' + icone('conversation') + '</span>' +
+          h += '<p class="palette-groupe">Autre demande</p><button type="button" class="palette-option" data-i="' + i + '"><span class="pastille teinte-marine" aria-hidden="true">' + icone('conversation') + '</span>' +
             '<span class="palette-option-texte">Transmettre à ' + D.conseillere.prenom + '<small>« ' + esc(o.transmettre) + ' »</small></span>' + icone('fleche') + '</button>';
           return;
         }
@@ -2590,7 +2589,7 @@ var Plateforme = (function () {
 
     function choisir(o) {
       Modale.fermer(true);
-      if (o.transmettre) { notifier('Demande transmise à ' + D.conseillere.prenom + ' : elle vous répond dans la journée.', 'conversation'); return; }
+      if (o.transmettre) { notifier('Demande transmise à ' + D.conseillere.prenom + '. Elle vous répond dans la journée.', 'conversation'); return; }
       if (o.question) Etat.question = o.question;
       if (o.lancer || o.question) Etat.lancerAuto = o.agent.id;
       else if (o.agent.entree.type !== 'planifie') Etat.lancerAuto = o.agent.id;
@@ -2625,9 +2624,9 @@ var Plateforme = (function () {
       vt.actions.forEach(function (ac) { if (et.actions[ac.id] === 'fait') lignes.push(ac.fait + ' · ' + et.heures[ac.id]); });
     });
     Modale.ouvrir(
-      '<p class="surtitre surtitre--point">Ce matin</p>' +
-      '<h2 id="modale-titre" class="titre modale-titre-pf">Ce qui est <em>parti.</em></h2>' +
-      (lignes.length ? '<ul class="recap">' + lignes.map(function (l) { return '<li>' + icone('check') + esc(l) + '</li>'; }).join('') + '</ul>' : '<p class="recap-vide">Aucune action envoyée.</p>') +
+      '<p class="surtitre surtitre--point">Aujourd’hui</p>' +
+      '<h2 id="modale-titre" class="titre modale-titre-pf">Actions <em>effectuées</em></h2>' +
+      (lignes.length ? '<ul class="recap">' + lignes.map(function (l) { return '<li>' + icone('check') + esc(l) + '</li>'; }).join('') + '</ul>' : '<p class="recap-vide">Aucune action effectuée.</p>') +
       '<div class="modale-actions"><button type="button" class="btn btn--sombre" data-fermer-modale>Fermer</button></div>');
   }
 
@@ -2640,7 +2639,7 @@ var Plateforme = (function () {
         '<div class="champ"><label class="champ-libelle" for="inv-email">Adresse e-mail</label><input class="saisie" id="inv-email" type="email" autocomplete="off" placeholder="prenom.nom@' + D.entreprise.domaine + '"></div>' +
         '<div class="champ"><label class="champ-libelle" for="inv-role">Rôle</label><select class="saisie" id="inv-role">' +
           Object.keys(D.roles).map(function (r) { return '<option value="' + r + '"' + (r === 'commercial' ? ' selected' : '') + '>' + esc(D.roles[r]) + '</option>'; }).join('') + '</select>' +
-          '<p class="champ-aide">Le rôle décide des agents que la personne verra.</p></div>' +
+          '<p class="champ-aide">Le rôle détermine les agents visibles.</p></div>' +
         '<p class="message-erreur" role="alert" hidden></p>' +
         '<div class="modale-actions"><button type="button" class="btn btn--fantome" data-fermer-modale>Annuler</button><button type="submit" class="btn btn--sombre">Envoyer l’invitation</button></div>' +
       '</form>');
@@ -2700,7 +2699,7 @@ var Plateforme = (function () {
     Etat.correction = null;
     Etat.animCarte = 'arrive';
     var p = persona();
-    notifier('Vous voyez maintenant la démo en tant que ' + p.prenom + ' ' + p.nom + ', ' + p.fonction.toLowerCase() + '.', 'utilisateurs');
+    notifier('Vue de ' + p.prenom + ' ' + p.nom + ', ' + p.fonction.toLowerCase() + '.', 'utilisateurs');
     if (Etat.vueRendue === 'bilan' && !p.direction) location.hash = '#aujourdhui';
     else rendre(Etat.vueRendue, true);
   }
@@ -2734,20 +2733,20 @@ var Plateforme = (function () {
       case 'demander': ouvrirPalette(); break;
       case 'pause':
         Etat.pause = !Etat.pause;
-        notifier(Etat.pause ? 'Équipe en pause : plus aucun travail n’est préparé.' : 'L’équipe Datako reprend le travail.', Etat.pause ? 'pause' : 'lecture');
+        notifier(Etat.pause ? 'Tous les agents sont en pause.' : 'Les agents reprennent leur travail.', Etat.pause ? 'pause' : 'lecture');
         Etat.focusApres = Etat.vueRendue === 'bilan' ? '.bl-pause' : null;
         rendre(Etat.vueRendue, false);
         break;
       case 'basculer-agent':
         var ida = el.getAttribute('data-agent');
         Etat.agentsPause[ida] = !Etat.agentsPause[ida];
-        notifier(agentParId(ida).nom + (Etat.agentsPause[ida] ? ' est en pause.' : ' reprend son rythme.'), Etat.agentsPause[ida] ? 'pause' : 'lecture');
+        notifier(agentParId(ida).nom + (Etat.agentsPause[ida] ? ' est en pause.' : ' est réactivé.'), Etat.agentsPause[ida] ? 'pause' : 'lecture');
         Etat.focusApres = '[data-action="basculer-agent"][data-agent="' + ida + '"]';
         rendre('equipe', false);
         break;
       case 'interesse':
         Etat.interesse[el.getAttribute('data-idee')] = true;
-        notifier(D.conseillere.prenom + ' vous rappelle cette semaine pour en parler.', 'conversation');
+        notifier(D.conseillere.prenom + ' vous rappellera cette semaine.', 'conversation');
         Etat.focusApres = '[data-idee="' + el.getAttribute('data-idee') + '"]';
         rendre('equipe', false);
         break;
@@ -2808,11 +2807,11 @@ var Plateforme = (function () {
       case 'renvoyer':
         var consigne = document.getElementById('ct-consigne').value.trim();
         var erreur = carte.querySelector('.message-erreur');
-        if (!consigne) { erreur.textContent = 'Écrivez ce qu’il faut changer, ou choisissez la suggestion.'; erreur.hidden = false; document.getElementById('ct-consigne').focus(); break; }
+        if (!consigne) { erreur.textContent = 'Écrivez une consigne ou choisissez la suggestion.'; erreur.hidden = false; document.getElementById('ct-consigne').focus(); break; }
         var voile = document.createElement('div');
         voile.className = 'ct-travaille';
         voile.setAttribute('role', 'status');
-        voile.innerHTML = '<span class="points" aria-hidden="true"><i></i><i></i><i></i></span>Datako revoit sa copie…';
+        voile.innerHTML = '<span class="points" aria-hidden="true"><i></i><i></i><i></i></span>Correction en cours…';
         carte.appendChild(voile);
         setTimeout(function () {
           var et = etatTravail(idTravail), dejaCorrige = et.corrige;
@@ -2821,7 +2820,7 @@ var Plateforme = (function () {
           Etat.correction = null;
           Etat.focusApres = '.ct [data-action="valider"]';
           rendre('aujourdhui', false);
-          notifier(dejaCorrige ? 'C’est noté : Datako s’en souviendra aux prochains passages.' : 'Corrigé. Datako retiendra cette consigne pour la suite.', 'regenerer');
+          notifier(dejaCorrige ? 'Consigne enregistrée pour les prochains passages.' : 'Correction faite. La consigne sera appliquée aux prochains passages.', 'regenerer');
         }, 1500);
         break;
       case 'detail':

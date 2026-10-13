@@ -229,7 +229,8 @@
 /* Le fil de la journée */
 .fil { margin-top: 72px; padding: 30px 34px 26px; border-radius: var(--r-xl); background: rgba(255, 255, 255, .62); border: 1px solid var(--trait); }
 .fil-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.fil-legende { display: flex; gap: 16px; font-size: .8rem; color: var(--muted); }
+.fil-legende { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .8rem; color: var(--muted); }
+.fil-legende span:last-child { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .fil-legende span { display: inline-flex; align-items: center; gap: 6px; }
 .fil-legende i { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--teal); }
 .fil-legende i.plein { background: var(--teal); }
@@ -247,11 +248,6 @@
 .fil-texte span { color: var(--muted); }
 .fil-groupe--droite { transform: translateX(calc(-100% + 10px)); justify-items: end; text-align: right; }
 .fil-groupe--droite .fil-points { flex-direction: row-reverse; }
-.fil-maintenant { position: absolute; top: 20px; height: 21px; width: 0; border-left: 2px solid var(--navy); }
-.fil-maintenant span {
-  position: absolute; top: -22px; left: 0; transform: translateX(-50%);
-  padding: 3px 9px; border-radius: 999px; background: var(--navy); color: #fff; font-size: .72rem; font-weight: 600; white-space: nowrap;
-}
 
 /* ==========================================================================
    ÉQUIPE — la partition de la semaine
@@ -514,7 +510,7 @@
   .bl-chiffres div:nth-child(-n+2) { border-top: 0; }
   .fil { padding: 24px 20px; }
   .fil-piste { height: auto; margin: 14px 0 0; }
-  .fil-ligne, .fil-ligne-faite, .fil-heures, .fil-maintenant { display: none; }
+  .fil-ligne, .fil-ligne-faite, .fil-heures { display: none; }
   .fil-groupe, .fil-groupe--droite { position: static; transform: none; display: flex; align-items: flex-start; gap: 12px; text-align: left; padding: 12px 0; border-top: 1px solid var(--trait); }
   .fil-groupe--droite .fil-points { flex-direction: row; }
   .fil-groupe:first-child { border-top: 0; }

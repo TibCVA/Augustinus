@@ -23,7 +23,7 @@ var Cartes = (function () {
       return '<ul class="ap-liste">' + ap.lignes.map(function (l) {
         return '<li class="ap-liste-ligne ap-liste-ligne--' + l.statut + '">' +
           '<span class="ap-statut" aria-hidden="true">' + (l.statut === 'ok' ? icone('check') : '!') + '</span>' +
-          '<span class="sr-only">' + (l.statut === 'ok' ? 'Conforme : ' : 'À regarder : ') + '</span>' +
+          '<span class="sr-only">' + (l.statut === 'ok' ? 'Conforme : ' : 'À vérifier : ') + '</span>' +
           '<span class="ap-liste-texte"><strong>' + esc(l.texte) + '</strong>' + (l.detail ? '<span>' + esc(l.detail) + '</span>' : '') + '</span>' +
         '</li>';
       }).join('') + '</ul>';
@@ -74,7 +74,7 @@ var Cartes = (function () {
     var f = e.target.closest('[data-fichier]');
     if (!f) return;
     e.preventDefault();
-    notifier('Démonstration : « ' + f.getAttribute('data-fichier') + ' » s’ouvrirait ici.', 'telecharger');
+    notifier('Démonstration : le fichier « ' + f.getAttribute('data-fichier') + ' » n’est pas disponible.', 'telecharger');
   });
 
   return { agent: agent, pastille: pastille, apercu: apercu, fichiers: fichiers };
