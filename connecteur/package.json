@@ -1,0 +1,17 @@
+{
+  "name": "datako-connecteur",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP du connecteur Datako pour Claude : un serveur MCP qui affiche l’espace Datako dans la conversation (MCP App).",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/local.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "zod": "^4.6.5"
+  }
+}

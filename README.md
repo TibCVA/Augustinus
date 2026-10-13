@@ -84,6 +84,10 @@ outils/assembler.js        Fabrique le fichier unique livrable/datako-maquette.h
 
 La vitrine commerciale et le Studio Datako des versions précédentes ne font plus partie de cette maquette. Ils restent récupérables dans l’historique Git (commit `ffb5901`).
 
+## 6. Le connecteur (MVP technique)
+
+Le dossier `connecteur/` contient un **vrai connecteur Claude** (serveur MCP) qui affiche l’espace Datako dans une conversation Claude : la carte, le plein écran, la validation et la correction depuis l’interface. Il sert à prouver le point clé validé avec Guillaume dans un compte Claude Team. Mode d’emploi, critères de réussite et suites : `connecteur/README.md`.
+
 ## 6. Contrôles effectués
 
 - **Parcours automatique** : 50 vérifications réussies, sans erreur dans la console.

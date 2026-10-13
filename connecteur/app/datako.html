@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Datako</title>
+<style>
+  /* Les couleurs de structure viennent de Claude (variables fournies par l'hôte, avec
+     des valeurs de repli) ; le turquoise et le bleu nuit Datako servent d'accent. */
+  :root {
+    --fond: var(--color-background-primary, #fff);
+    --fond-2: var(--color-background-secondary, #F5F4ED);
+    --texte: var(--color-text-primary, #141413);
+    --texte-2: var(--color-text-secondary, #3D3D3A);
+    --texte-3: var(--color-text-tertiary, #73726C);
+    --trait: var(--color-border-tertiary, rgba(31, 30, 29, .15));
+    --ok-fond: var(--color-background-success, #E9F1DC);
+    --ok-texte: var(--color-text-success, #265B19);
+    --alerte-fond: var(--color-background-warning, #F6EEDF);
+    --alerte-texte: var(--color-text-warning, #5A4815);
+    --police: var(--font-sans, system-ui, sans-serif);
+    --rayon: var(--border-radius-lg, 10px);
+    --teal: #2DD4BF; --navy: #0A2036; --bleu: #2574AC;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--police); font-size: 14px; line-height: 1.4; color: var(--texte); background: var(--fond); }
+  .app { display: grid; gap: 14px; padding: 14px; }
+  .tete { display: flex; align-items: center; gap: 10px; }
+  .marque { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+  .marque b { color: var(--bleu); font-weight: 700; }
+  .marque small { margin-left: 8px; font-weight: 400; color: var(--texte-3); }
+  .lien { margin-left: auto; border: 0; background: none; color: var(--texte-2); font: inherit; font-weight: 600; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+  .lien:hover { background: var(--fond-2); }
+  h1 { margin: 0; font-size: 20px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; }
+  h1 em { font-style: italic; font-weight: 400; color: var(--bleu); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid transparent; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn--principal { background: var(--teal); color: var(--navy); }
+  .btn--principal:hover { filter: brightness(1.05); }
+  .btn--contour { background: transparent; border-color: var(--trait); color: var(--texte); }
+  .btn--contour:hover { background: var(--fond-2); }
+  .btn[disabled] { opacity: .5; cursor: default; }
+  .taches { display: grid; gap: 10px; }
+  .tache { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--trait); border-radius: var(--rayon); background: var(--fond); }
+  .tache header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .tache header strong { font-size: 15px; }
+  .tache header span { color: var(--texte-3); font-size: 12px; }
+  .tache p { margin: 0; color: var(--texte-2); }
+  .points { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .points li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+  .points i { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 800; margin-top: 1px; }
+  .points .ok i { background: var(--ok-fond); color: var(--ok-texte); }
+  .points .alerte i { background: var(--alerte-fond); color: var(--alerte-texte); }
+  .accord { display: grid; gap: 8px; padding: 10px 12px; border-radius: 8px; background: var(--fond-2); }
+  .accord p { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--texte-3); }
+  .accord label { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; cursor: pointer; }
+  .accord input { margin: 2px 0 0; accent-color: var(--teal); width: 16px; height: 16px; }
+  .accord small { display: block; color: var(--texte-3); }
+  .boutons { display: flex; gap: 8px; flex-wrap: wrap; }
+  .fait { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: var(--rayon); background: var(--ok-fond); color: var(--ok-texte); font-weight: 600; }
+  .correction { display: grid; gap: 8px; }
+  .correction textarea { font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--trait); background: var(--fond); color: var(--texte); min-height: 64px; resize: vertical; }
+  .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .agent { display: grid; gap: 4px; text-align: left; padding: 12px; min-height: 64px; border: 1px solid var(--trait); border-radius: var(--rayon); background: var(--fond-2); color: var(--texte); font: inherit; cursor: pointer; }
+  .agent:hover { border-color: var(--teal); }
+  .agent strong { font-size: 13px; font-weight: 600; }
+  .agent small { color: var(--texte-3); font-size: 12px; }
+  .section { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--texte-3); margin: 4px 0 0; }
+  .pied { font-size: 12px; color: var(--texte-3); }
+  .vide { color: var(--texte-3); padding: 8px 0; }
+  .squelette { height: 120px; border-radius: var(--rayon); background: linear-gradient(90deg, var(--fond-2), var(--fond), var(--fond-2)); background-size: 200% 100%; animation: brille 1.2s infinite; }
+  @keyframes brille { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .mode-inline .seulement-pleinecran { display: none; }
+  .mode-fullscreen .app { max-width: 820px; margin: 0 auto; padding: 24px 16px 96px; }
+</style>
+</head>
+<body class="mode-inline">
+<div class="app" id="app"><div class="squelette"></div></div>
+
+<script type="module">
+  // Client « App » du SDK MCP Apps, chargé depuis un CDN (pas de bundler pour ce MVP).
+  // La version doit rester identique à celle installée côté serveur (package.json).
+  import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@1.7.5/dist/src/app-with-deps.js";
+
+  const racine = document.getElementById('app');
+  const app = new App({ name: 'Datako', version: '0.1.0' }, { availableDisplayModes: ['inline', 'fullscreen'] });
+  let etat = null;          // dernier état renvoyé par le serveur
+  let correction = null;    // id de la tâche en cours de correction
+  let mode = 'inline';
+
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const h = (html) => { racine.innerHTML = html; };
+
+  function rendre() {
+    if (!etat) { h('<div class="squelette"></div>'); return; }
+    const aValider = etat.taches.filter((t) => t.statut === 'a-valider');
+    const n = aValider.length;
+    const entete = `<div class="tete"><span class="marque">Data<b>ko</b><small>${esc(etat.entreprise)}</small></span>
+      <button class="lien" data-action="${mode === 'fullscreen' ? 'reduire' : 'agrandir'}">${mode === 'fullscreen' ? 'Réduire' : 'Plein écran'}</button></div>`;
+    const titre = `<h1>Bonjour ${esc(etat.utilisateur)}. <em>${n ? (n === 1 ? 'Une tâche à valider.' : n + ' tâches à valider.') : 'Tout est validé.'}</em></h1>`;
+
+    // En carte (inline) : une seule tâche à la fois et les agents. En plein écran : toutes les tâches.
+    const liste = (mode === 'fullscreen' ? etat.taches : aValider.slice(0, 1)).map(carte).join('');
+    const agents = `<p class="section">Vos agents</p><div class="agents">${etat.agents.map((a) =>
+      `<button class="agent" data-action="lancer" data-agent="${a.id}"><strong>${esc(a.nom)}</strong><small>${esc(a.rythme)}</small></button>`).join('')}</div>`;
+    const pied = `<p class="pied">Les actions dans vos logiciels attendent toujours votre accord.</p>`;
+    h(entete + titre + (liste || '<p class="vide">Rien à valider pour l’instant.</p>') + agents + pied);
+    app.sendSizeChanged({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight });
+  }
+
+  function carte(t) {
+    if (t.statut === 'valide') return `<div class="fait">✓ ${esc(t.titre)} · validée${t.heureValidation ? ' à ' + esc(t.heureValidation) : ''}</div>`;
+    const points = `<ul class="points">${t.points.map((p) => `<li class="${p.statut}"><i>${p.statut === 'ok' ? '✓' : '!'}</i><span>${esc(p.texte)}</span></li>`).join('')}</ul>`;
+    const accord = `<div class="accord"><p>Actions à valider</p>${t.actions.map((a) =>
+      `<label><input type="checkbox" data-coche="${a.id}" checked><span>${esc(a.libelle)}<small>${esc(a.logiciel)}</small></span></label>`).join('')}</div>`;
+    const bas = correction === t.id
+      ? `<div class="correction"><textarea id="consigne-${t.id}" placeholder="Que faut-il changer ?">${esc(t.consigne ?? '')}</textarea>
+          <div class="boutons"><button class="btn btn--principal" data-action="corriger" data-tache="${t.id}">Envoyer la consigne</button>
+          <button class="btn btn--contour" data-action="annuler">Annuler</button></div></div>`
+      : `<div class="boutons"><button class="btn btn--principal" data-action="valider" data-tache="${t.id}">Valider</button>
+          <button class="btn btn--contour" data-action="ouvrir-correction" data-tache="${t.id}">Corriger</button></div>`;
+    return `<article class="tache" data-tache="${t.id}"><header><strong>${esc(t.titre)}</strong><span>${esc(t.agentNom)} · ${esc(t.heure)}</span></header>
+      <p>${esc(t.resume)}</p>${t.consigne ? `<p><em>Corrigé : « ${esc(t.consigne)} »</em></p>` : ''}${points}${accord}${bas}</article>`;
+  }
+
+  async function appeler(nom, args) {
+    const res = await app.callServerTool({ name: nom, arguments: args ?? {} });
+    if (res.structuredContent) etat = res.structuredContent;
+    rendre();
+    return res;
+  }
+
+  racine.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-action]');
+    if (!b) return;
+    const action = b.dataset.action, tache = b.dataset.tache;
+    if (action === 'agrandir' || action === 'reduire') {
+      const r = await app.requestDisplayMode({ mode: action === 'agrandir' ? 'fullscreen' : 'inline' });
+      mode = r.mode; document.body.className = 'mode-' + mode; rendre();
+    }
+    if (action === 'valider') {
+      const coches = [...racine.querySelectorAll(`[data-tache="${tache}"] [data-coche]`)].filter((c) => c.checked).map((c) => c.dataset.coche);
+      b.disabled = true;
+      await appeler('valider_tache', { tache, actions: coches });
+    }
+    if (action === 'ouvrir-correction') { correction = tache; rendre(); document.getElementById('consigne-' + tache)?.focus(); }
+    if (action === 'annuler') { correction = null; rendre(); }
+    if (action === 'corriger') {
+      const consigne = document.getElementById('consigne-' + tache).value.trim();
+      if (!consigne) return;
+      correction = null;
+      await appeler('corriger_tache', { tache, consigne });
+    }
+    if (action === 'lancer') {
+      // Lancer un agent = une demande à Claude, qui exécute la compétence correspondante.
+      const a = etat.agents.find((x) => x.id === b.dataset.agent);
+      await app.sendMessage({ role: 'user', content: [{ type: 'text', text: `Lance l’agent Datako « ${a.nom} » maintenant.` }] });
+    }
+  });
+
+  // Les gestionnaires doivent être posés avant connect().
+  app.ontoolresult = (res) => { if (res.structuredContent) etat = res.structuredContent; rendre(); };
+  app.onhostcontextchanged = (ctx) => { if (ctx.displayMode) { mode = ctx.displayMode; document.body.className = 'mode-' + mode; rendre(); } };
+  await app.connect();
+  const ctx = app.getHostContext();
+  if (ctx?.displayMode) { mode = ctx.displayMode; document.body.className = 'mode-' + mode; }
+</script>
+</body>
+</html>
