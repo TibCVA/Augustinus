@@ -1,0 +1,107 @@
+/* ==========================================================================
+   Datako — Cadre « dans Claude »
+   Représentation simplifiée et neutre d'un assistant de conversation, pour
+   montrer où l'interface Datako apparaît : une carte dans la conversation,
+   puis la vue plein écran. Ce n'est pas une reproduction de l'interface
+   Claude : couleurs et formes sont volontairement génériques.
+   ========================================================================== */
+
+:root {
+  --cl-fond: #F3F1EC;
+  --cl-panneau: #EAE7E0;
+  --cl-trait: #DDD9D0;
+  --cl-ink: #2B2A26;
+  --cl-muted: #5E5B53;
+}
+
+.cadre { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 100vh; background: var(--cl-fond); color: var(--cl-ink); }
+
+/* Panneau latéral */
+.cadre-lateral { display: flex; flex-direction: column; gap: 18px; padding: 18px 14px; background: var(--cl-panneau); border-right: 1px solid var(--cl-trait); }
+.cadre-marque { display: flex; align-items: center; gap: 10px; padding: 4px 8px; font-weight: 600; font-size: 1.02rem; }
+.cadre-marque i { width: 22px; height: 22px; border-radius: 7px; background: var(--cl-ink); opacity: .85; }
+.cadre-nouveau { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--cl-trait); font-size: .88rem; font-weight: 600; color: var(--cl-ink); }
+.cadre-section { font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--cl-muted); padding: 6px 8px 0; }
+.cadre-liste { display: grid; gap: 2px; }
+.cadre-liste li { padding: 8px 10px; border-radius: 9px; font-size: .86rem; color: var(--cl-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cadre-liste li.est-actif { background: rgba(0, 0, 0, .06); font-weight: 600; }
+.cadre-connecteur { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; font-size: .84rem; }
+.cadre-connecteur .logo { width: 68px; height: 20px; }
+.cadre-connecteur span:last-child { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-size: .72rem; font-weight: 600; color: #0B5F59; }
+.cadre-connecteur i { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); }
+.cadre-lateral-pied { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 8px; font-size: .84rem; }
+.cadre-lateral-pied .avatar { background: var(--cl-ink); }
+.cadre-lateral-pied span:last-child { display: grid; line-height: 1.3; }
+.cadre-lateral-pied small { color: var(--cl-muted); }
+
+/* Conversation */
+.cadre-conv { display: flex; flex-direction: column; min-width: 0; }
+.cadre-conv-tete { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 28px; font-size: .9rem; font-weight: 600; border-bottom: 1px solid var(--cl-trait); }
+.cadre-conv-tete span:last-child { font-weight: 400; font-size: .8rem; color: var(--cl-muted); }
+.cadre-fil { flex: 1; display: flex; flex-direction: column; gap: 22px; width: min(820px, 100%); margin: 0 auto; padding: 36px 24px 24px; }
+.cadre-msg { display: flex; gap: 14px; max-width: 100%; }
+.cadre-msg--moi { justify-content: flex-end; }
+.cadre-msg--moi p { max-width: 70%; padding: 12px 16px; border-radius: 18px 18px 4px 18px; background: #fff; border: 1px solid var(--cl-trait); font-size: .96rem; }
+.cadre-msg--ia { align-items: flex-start; }
+.cadre-msg--ia > i { flex: none; width: 28px; height: 28px; margin-top: 4px; border-radius: 9px; background: var(--cl-ink); opacity: .85; }
+.cadre-msg--ia > div { display: grid; gap: 14px; min-width: 0; flex: 1; }
+.cadre-msg--ia p { font-size: .98rem; line-height: 1.6; }
+.cadre-outil { display: inline-flex; align-items: center; gap: 8px; width: max-content; max-width: 100%; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, .05); font-size: .78rem; color: var(--cl-muted); }
+.cadre-outil .ic { width: 14px; height: 14px; }
+.cadre-outil b { font-weight: 600; color: var(--cl-ink); }
+
+/* La carte Datako dans la conversation (vue « inline ») */
+.carte-dk {
+  overflow: hidden; border-radius: 22px; background: var(--papier); color: var(--ink);
+  border: 1px solid var(--trait); box-shadow: var(--ombre-carte); font-family: var(--font);
+}
+.carte-dk-tete { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--trait); }
+.carte-dk-tete .logo { width: 84px; height: 24px; }
+.carte-dk-tete > span:nth-child(2) { font-size: .84rem; color: var(--muted); }
+.carte-dk-agrandir { margin-left: auto; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; color: var(--ink-2); transition: background .15s; }
+.carte-dk-agrandir:hover { background: var(--bg); }
+.carte-dk-corps { display: grid; gap: 18px; padding: 22px 20px 20px; }
+.carte-dk-titre { font-size: 1.45rem; font-weight: 600; letter-spacing: -0.03em; line-height: 1.15; }
+.carte-dk-titre em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--blue-ink); }
+.carte-dk-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.carte-dk-cta span { font-size: .86rem; color: var(--muted); }
+.carte-dk-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.carte-dk-agent { text-decoration: none; color: var(--ink);
+  display: grid; gap: 10px; justify-items: start; padding: 14px; border-radius: 16px; text-align: left;
+  background: var(--bg); border: 1px solid transparent; transition: border-color .15s, transform .15s var(--ease);
+}
+.carte-dk-agent:hover { border-color: var(--trait-fort); transform: translateY(-1px); }
+.carte-dk-agent strong { font-size: .9rem; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; }
+.carte-dk-agent small { font-size: .76rem; color: var(--muted); }
+.carte-dk-pied { display: flex; align-items: center; gap: 8px; padding: 12px 20px; background: var(--bg); font-size: .78rem; color: var(--muted); }
+
+/* Zone de saisie (décor) */
+.cadre-saisie { width: min(820px, 100%); margin: 0 auto; padding: 0 24px 26px; }
+.cadre-saisie div { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-radius: 16px; background: #fff; border: 1px solid var(--cl-trait); color: var(--cl-muted); font-size: .94rem; }
+.cadre-saisie div .ic { margin-left: auto; width: 18px; height: 18px; }
+.cadre-saisie p { margin-top: 10px; text-align: center; font-size: .74rem; color: var(--cl-muted); }
+
+/* ---------- La vue plein écran : bandeau au-dessus de l'interface Datako ---------- */
+
+.pf-cadre {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  background: var(--cl-panneau); border-bottom: 1px solid var(--cl-trait); color: var(--cl-ink); font-size: .82rem;
+}
+.pf-cadre > span { display: inline-flex; align-items: center; gap: 8px; }
+.pf-cadre > span i { width: 18px; height: 18px; border-radius: 6px; background: var(--cl-ink); opacity: .85; }
+.pf-cadre b { font-weight: 600; }
+.pf-cadre-reduire { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--cl-trait); font-size: .8rem; font-weight: 600; color: var(--cl-ink); }
+.pf-cadre-reduire .ic { width: 15px; height: 15px; }
+
+@media (max-width: 1000px) {
+  .cadre { grid-template-columns: 1fr; }
+  .cadre-lateral { display: none; }
+}
+@media (max-width: 640px) {
+  .cadre-conv-tete { padding: 12px 16px; }
+  .cadre-fil { padding: 20px 16px 16px; }
+  .cadre-msg--moi p { max-width: 88%; }
+  .carte-dk-grille { grid-template-columns: 1fr 1fr; }
+  .pf-cadre-texte { display: none; }
+}

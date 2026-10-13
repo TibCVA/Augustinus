@@ -4,23 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Datako</title>
-  <meta name="description" content="Maquette de l’interface client Datako : les travaux préparés par les agents, prêts à valider.">
+  <meta name="description" content="Maquette de l’interface client Datako, affichée dans Claude : les tâches préparées par les agents, prêtes à valider.">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#0A2036">
   <link rel="icon" type="image/png" href="assets/img/picto-datako.png">
   <link rel="stylesheet" href="assets/css/polices.css">
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/plateforme.css">
+  <link rel="stylesheet" href="assets/css/cadre.css">
 </head>
 <body>
 
 <a class="lien-evitement" href="#pf-contenu" data-evitement>Aller au contenu</a>
 
 <!-- =====================================================================
-     INTERFACE CLIENT DATAKO
-     La barre du haut, le contenu et le dock sont dessinés par plateforme.js
+     1. LA CONVERSATION (représentation neutre d'un assistant)
+     La carte Datako y apparaît : c'est ce que renvoie le connecteur.
      ===================================================================== -->
-<div id="vue-plateforme" class="pf">
+<div id="vue-claude" class="cadre" tabindex="-1" hidden></div>
+
+<!-- =====================================================================
+     2. L'INTERFACE DATAKO EN PLEIN ÉCRAN
+     Le bandeau, la barre, le contenu et le dock sont dessinés en JavaScript
+     ===================================================================== -->
+<div id="vue-plateforme" class="pf" hidden>
+  <div class="pf-cadre" id="pf-cadre"></div>
   <header class="pf-barre" id="pf-barre"></header>
   <div class="pf-pause" id="pf-pause" role="status" hidden></div>
   <main class="pf-contenu" id="pf-contenu" tabindex="-1"></main>
@@ -34,6 +42,7 @@
 <script src="assets/js/commun.js"></script>
 <script src="assets/js/cartes.js"></script>
 <script src="assets/js/plateforme.js"></script>
+<script src="assets/js/cadre.js"></script>
 <script src="assets/js/routeur.js"></script>
 </body>
 </html>

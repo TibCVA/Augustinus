@@ -78,7 +78,9 @@ var ICONES = {
   code: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16"/>',
   tampon: '<path d="M9 3h6l-1 7h3a2 2 0 0 1 2 2v2H5v-2a2 2 0 0 1 2-2h3z"/><path d="M5 17h14M7 21h10"/>',
   plusTard: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5h4"/>',
-  publier: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/>'
+  publier: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+  agrandir: '<path d="M14 4h6v6M20 4l-7 7"/><path d="M10 20H4v-6M4 20l7-7"/>',
+  reduire: '<path d="M20 10h-6V4M14 10l7-7"/><path d="M4 14h6v6M10 14l-7 7"/>'
 };
 
 function icone(nom, classe) {

@@ -1043,5 +1043,9 @@ var Plateforme = (function () {
 
   /* ---------- Interface publique ---------- */
 
-  return { afficher: afficher };
+  return {
+    afficher: afficher,
+    masquer: function () { Etat.actif = false; fermerFiche(true); basculerMenu(false); },
+    persona: persona
+  };
 })();
