@@ -44,7 +44,6 @@ var Plateforme = (function () {
     pause: false,
     agentsPause: {},
     interesse: {},
-    publies: [],
     acces: D.bilan.acces.slice(),
     lancements: {},
     lancerAuto: null,
@@ -57,7 +56,7 @@ var Plateforme = (function () {
      ====================================================================== */
 
   function persona() { return D.personas[Etat.persona]; }
-  function tousLesAgents() { return D.agents.concat(Etat.publies); }
+  function tousLesAgents() { return D.agents; }
   function agentParId(id) { return tousLesAgents().filter(function (a) { return a.id === id; })[0] || null; }
   function voitAgent(a, p) { p = p || persona(); return p.direction || a.roles.indexOf(p.role) >= 0; }
   function agentsVisibles() { return tousLesAgents().filter(function (a) { return voitAgent(a); }); }
@@ -152,31 +151,27 @@ var Plateforme = (function () {
         '<span class="avatar avatar--petit" aria-hidden="true">' + q.initiales + '</span>' +
         '<span class="pf-menu-item-texte">' + esc(q.prenom + ' ' + q.nom) + '<small>' + esc(q.fonction) + '</small></span></button>';
     };
-    return '<a class="pf-marque" href="#/app/aujourdhui" aria-label="Datako, Aujourd’hui">' +
+    return '<a class="pf-marque" href="#aujourdhui" aria-label="Datako, Aujourd’hui">' +
         '<span class="logo logo--petit" role="img" aria-label="Datako"></span>' +
         '<span class="pf-entreprise"><span class="pf-monogramme" aria-hidden="true">' + D.entreprise.initiales + '</span><span class="pf-entreprise-nom">' + esc(D.entreprise.nom) + '</span></span>' +
       '</a>' +
       '<div class="pf-barre-droite">' +
-        '<span class="puce pf-demo">Démonstration</span>' +
         '<div class="pf-persona">' +
           '<button type="button" class="pf-persona-btn" id="pf-persona-btn" data-action="menu-persona" aria-haspopup="true" aria-expanded="false" aria-controls="pf-menu">' +
             '<span class="avatar avatar--petit" aria-hidden="true">' + p.initiales + '</span><span class="pf-persona-nom">' + esc(p.prenom + ' ' + p.nom) + '</span>' +
             '<span class="sr-only">, changer de point de vue</span>' + icone('chevronBas') + '</button>' +
           '<div class="pf-menu" id="pf-menu" role="menu" aria-label="Changer de point de vue" hidden>' +
             '<p class="pf-menu-titre">Voir la démo en tant que</p>' + item(D.personas.chantal) + item(D.personas.marc) +
-            '<div class="pf-menu-sep" role="separator"></div><p class="pf-menu-titre">Côté Datako</p>' +
-            '<a class="pf-menu-item" role="menuitem" href="#/app/studio"><span class="pastille pastille--petite pastille--studio" aria-hidden="true">' + icone('atelier') + '</span>' +
-            '<span class="pf-menu-item-texte">Studio Datako<small>Transformer une skill en agent</small></span></a>' +
+            '<p class="pf-menu-note">Démonstration : entreprise, personnes et données fictives.</p>' +
           '</div>' +
         '</div>' +
-        '<a href="#/" class="btn btn--fantome btn--petit pf-quitter">' + icone('sortir') + '<span class="pf-quitter-texte">Quitter la démo</span></a>' +
       '</div>';
   }
 
   function dockHtml(vue) {
     var p = persona(), n = Etat.ordre[p.id].length;
     function lien(id, ic, libelle, extra) {
-      return '<a class="dock-lien" href="#/app/' + id + '"' + (vue === id ? ' aria-current="page"' : '') + '>' + icone(ic) + '<span>' + libelle + '</span>' + (extra || '') + '</a>';
+      return '<a class="dock-lien" href="#' + id + '"' + (vue === id ? ' aria-current="page"' : '') + '>' + icone(ic) + '<span>' + libelle + '</span>' + (extra || '') + '</a>';
     }
     return lien('aujourdhui', 'soleil', 'Aujourd’hui', n ? '<span class="dock-compte">' + n + '<span class="sr-only"> à valider</span></span>' : '') +
       lien('equipe', 'equipe', 'Équipe') +
@@ -186,12 +181,9 @@ var Plateforme = (function () {
   }
 
   function rendreChrome(vue) {
-    var studio = vue === 'studio';
-    racine.classList.toggle('pf--studio', studio);
-    barre.innerHTML = studio ? Studio.barre() : barreClient();
-    dock.hidden = studio;
-    dock.innerHTML = studio ? '' : dockHtml(vue);
-    bandeau.hidden = !(Etat.pause && !studio);
+    barre.innerHTML = barreClient();
+    dock.innerHTML = dockHtml(vue);
+    bandeau.hidden = !Etat.pause;
     bandeau.innerHTML = bandeau.hidden ? '' : icone('pause') + '<span><strong>L’équipe Datako est en pause.</strong> Aucun travail n’est préparé ni envoyé.</span>' +
       '<button type="button" class="btn btn--sombre btn--petit" data-action="pause">Reprendre</button>';
     [barre, dock, bandeau].forEach(function (el) { Typo.appliquer(el); });
@@ -254,7 +246,7 @@ var Plateforme = (function () {
       ? '<div class="ct-correction-cadre"><div class="ct-correction">' +
           '<label for="ct-consigne">Que faut-il changer ?</label>' +
           '<textarea id="ct-consigne" class="saisie" placeholder="Dites-le comme à un collègue."></textarea>' +
-          '<p class="contact-erreur" role="alert" hidden></p>' +
+          '<p class="message-erreur" role="alert" hidden></p>' +
           (!et.corrige && t.correction ? '<div class="ct-suggestions"><span class="sr-only">Suggestion :</span><button type="button" class="ct-suggestion" data-action="suggestion">' + esc(t.correction.consigne) + '</button></div>' : '') +
           '<div class="ct-correction-boutons">' +
             '<button type="button" class="btn btn--sombre" data-action="renvoyer">' + icone('regenerer') + 'Renvoyer à l’agent</button>' +
@@ -367,7 +359,7 @@ var Plateforme = (function () {
           var notes = [];
           a.rythme.passages.forEach(function (ps) {
             if (ps.jours.indexOf(d) < 0) return;
-            var fait = d === jour && ps.heure < maint && !a.nouveau;
+            var fait = d === jour && ps.heure < maint;
             notes.push('<span class="pt-note' + (fait ? ' est-fait' : '') + '">' + (fait ? icone('check') : '') + heureCourte(ps.heure) + '</span>');
           });
           return '<td class="' + (d === jour ? 'est-aujourdhui' : '') + '">' + (notes.length ? '<span class="pt-notes">' + notes.join('') + '</span>' : '<span class="sr-only">Aucun passage</span>') + '</td>';
@@ -379,14 +371,14 @@ var Plateforme = (function () {
         ? '<td><button type="button" class="interrupteur" role="switch" aria-checked="' + (!Etat.agentsPause[a.id]) + '" data-action="basculer-agent" data-agent="' + a.id + '" aria-label="' + esc(a.nom) + ' actif">' +
             '<span class="interrupteur-piste" aria-hidden="true"></span><span class="interrupteur-texte" aria-hidden="true">' + (Etat.agentsPause[a.id] ? 'En pause' : 'Actif') + '</span></button></td>'
         : '';
-      return '<tr class="' + (a.nouveau ? 'est-nouveau ' : '') + (pause ? 'est-pause' : '') + '">' +
+      return '<tr' + (pause ? ' class="est-pause"' : '') + '>' +
         '<th scope="row"><button type="button" class="pt-agent" data-action="ouvrir-agent" data-agent="' + a.id + '">' + Cartes.pastille(a) +
-          '<span class="pt-agent-texte"><span class="pt-agent-nom"><span>' + esc(a.nom) + '</span>' + (a.nouveau ? '<span class="puce puce--nouveau">Nouveau</span>' : '') + '</span>' +
+          '<span class="pt-agent-texte"><span class="pt-agent-nom"><span>' + esc(a.nom) + '</span></span>' +
           '<span class="pt-agent-rythme">' + esc(a.rythme.libelle) + '</span></span></button></th>' +
         cellules + statut + '</tr>';
     }).join('');
 
-    var idees = D.bientot.filter(function (b) { return !Etat.publies.some(function (a) { return a.id === b.id; }); });
+    var idees = D.bientot;
 
     return '<header class="eq-tete">' +
         '<p class="auj-date">Votre équipe Datako</p>' +
@@ -572,7 +564,7 @@ var Plateforme = (function () {
           '</div>';
         }).join('') + '</div>';
     } else {
-      resultat = '<p class="fe-vide">' + (a.nouveau ? 'Premier passage : ' + a.rythme.libelle.toLowerCase().replace(/^chaque /, 'ce ') + '. Le résultat arrivera dans « Aujourd’hui ».' : 'Lancez l’agent : son résultat s’affichera ici.') + '</p>';
+      resultat = '<p class="fe-vide">Lancez l’agent : son résultat s’affichera ici.</p>';
     }
 
     return '<div class="feuille-poignee"><button type="button" class="feuille-fermer" data-action="fermer-fiche" aria-label="Fermer la fiche">' + icone('croix') + '</button></div>' +
@@ -582,7 +574,6 @@ var Plateforme = (function () {
           '<p class="fe-mission">' + esc(a.mission) + '</p>' +
           '<div class="fe-meta"><span class="puce puce--teal">' + icone('horloge') + esc(a.rythme.libelle) + '</span>' +
             a.logiciels.map(function (l) { return '<span class="logiciel">' + esc(l) + '</span>'; }).join('') +
-            (a.nouveau ? '<span class="puce puce--nouveau">Nouveau</span>' : '') +
             (pause ? '<span class="puce puce--sable">' + icone('pause') + 'En pause</span>' : '') + '</div></div>' +
         '</header>' +
         '<ol class="fe-temps">' +
@@ -594,7 +585,7 @@ var Plateforme = (function () {
           '<div><h3>' + icone('oeil') + 'Ce qu’il peut lire</h3><p>' + esc(majuscule(a.peutLire)) + '.</p></div>' +
           '<div><h3>' + icone('validation') + 'Ce qui attend votre accord</h3><p>' + (a.attendAccord.length ? esc(majuscule(a.attendAccord.join(', '))) + '.' : 'Rien : cet agent lit et répond, il n’agit jamais seul.') + '</p></div>' +
         '</div>' +
-        '<p class="fe-pied">' + icone('code', 'ic--16') + 'Compétence Datako <code>' + esc(a.skill) + '</code> · ' + esc(a.version) + ' · mise à jour ' + (/^\d|^1er/.test(a.majLe) ? 'le ' : '') + esc(a.majLe) + '</p>' +
+        '<p class="fe-pied"><span class="avatar avatar--petit" aria-hidden="true">' + D.conseillere.initiales + '</span>Réglé par ' + D.conseillere.prenom + ', votre conseillère Datako · mis à jour ' + (/^\d|^1er/.test(a.majLe) ? 'le ' : '') + esc(a.majLe) + '</p>' +
       '</div>';
   }
 
@@ -612,7 +603,7 @@ var Plateforme = (function () {
 
   function ouvrirFiche(id) {
     var a = agentParId(id);
-    if (!a || !voitAgent(a)) { location.replace('#/app/' + Etat.fond); return; }
+    if (!a || !voitAgent(a)) { location.replace('#' + Etat.fond); return; }
     fermerFiche(true);
     var fond = document.createElement('div');
     fond.className = 'feuille-fond';
@@ -666,7 +657,7 @@ var Plateforme = (function () {
     Etat.feuille = null;
     if (!silencieux) {
       Etat.focusApres = '[data-agent="' + id + '"]';
-      location.hash = '#/app/' + Etat.fond;
+      location.hash = '#' + Etat.fond;
     }
   }
 
@@ -764,7 +755,7 @@ var Plateforme = (function () {
       if (o.question) Etat.question = o.question;
       if (o.lancer || o.question) Etat.lancerAuto = o.agent.id;
       else if (o.agent.entree.type !== 'planifie') Etat.lancerAuto = o.agent.id;
-      location.hash = '#/app/agent/' + o.agent.id;
+      location.hash = '#agent-' + o.agent.id;
     }
 
     champ.addEventListener('input', maj);
@@ -811,7 +802,7 @@ var Plateforme = (function () {
         '<div class="champ"><label class="champ-libelle" for="inv-role">Rôle</label><select class="saisie" id="inv-role">' +
           Object.keys(D.roles).map(function (r) { return '<option value="' + r + '"' + (r === 'commercial' ? ' selected' : '') + '>' + esc(D.roles[r]) + '</option>'; }).join('') + '</select>' +
           '<p class="champ-aide">Le rôle décide des agents que la personne verra.</p></div>' +
-        '<p class="contact-erreur" role="alert" hidden></p>' +
+        '<p class="message-erreur" role="alert" hidden></p>' +
         '<div class="modale-actions"><button type="button" class="btn btn--fantome" data-fermer-modale>Annuler</button><button type="submit" class="btn btn--sombre">Envoyer l’invitation</button></div>' +
       '</form>');
   }
@@ -826,19 +817,17 @@ var Plateforme = (function () {
      Rendu et navigation
      ====================================================================== */
 
-  var TITRES = { aujourdhui: 'Aujourd’hui', equipe: 'Équipe', bilan: 'Bilan', studio: 'Studio' };
+  var TITRES = { aujourdhui: 'Aujourd’hui', equipe: 'Équipe', bilan: 'Bilan' };
 
   function rendre(vue, animer) {
     contenu.classList.remove('entree');
-    if (vue === 'studio') contenu.innerHTML = Studio.vue();
-    else contenu.innerHTML = vue === 'equipe' ? vueEquipe() : vue === 'bilan' ? vueBilan() : vueAujourdhui();
+    contenu.innerHTML = vue === 'equipe' ? vueEquipe() : vue === 'bilan' ? vueBilan() : vueAujourdhui();
     if (animer) { void contenu.offsetWidth; contenu.classList.add('entree'); }
     Typo.appliquer(contenu);
     Etat.vueRendue = vue;
     Etat.animCarte = null;
     rendreChrome(vue);
     document.title = TITRES[vue] + ' — Datako';
-    if (vue === 'studio') Studio.apresRendu(contenu);
     if (Etat.focusApres) {
       var cible = contenu.querySelector(Etat.focusApres);
       Etat.focusApres = null;
@@ -846,19 +835,19 @@ var Plateforme = (function () {
     }
   }
 
+  // chemin : « aujourdhui », « equipe », « bilan » ou « agent-factures » (fiche d'agent)
   function afficher(chemin) {
     Etat.actif = true;
-    var morceaux = (chemin || '').split('/');
-    var vue = morceaux[0] || 'aujourdhui';
-    if (vue === 'agent') {
-      if (!Etat.vueRendue || Etat.vueRendue === 'studio') rendre(Etat.vueRendue === 'studio' ? 'aujourdhui' : Etat.fond, true);
-      ouvrirFiche(morceaux[1]);
+    var vue = chemin || 'aujourdhui';
+    if (vue.indexOf('agent-') === 0) {
+      if (!Etat.vueRendue) rendre(Etat.fond, true);
+      ouvrirFiche(vue.slice(6));
       return;
     }
-    if (!TITRES[vue]) { location.replace('#/app/aujourdhui'); return; }
+    if (!TITRES[vue]) { location.replace('#aujourdhui'); return; }
     var changement = vue !== Etat.vueRendue;
     fermerFiche(true);
-    if (vue !== 'studio') Etat.fond = vue;
+    Etat.fond = vue;
     rendre(vue, changement);
     if (changement) {
       window.scrollTo(0, 0);
@@ -873,7 +862,7 @@ var Plateforme = (function () {
     Etat.animCarte = 'arrive';
     var p = persona();
     notifier('Vous voyez maintenant la démo en tant que ' + p.prenom + ' ' + p.nom + ', ' + p.fonction.toLowerCase() + '.', 'utilisateurs');
-    if (Etat.vueRendue === 'studio' || Etat.vueRendue === 'bilan' && !p.direction) location.hash = '#/app/aujourdhui';
+    if (Etat.vueRendue === 'bilan' && !p.direction) location.hash = '#aujourdhui';
     else rendre(Etat.vueRendue, true);
   }
 
@@ -979,7 +968,7 @@ var Plateforme = (function () {
         break;
       case 'renvoyer':
         var consigne = document.getElementById('ct-consigne').value.trim();
-        var erreur = carte.querySelector('.contact-erreur');
+        var erreur = carte.querySelector('.message-erreur');
         if (!consigne) { erreur.textContent = 'Écrivez ce qu’il faut changer, ou choisissez la suggestion.'; erreur.hidden = false; document.getElementById('ct-consigne').focus(); break; }
         var voile = document.createElement('div');
         voile.className = 'ct-travaille';
@@ -999,7 +988,7 @@ var Plateforme = (function () {
       case 'detail':
       case 'ouvrir-agent':
         var agent = el.getAttribute('data-agent') || travailBrut(idTravail).agent;
-        location.hash = '#/app/agent/' + agent;
+        location.hash = '#agent-' + agent;
         break;
 
       /* Fiche d'agent */
@@ -1048,7 +1037,7 @@ var Plateforme = (function () {
       lancer(a, valeurs);
     }
     if (type === 'inviter') {
-      var email = form.querySelector('#inv-email'), role = form.querySelector('#inv-role').value, err = form.querySelector('.contact-erreur');
+      var email = form.querySelector('#inv-email'), role = form.querySelector('#inv-role').value, err = form.querySelector('.message-erreur');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
         err.textContent = 'Merci d’indiquer une adresse e-mail valide.'; err.hidden = false;
         email.classList.add('est-invalide'); email.setAttribute('aria-invalid', 'true'); email.focus(); return;
@@ -1064,7 +1053,7 @@ var Plateforme = (function () {
   });
 
   document.addEventListener('keydown', function (e) {
-    if (!Etat.actif || Etat.vueRendue === 'studio' || Modale.estOuverte() || Etat.feuille) return;
+    if (!Etat.actif || Modale.estOuverte() || Etat.feuille) return;
     if (e.key === 'Escape') { basculerMenu(false); return; }
     if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
     if (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) { e.preventDefault(); ouvrirPalette(); }
@@ -1072,15 +1061,5 @@ var Plateforme = (function () {
 
   /* ---------- Interface publique ---------- */
 
-  return {
-    afficher: afficher,
-    masquer: function () { Etat.actif = false; fermerFiche(true); basculerMenu(false); },
-    // Utilisé par le Studio : publier un agent chez le client de démonstration
-    publier: function (agent) {
-      Etat.publies = Etat.publies.filter(function (a) { return a.id !== agent.id; }).concat([agent]);
-    },
-    estPublie: function (id) { return Etat.publies.some(function (a) { return a.id === id; }); },
-    voirEnTantQue: function (id) { Etat.persona = id; },
-    focusApres: function (sel) { Etat.focusApres = sel; }
-  };
+  return { afficher: afficher };
 })();

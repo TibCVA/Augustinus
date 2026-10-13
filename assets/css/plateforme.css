@@ -29,7 +29,6 @@
   background: var(--navy); color: #fff; font-size: .62rem; font-weight: 700; letter-spacing: .02em;
 }
 .pf-barre-droite { display: flex; align-items: center; gap: 10px; }
-.pf-demo { background: var(--sable-pale); color: var(--sable-ink); }
 
 .pf-persona { position: relative; }
 .pf-persona-btn {
@@ -55,9 +54,9 @@
 .pf-menu-item small { font-size: .8rem; font-weight: 400; color: var(--muted); }
 .pf-menu-item[aria-current="true"]::after { content: ""; margin-left: auto; width: 10px; height: 10px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px var(--teal-pale); }
 .pf-menu-sep { height: 1px; margin: 6px 12px; background: var(--trait); }
-.pf-menu-item .pastille--studio { background: var(--navy); color: var(--teal); }
+.pf-menu-note { margin: 6px 12px 4px; padding-top: 10px; border-top: 1px solid var(--trait); font-size: .78rem; color: var(--muted); }
 
-.pf-quitter { color: var(--muted); }
+.message-erreur { font-size: .86rem; font-weight: 600; color: #B3302A; }
 
 /* Bandeau de pause */
 .pf-pause {
@@ -272,7 +271,6 @@
 .partition td:last-child, .partition th:last-child { padding-right: 26px; }
 .partition tbody tr { transition: background .15s; }
 .partition tbody tr:hover { background: #FAFBFD; }
-.partition tbody tr.est-nouveau { background: linear-gradient(90deg, rgba(45, 212, 191, .1), transparent 60%); }
 .partition .est-pause .pt-agent-texte, .partition .est-pause .pt-notes { opacity: .45; }
 
 .pt-agent { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; padding: 12px 0; }
@@ -465,7 +463,7 @@
 .fe-limites h3 .ic { width: 16px; height: 16px; color: var(--teal-ink); }
 .fe-limites p { font-size: .92rem; color: var(--ink-2); }
 .fe-pied { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 22px; font-size: .8rem; color: var(--muted); }
-.fe-pied code { font-family: var(--mono); font-size: .78rem; padding: 2px 7px; border-radius: 6px; background: var(--bg); color: var(--ink-2); }
+.fe-pied .avatar { width: 24px; height: 24px; font-size: .6rem; }
 .fe-vide { padding: 18px 20px; border-radius: var(--r-lg); border: 1.5px dashed var(--trait-fort); color: var(--muted); }
 
 /* ==========================================================================
@@ -525,7 +523,7 @@
 
 @media (max-width: 640px) {
   .pf-barre { padding: 12px 16px; }
-  .pf-entreprise-nom, .pf-demo, .pf-quitter-texte, .pf-persona-nom { display: none; }
+  .pf-entreprise-nom, .pf-persona-nom { display: none; }
   .pf-persona-btn { padding-right: 8px; }
   .pf-contenu { padding: 8px 16px 130px; }
   .auj-titre { font-size: 2.5rem; }
@@ -563,7 +561,6 @@
 /* Partition : la colonne des agents reste visible quand on fait défiler les jours */
 .partition tbody th, .partition thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--papier); }
 .partition tbody tr:hover th { background: #FAFBFD; }
-.partition tbody tr.est-nouveau th { background: #EEFBF8; }
 @media (max-width: 640px) {
   .partition { min-width: 660px; }
   .partition thead th:first-child, .partition tbody th { padding-left: 16px; }

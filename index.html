@@ -2,166 +2,29 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Datako</title>
-  <meta name="description" content="Maquette de démonstration : des agents d’IA qui préparent le travail répétitif des PME, prêt à valider.">
+  <meta name="description" content="Maquette de l’interface client Datako : les travaux préparés par les agents, prêts à valider.">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#0A2036">
   <link rel="icon" type="image/png" href="assets/img/picto-datako.png">
   <link rel="stylesheet" href="assets/css/polices.css">
   <link rel="stylesheet" href="assets/css/base.css">
-  <link rel="stylesheet" href="assets/css/vitrine.css">
   <link rel="stylesheet" href="assets/css/plateforme.css">
-  <link rel="stylesheet" href="assets/css/studio.css">
 </head>
 <body>
 
-<a class="lien-evitement" href="#contenu" data-evitement>Aller au contenu</a>
+<a class="lien-evitement" href="#pf-contenu" data-evitement>Aller au contenu</a>
 
 <!-- =====================================================================
-     VITRINE
+     INTERFACE CLIENT DATAKO
+     La barre du haut, le contenu et le dock sont dessinés par plateforme.js
      ===================================================================== -->
-<div id="vue-vitrine">
-
-  <header class="vt-entete" id="vt-entete">
-    <a href="#/" class="vt-logo" aria-label="Datako, haut de page"><span class="logo" role="img" aria-label="Datako"></span></a>
-    <nav class="vt-entete-actions" aria-label="Actions">
-      <a href="#journee" class="vt-entete-lien">Une journée</a>
-      <a href="#/app/aujourdhui" class="vt-entete-lien">La démo</a>
-      <button type="button" class="btn btn--sombre btn--petit" data-contact>Nous écrire</button>
-    </nav>
-  </header>
-
-  <main id="contenu" tabindex="-1">
-
-    <!-- 1. Promesse + pile de travaux à valider (interactive) -->
-    <section class="vt-hero" aria-labelledby="vt-titre">
-      <div class="vt-hero-texte">
-        <p class="surtitre surtitre--point">Agents IA pour les PME</p>
-        <h1 class="titre vt-titre" id="vt-titre">L’IA travaille. <em>Vous validez.</em></h1>
-        <p class="chapo vt-chapo">Chaque nuit, Datako prépare le travail répétitif de votre équipe&nbsp;: factures, e-mails clients, relances, devis. Directement dans vos logiciels. Le matin, il ne reste qu’à valider.</p>
-        <div class="vt-hero-actions">
-          <a href="#/app/aujourdhui" class="btn btn--valider btn--grand">Essayer la démo <i data-icone="fleche"></i></a>
-          <button type="button" class="btn btn--contour btn--grand" data-contact>Parler à un fondateur</button>
-        </div>
-        <p class="vt-hero-indice"><span aria-hidden="true">↘</span> Ou validez vous-même les trois travaux de la pile.</p>
-      </div>
-
-      <div class="vt-hero-pile" aria-label="Exemple : les travaux préparés ce matin" role="region">
-        <div class="vt-pile-entete">
-          <span class="vt-pile-lieu"><span class="vt-pile-point" aria-hidden="true"></span>Ce matin chez Bastide Équipements</span>
-          <span class="vt-pile-compteur" aria-live="polite">Temps rendu&nbsp;: <strong id="vt-temps">0 min</strong></span>
-        </div>
-        <div class="vt-pile" id="vt-pile"></div>
-      </div>
-    </section>
-
-    <!-- 2. Une journée avec Datako -->
-    <section class="vt-journee" id="journee" aria-labelledby="vt-journee-titre">
-      <div class="vt-section-tete">
-        <p class="surtitre surtitre--point">Une journée avec Datako</p>
-        <h2 class="titre vt-h2" id="vt-journee-titre">Pendant que vous dormez, <em>le travail avance.</em></h2>
-      </div>
-      <div class="vt-journee-corps">
-        <div class="vt-ciel" id="vt-ciel" data-ciel="aube" aria-hidden="true">
-          <div class="vt-ciel-astre"></div>
-          <div class="vt-ciel-texte">
-            <p class="vt-ciel-heure" id="vt-ciel-heure">7 h 00</p>
-            <p class="vt-ciel-qui" id="vt-ciel-qui">Datako travaille</p>
-          </div>
-          <svg class="vt-ciel-relief" viewBox="0 0 400 80" preserveAspectRatio="none"><path d="M0 52 C 60 30, 110 34, 160 46 S 260 70, 320 48 S 380 34, 400 40 V80 H0 Z"/><path class="vt-ciel-relief-2" d="M0 66 C 70 50, 140 58, 210 64 S 330 54, 400 60 V80 H0 Z"/></svg>
-        </div>
-        <ol class="vt-etapes" id="vt-etapes"></ol>
-      </div>
-    </section>
-
-    <!-- 3. Le calcul en une phrase -->
-    <section class="vt-calcul" id="calcul" aria-labelledby="vt-calcul-titre">
-      <p class="surtitre surtitre--point" id="vt-calcul-titre">Le calcul en une phrase</p>
-      <p class="vt-phrase">
-        Chez nous,
-        <select class="vt-mot" id="vt-personnes" aria-label="Nombre de personnes"></select>
-        <span id="vt-personnes-libelle">personnes passent</span> chacune environ
-        <select class="vt-mot" id="vt-heures" aria-label="Heures par semaine et par personne"></select>
-        par semaine sur
-        <select class="vt-mot" id="vt-tache" aria-label="Type de tâche"></select>.</p>
-      <p class="vt-phrase vt-phrase--resultat" aria-live="polite">
-        Datako peut leur rendre <em class="accent" id="vt-gain">9 heures</em> par semaine, soit <em class="accent" id="vt-jours">plus d’une journée de travail</em>.</p>
-      <p class="vt-calcul-note">Hypothèse prudente&nbsp;: Datako prépare les trois quarts du travail. Le dernier quart reste à vous, c’est la relecture.</p>
-    </section>
-
-    <!-- 4. Promesses -->
-    <section class="vt-promesses" aria-labelledby="vt-promesses-titre">
-      <h2 class="sr-only" id="vt-promesses-titre">Nos engagements</h2>
-      <ul class="vt-promesses-liste">
-        <li>
-          <p class="vt-promesse">Rien à <em>installer.</em></p>
-          <p class="vt-promesse-texte">Chacun se connecte avec son adresse e-mail. Datako se branche à vos logiciels, Outlook, Pennylane, Sellsy, SharePoint, et s’occupe des réglages.</p>
-        </li>
-        <li>
-          <p class="vt-promesse">Rien à <em>apprendre.</em></p>
-          <p class="vt-promesse-texte">Ni page blanche, ni consigne à écrire. Le travail arrive prêt, au bon endroit, au bon moment. Vous relisez, vous corrigez si besoin, vous validez.</p>
-        </li>
-        <li>
-          <p class="vt-promesse">Rien ne part <em>sans vous.</em></p>
-          <p class="vt-promesse-texte">Chaque e-mail, chaque écriture comptable attend votre accord. Chacun ne voit que les agents de son métier.</p>
-        </li>
-        <li>
-          <p class="vt-promesse">Une dépense <em>maîtrisée.</em></p>
-          <p class="vt-promesse-texte">Un abonnement clair, une enveloppe d’usage plafonnée, un bouton pause. Et chaque mois, le temps rendu à votre équipe, mesuré.</p>
-        </li>
-      </ul>
-    </section>
-
-    <!-- 5. Démarrage -->
-    <section class="vt-demarrer" id="demarrer" aria-labelledby="vt-demarrer-titre">
-      <div class="vt-section-tete">
-        <p class="surtitre surtitre--point">Comment on démarre</p>
-        <h2 class="titre vt-h2" id="vt-demarrer-titre">Trois semaines, <em>pas un projet informatique.</em></h2>
-      </div>
-      <ol class="vt-ligne">
-        <li>
-          <span class="vt-ligne-quand">Semaine 1</span>
-          <h3>Une demi-journée avec vous</h3>
-          <p>On observe vos journées et on repère les tâches qui reviennent. Celles qui coûtent le plus de temps passent en premier.</p>
-        </li>
-        <li>
-          <span class="vt-ligne-quand">Semaines 2 et 3</span>
-          <h3>Votre équipe s’installe</h3>
-          <p>Vos premiers agents, branchés sur vos logiciels et réglés sur vos habitudes. Datako crée les accès de chacun.</p>
-        </li>
-        <li>
-          <span class="vt-ligne-quand">Chaque mois</span>
-          <h3>On mesure, on ajoute</h3>
-          <p>Votre conseillère suit le temps rendu, ajuste les agents et vous en propose de nouveaux quand un besoin revient.</p>
-        </li>
-      </ol>
-    </section>
-
-    <!-- 6. Appel final -->
-    <section class="vt-final sombre" aria-labelledby="vt-final-titre">
-      <h2 class="titre vt-final-titre" id="vt-final-titre">Et si demain matin, <em>le travail était déjà fait&nbsp;?</em></h2>
-      <div class="vt-final-actions">
-        <a href="#/app/aujourdhui" class="btn btn--valider btn--grand">Essayer la démo <i data-icone="fleche"></i></a>
-        <button type="button" class="btn btn--verre btn--grand" data-contact>Parler à un fondateur</button>
-      </div>
-      <footer class="vt-pied">
-        <span class="logo logo--clair logo--petit" role="img" aria-label="Datako"></span>
-        <p>Maquette de démonstration&nbsp;: entreprises, personnes et données fictives.</p>
-        <a href="#/app/studio" class="vt-pied-lien">Côté Datako&nbsp;: le Studio <i data-icone="fleche" class="ic--16"></i></a>
-      </footer>
-    </section>
-  </main>
-</div>
-
-<!-- =====================================================================
-     PLATEFORME CLIENT (et Studio Datako)
-     ===================================================================== -->
-<div id="vue-plateforme" class="pf" hidden>
+<div id="vue-plateforme" class="pf">
   <header class="pf-barre" id="pf-barre"></header>
   <div class="pf-pause" id="pf-pause" role="status" hidden></div>
   <main class="pf-contenu" id="pf-contenu" tabindex="-1"></main>
-  <nav class="dock" id="dock" aria-label="Navigation de la plateforme"></nav>
+  <nav class="dock" id="dock" aria-label="Navigation principale"></nav>
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -170,9 +33,7 @@
 <script src="assets/js/icones.js"></script>
 <script src="assets/js/commun.js"></script>
 <script src="assets/js/cartes.js"></script>
-<script src="assets/js/vitrine.js"></script>
 <script src="assets/js/plateforme.js"></script>
-<script src="assets/js/studio.js"></script>
 <script src="assets/js/routeur.js"></script>
 </body>
 </html>

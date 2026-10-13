@@ -2,7 +2,7 @@
    Datako — Données de démonstration
    --------------------------------------------------------------------------
    C'est LE fichier à modifier pour adapter la maquette : entreprise fictive,
-   personnes, agents, travaux du matin, bilan, Studio, textes de la vitrine.
+   personnes, agents, travaux du matin, bilan.
    Toutes ces données sont FICTIVES.
 
    Rappel du principe : chaque « agent » Datako est une skill créée dans
@@ -433,80 +433,6 @@ var DONNEES = {
       { nom: 'Pennylane', depuis: 'juillet' },
       { nom: 'Sellsy', depuis: 'août' },
       { nom: 'SharePoint', depuis: 'septembre' }
-    ]
-  },
-
-  /* ---------- Studio Datako (côté équipe Datako) ---------- */
-  studio: {
-    exemple: {
-      fichier: 'notes-de-frais.zip',
-      taille: '184 Ko',
-      arborescence: [
-        { nom: 'notes-de-frais/', niveau: 0, dossier: true },
-        { nom: 'SKILL.md', niveau: 1 },
-        { nom: 'politique-depenses.md', niveau: 1 },
-        { nom: 'modele-rapport.xlsx', niveau: 1 },
-        { nom: 'scripts/', niveau: 1, dossier: true },
-        { nom: 'verifier_justificatifs.py', niveau: 2 }
-      ],
-      nom: 'notes-de-frais',
-      description: 'Contrôle les notes de frais déposées par les collaborateurs, vérifie chaque justificatif au regard de la politique de dépenses et prépare l’export comptable.'
-    },
-    fiche: {
-      nom: 'Notes de frais',
-      icone: 'recu',
-      roles: ['finance', 'direction'],
-      logiciels: ['Outlook', 'Pennylane'],
-      declencheur: 'vendredi',
-      validation: ['ecrire', 'email']
-    },
-    icones: ['recu', 'facture', 'horloge', 'mail', 'devis', 'calendrier', 'documents', 'synthese'],
-    logiciels: ['Outlook', 'Pennylane', 'Sellsy', 'SharePoint', 'Teams'],
-    declencheurs: [
-      { id: 'demande', libelle: 'À la demande', rythme: 'À la demande' },
-      { id: 'matin', libelle: 'Chaque matin à 7 h', rythme: 'Chaque matin à 7 h', passages: [{ jours: [1, 2, 3, 4, 5], heure: 7 }] },
-      { id: 'vendredi', libelle: 'Chaque vendredi à 16 h', rythme: 'Chaque vendredi à 16 h', passages: [{ jours: [5], heure: 16 }] },
-      { id: 'email', libelle: 'À l’arrivée d’un e-mail', rythme: 'À l’arrivée d’un e-mail' }
-    ],
-    validations: [
-      { id: 'ecrire', libelle: 'Écrire dans la comptabilité' },
-      { id: 'email', libelle: 'Envoyer un e-mail' },
-      { id: 'agenda', libelle: 'Modifier un agenda' },
-      { id: 'supprimer', libelle: 'Supprimer un élément' }
-    ],
-    apercu: {
-      titre: '9 notes de frais contrôlées,',
-      accent: 'un justificatif manquant.',
-      resume: '8 notes respectent la politique de dépenses. Il manque le ticket d’un repas du 7 octobre.'
-    },
-    clients: [
-      { id: 'bastide', nom: 'Bastide Équipements', ville: 'Lyon', coche: true },
-      { id: 'lavigne', nom: 'Transports Lavigne', ville: 'Valence', coche: false },
-      { id: 'orsay', nom: 'Cabinet Orsay Conseil', ville: 'Paris', coche: false }
-    ]
-  },
-
-  /* ---------- Vitrine ---------- */
-  vitrine: {
-    journee: [
-      { heure: '7 h 00', ciel: 'aube', agent: 'Contrôle des factures', titre: 'Datako ouvre *la boîte factures.*',
-        texte: '12 factures arrivées depuis vendredi. Chacune est lue, comparée au bon de commande et au tarif négocié.' },
-      { heure: '7 h 15', ciel: 'aube', agent: 'Réponses aux e-mails clients', titre: 'Chaque client a *sa réponse.*',
-        texte: 'Cinq demandes reçues hier soir. Une réponse est rédigée pour chacune, dans votre ton, avec le vrai suivi de commande.' },
-      { heure: '8 h 40', ciel: 'matin', humain: true, qui: 'Chantal valide', titre: 'Chantal arrive. *Six minutes suffisent.*',
-        texte: 'Elle relit, corrige une phrase, valide. Les factures partent dans Pennylane, les réponses depuis Outlook. Rien n’est parti sans elle.' },
-      { heure: '14 h 00', ciel: 'jour', agent: 'Préparation de devis', titre: 'Un devis *en dix minutes.*',
-        texte: 'Julien transmet la demande d’un client. Datako prépare le devis à partir de vos tarifs et de vos devis passés. Julien relit, Marc approuve.' },
-      { heure: '18 h 00', ciel: 'soir', humain: true, qui: 'Fin de journée', titre: 'Marc ferme son ordinateur *à l’heure.*',
-        texte: 'Lundi matin, la synthèse de la semaine l’attendra. Ce mois-ci, Datako a déjà rendu 38 heures à son équipe.' }
-    ],
-    simulateur: { personnes: 3, heures: 4, tache: 'factures', part: 0.75 },
-    taches: [
-      { id: 'factures', libelle: 'les factures fournisseurs' },
-      { id: 'emails', libelle: 'les e-mails clients' },
-      { id: 'relances', libelle: 'les relances' },
-      { id: 'devis', libelle: 'les devis' },
-      { id: 'reporting', libelle: 'le reporting' }
     ]
   }
 };
