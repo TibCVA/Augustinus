@@ -53,7 +53,8 @@ var DONNEES = {
   },
 
   /* ---------- Les agents ----------
-     rythme.passages : jours (1 = lundi) et heure de chaque passage.
+     rythme.passages : jours (1 = lundi) et heure de chaque exécution.
+     aide : courte précision affichée dans la fenêtre « Demander ».
      Un agent « à la demande » n'a pas d'horaire : on le lance soi-même. */
   agents: [
     {
@@ -62,19 +63,19 @@ var DONNEES = {
       mission: 'Contrôle les factures fournisseurs avec les bons de commande et prépare leur saisie en comptabilité.',
       roles: ['finance', 'direction'],
       logiciels: ['Outlook', 'Pennylane'],
-      peutLire: 'la boîte factures@, les bons de commande et les factures déjà saisies',
+      peutLire: 'la boîte e-mail des factures, les bons de commande et les factures déjà saisies',
       attendAccord: ['écrire dans Pennylane', 'envoyer un e-mail à un fournisseur'],
       rythme: { type: 'horaire', libelle: 'Chaque jour à 9 h', passages: [{ jours: [1, 2, 3, 4, 5], heure: 9 }] },
-      entree: { type: 'planifie', texte: 'Les factures reçues dans la boîte factures@ depuis le dernier passage et les bons de commande en cours dans Pennylane.' },
+      entree: { type: 'planifie', texte: 'Les factures reçues dans la boîte e-mail des factures et les bons de commande en cours dans Pennylane.' },
       etapes: [
-        '12 factures trouvées dans la boîte factures@',
+        '12 factures trouvées dans la boîte e-mail des factures',
         'Lecture des montants, dates et références',
         'Comparaison avec les 31 bons de commande en cours',
         'Recherche de doublons sur les 12 derniers mois',
         'Préparation du fichier de contrôle et de la saisie Pennylane'
       ],
       travail: 't-factures',
-      semaineDerniere: '5 passages · 61 factures'
+      semaineDerniere: '61 factures'
     },
     {
       id: 'emails', nom: 'Réponses aux e-mails clients', icone: 'mail', teinte: 'bleu',
@@ -82,18 +83,18 @@ var DONNEES = {
       mission: 'Rédige une réponse à chaque demande client à partir du suivi des commandes.',
       roles: ['finance', 'client', 'direction'],
       logiciels: ['Outlook', 'Sellsy'],
-      peutLire: 'la boîte contact@ et le suivi des commandes',
+      peutLire: 'la boîte e-mail du service client et le suivi des commandes',
       attendAccord: ['envoyer un e-mail'],
       rythme: { type: 'horaire', libelle: 'Chaque jour à 9 h et 14 h', passages: [{ jours: [1, 2, 3, 4, 5], heure: 9 }, { jours: [1, 2, 3, 4, 5], heure: 14 }] },
-      entree: { type: 'planifie', texte: 'Les e-mails reçus sur contact@ depuis le dernier passage.' },
+      entree: { type: 'planifie', texte: 'Les e-mails reçus dans la boîte du service client.' },
       etapes: [
-        '5 demandes reçues sur contact@ depuis vendredi 14 h',
+        '5 e-mails reçus depuis vendredi 14 h',
         'Recherche des commandes et des livraisons dans Sellsy',
         'Rédaction des réponses',
         'Repérage d’une demande de devis, pour Julien Roche'
       ],
       travail: 't-emails',
-      semaineDerniere: '10 passages · 38 réponses'
+      semaineDerniere: '38 réponses'
     },
     {
       id: 'relances', nom: 'Relances clients', icone: 'horloge', teinte: 'sable',
@@ -112,7 +113,7 @@ var DONNEES = {
         'Rédaction de 4 relances'
       ],
       travail: 't-relances',
-      semaineDerniere: '2 passages · 9 relances'
+      semaineDerniere: '9 relances'
     },
     {
       id: 'synthese', nom: 'Synthèse de la semaine', icone: 'synthese', teinte: 'marine',
@@ -131,7 +132,7 @@ var DONNEES = {
         'Mise en forme de la synthèse (PDF)'
       ],
       travail: 't-synthese',
-      semaineDerniere: '1 passage'
+      semaineDerniere: '1 synthèse'
     },
     {
       id: 'devis', nom: 'Préparation de devis', icone: 'devis', teinte: 'bleu',
@@ -142,6 +143,7 @@ var DONNEES = {
       peutLire: 'le catalogue, les tarifs et les devis passés',
       attendAccord: ['envoyer un e-mail', 'enregistrer un devis dans Sellsy'],
       rythme: { type: 'demande', libelle: 'À la demande' },
+      aide: 'À partir de vos tarifs et de vos devis passés',
       entree: {
         type: 'formulaire',
         champs: [
@@ -169,6 +171,7 @@ var DONNEES = {
       peutLire: 'les contrats, les fiches produits et les procédures sur SharePoint',
       attendAccord: [],
       rythme: { type: 'demande', libelle: 'À la demande' },
+      aide: 'Contrats, fiches produits, procédures',
       entree: {
         type: 'question',
         libelle: 'Votre question',
@@ -194,7 +197,7 @@ var DONNEES = {
      Les actions sont celles qui attendent un accord humain. */
   travaux: [
     {
-      id: 't-factures', agent: 'factures', persona: 'chantal', heure: '9 h 01', minutes: 54,
+      id: 't-factures', agent: 'factures', persona: 'chantal', heure: '9 h 01',
       titre: '12 factures contrôlées,', accent: '2 à vérifier.',
       resume: '10 factures sont conformes au bon de commande. 2 sont à vérifier avant la saisie en comptabilité.',
       apercu: {
@@ -225,7 +228,7 @@ var DONNEES = {
       }
     },
     {
-      id: 't-emails', agent: 'emails', persona: 'chantal', heure: '9 h 02', minutes: 25,
+      id: 't-emails', agent: 'emails', persona: 'chantal', heure: '9 h 02',
       titre: '5 e-mails clients traités :', accent: '4 réponses prêtes.',
       resume: 'Chaque réponse s’appuie sur le suivi de la commande dans Sellsy. Le 5e e-mail est une demande de devis, à transmettre à Julien Roche.',
       apercu: {
@@ -236,7 +239,7 @@ var DONNEES = {
         source: 'Suivi de la commande CMD-4471 dans Sellsy',
         autres: ['Brasserie du Parc · copie de facture', 'Clinique Saint-Roch · délai d’une pièce détachée', 'Boulangerie Fayol · changement d’adresse']
       },
-      detail: '**5 e-mails** sont arrivés sur contact@ depuis vendredi 14 h. Pour chacun, Datako a retrouvé la commande ou la facture dans Sellsy et rédigé une réponse.\n\nL’e-mail du **Lycée Ampère** est une demande de devis : il est à transmettre à Julien Roche.',
+      detail: '**5 e-mails** sont arrivés dans la boîte du service client depuis vendredi 14 h. Pour chacun, Datako a retrouvé la commande ou la facture dans Sellsy et rédigé une réponse.\n\nL’e-mail du **Lycée Ampère** est une demande de devis : il est à transmettre à Julien Roche.',
       fichiers: [],
       actions: [
         { id: 'a1', libelle: 'Envoyer les 4 réponses depuis Outlook', logiciel: 'Outlook', fait: '4 réponses envoyées' },
@@ -257,7 +260,7 @@ var DONNEES = {
       }
     },
     {
-      id: 't-relances', agent: 'relances', persona: 'chantal', heure: '9 h 03', minutes: 30,
+      id: 't-relances', agent: 'relances', persona: 'chantal', heure: '9 h 03',
       titre: '4 factures clients impayées,', accent: '18 450 € à encaisser.',
       resume: 'Le ton de chaque relance dépend du retard. Pour Traiteur Delorme, un appel est recommandé.',
       apercu: {
@@ -294,7 +297,7 @@ var DONNEES = {
       }
     },
     {
-      id: 't-synthese', agent: 'synthese', persona: 'marc', jour: 'vendredi', heure: '17 h 30', minutes: 60,
+      id: 't-synthese', agent: 'synthese', persona: 'marc', jour: 'vendredi', heure: '17 h 30',
       titre: 'Semaine 41 :', accent: 'ventes en hausse de 8 %.',
       resume: 'Les ventes progressent. 3 devis importants sont sans réponse depuis 10 jours.',
       apercu: {
@@ -331,7 +334,7 @@ var DONNEES = {
       }
     },
     {
-      id: 't-devis', agent: 'devis', persona: 'marc', jour: 'vendredi', heure: '16 h 40', minutes: 35,
+      id: 't-devis', agent: 'devis', persona: 'marc', jour: 'vendredi', heure: '16 h 40',
       titre: 'Devis Hôtel des Alpes :', accent: '14 820 € HT, à valider.',
       resume: 'Demandé par Julien Roche. Au-delà de 10 000 €, votre accord est nécessaire avant l’envoi.',
       demandePar: 'Julien Roche',
@@ -400,14 +403,6 @@ var DONNEES = {
   /* ---------- Bilan (réservé à la direction) ---------- */
   bilan: {
     depuis: 'juillet',
-    heures: 196,
-    parMois: [
-      { mois: 'Juillet', heures: 41 },
-      { mois: 'Août', heures: 33 },
-      { mois: 'Septembre', heures: 84 },
-      { mois: 'Octobre', heures: 38, enCours: true }
-    ],
-    journee: 7,
     chiffres: [
       { valeur: '642', libelle: 'factures contrôlées' },
       { valeur: '5 870 €', libelle: 'de paiements en double évités' },
@@ -415,7 +410,7 @@ var DONNEES = {
       { valeur: '41 200 €', libelle: 'encaissés après relance' },
       { valeur: '24', libelle: 'devis préparés' }
     ],
-    qualite: { sansCorrection: 93, minutesValidation: 2 },
+    qualite: { sansCorrection: 93 },
     enveloppe: { consomme: 31, projection: 79, alerte: 90, jour: 12, joursMois: 31 },
     parAgent: [
       { agent: 'factures', part: 34 },

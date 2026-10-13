@@ -4,7 +4,7 @@
    Trois espaces seulement, dans un dock en bas de l'écran :
    - Aujourd'hui : la pile des tâches préparées par les agents, à valider ;
    - Équipe      : les agents et leurs horaires de la semaine ;
-   - Bilan       : le temps gagné, l'enveloppe d'usage, les accès (direction).
+   - Bilan       : l'activité des agents, le forfait du mois, les accès (direction).
    Chaque agent s'ouvre sur la MÊME fiche : ce qu'il utilise → ce qu'il
    fait → ce qu'il produit. C'est ce qui permet de brancher n'importe quelle
    skill sans écrire d'écran sur mesure.
@@ -177,7 +177,7 @@ var Plateforme = (function () {
       lien('equipe', 'equipe', 'Équipe') +
       (p.direction ? lien('bilan', 'bilan', 'Bilan') : '') +
       '<span class="dock-sep" aria-hidden="true"></span>' +
-      '<button type="button" class="dock-demander" data-action="demander" aria-keyshortcuts="/">' + icone('plus') + '<span class="dock-demander-texte">Demander</span><kbd class="dock-raccourci" aria-hidden="true">/</kbd></button>';
+      '<button type="button" class="dock-demander" data-action="demander" aria-keyshortcuts="/">' + icone('plus') + '<span class="dock-demander-texte">Demander</span></button>';
   }
 
   function rendreChrome(vue) {
@@ -197,16 +197,12 @@ var Plateforme = (function () {
     var p = persona();
     var mes = D.travaux.filter(function (t) { return t.persona === p.id; });
     var reste = Etat.ordre[p.id];
-    var total = 0, rendu = 0, faits = 0;
-    mes.forEach(function (t) {
-      total += t.minutes;
-      if (etatTravail(t.id).statut === 'valide') { rendu += t.minutes; faits++; }
-    });
+    var faits = mes.filter(function (t) { return etatTravail(t.id).statut === 'valide'; }).length;
     var n = reste.length;
     var accroche = n === 0 ? 'Tout est validé.' : n === 1 ? 'Une tâche à valider.' : MOTS[n] + ' tâches à valider.';
     var sous = n === 0
-      ? 'Datako vous a fait gagner ' + Format.duree(rendu) + ' ce matin.'
-      : 'Préparées par Datako : environ ' + Format.duree(total - rendu) + ' de travail, à valider en quelques minutes.';
+      ? 'Chaque action a été effectuée avec votre accord.'
+      : 'Préparées par vos agents. Relisez, corrigez si besoin, puis validez.';
 
     var gauche =
       '<aside class="auj-gauche">' +
@@ -217,7 +213,7 @@ var Plateforme = (function () {
         '</div>' +
         '<div class="auj-progres">' +
           '<div class="auj-barre" aria-hidden="true">' + mes.map(function (t) { return '<span class="' + (etatTravail(t.id).statut === 'valide' ? 'est-fait' : '') + '"></span>'; }).join('') + '</div>' +
-          '<p class="auj-progres-texte"><span><strong>' + faits + '</strong> sur ' + mes.length + (faits > 1 ? ' validées' : ' validée') + '</span><span>Temps gagné : <strong>' + Format.duree(rendu) + '</strong></span></p>' +
+          '<p class="auj-progres-texte"><span><strong>' + faits + '</strong> sur ' + mes.length + (faits > 1 ? ' validées' : ' validée') + '</span></p>' +
         '</div>' +
         '<nav aria-label="Tâches du jour"><ul class="auj-sommaire">' + mes.map(function (t) {
           var et = etatTravail(t.id), a = agentParId(t.agent), dessus = reste[0] === t.id;
@@ -230,14 +226,14 @@ var Plateforme = (function () {
 
     var droite = n
       ? '<div class="pile-pf" data-reste="' + Math.min(2, n - 1) + '">' + carteTravail(reste[0], mes.length - n + 1, mes.length) + '</div>'
-      : blocFini(rendu);
+      : blocFini();
 
     return '<div class="auj">' + gauche + '<section class="auj-droite" aria-label="Tâches à valider">' + droite + '</section></div>' + filJournee();
   }
 
   function carteTravail(id, rang, nb) {
     var t = vueTravail(id), et = etatTravail(id), a = agentParId(t.agent);
-    var quand = (t.demandePar ? 'Demandé par ' + t.demandePar + ' ' : 'Préparé ') + (t.jour ? t.jour + ' ' : '') + 'à ' + t.heure + ' · ' + Format.duree(t.minutes) + ' de travail';
+    var quand = (t.demandePar ? 'Demandé par ' + t.demandePar + ' ' : 'Préparé ') + (t.jour ? t.jour + ' ' : '') + 'à ' + t.heure;
     var actions = t.actions.map(function (ac) {
       return '<li><label class="case"><input type="checkbox" data-coche="' + ac.id + '"' + (et.coches[ac.id] !== false ? ' checked' : '') + '>' +
         '<span>' + esc(ac.libelle) + '<span class="logiciel">' + esc(ac.logiciel) + '</span></span></label></li>';
@@ -271,13 +267,12 @@ var Plateforme = (function () {
       '<p class="ct-resume">' + esc(t.resume) + '</p>' +
       (et.corrige ? '<span class="puce puce--bleu ct-corrige">' + icone('crayon') + 'Corrigé : « ' + esc(et.consigne) + ' »</span>' : '') +
       '<div class="ct-apercu">' + Cartes.apercu(t.apercu) + '</div>' +
-      Cartes.fichiers(t.fichiers) +
       '<div class="ct-accord"><p class="ct-accord-titre">' + icone('validation') + 'Actions à valider</p><ul>' + actions + '</ul></div>' +
       bas +
     '</article>';
   }
 
-  function blocFini(rendu) {
+  function blocFini() {
     var pro = prochainPassage();
     var nbActions = 0;
     D.travaux.forEach(function (t) {
@@ -288,8 +283,8 @@ var Plateforme = (function () {
     return '<div class="auj-fini" id="auj-fini" tabindex="-1">' +
       '<div class="tampon" aria-hidden="true">Validé<strong>' + heureTexte(Etat.horloge) + '</strong></div>' +
       '<h2 class="titre">Plus rien <em>à valider.</em></h2>' +
-      '<p>' + Format.pluriel(nbActions, 'action effectuée', 'actions effectuées') + ' dans vos logiciels, toutes avec votre accord. Temps gagné : ' + Format.duree(rendu) + '.</p>' +
-      '<p class="auj-fini-prochain">' + icone('horloge') + 'Prochain passage ' + pro.texte + (pro.agent ? ' · ' + esc(pro.agent) : '') + '</p>' +
+      '<p>' + Format.pluriel(nbActions, 'action effectuée', 'actions effectuées') + ' dans vos logiciels, toutes avec votre accord.</p>' +
+      '<p class="auj-fini-prochain">' + icone('horloge') + 'Prochaines tâches ' + pro.texte + (pro.agent ? ' : ' + esc(pro.agent.toLowerCase()) : '') + '</p>' +
       '<div class="auj-fini-actions">' +
         '<button type="button" class="btn btn--valider" data-action="recap">Voir les actions effectuées</button>' +
         '<button type="button" class="btn btn--verre" data-action="demander">Faire une demande</button>' +
@@ -332,7 +327,7 @@ var Plateforme = (function () {
       '<div class="fil-piste">' +
         '<div class="fil-heures" aria-hidden="true">' + heures + '</div>' +
         '<div class="fil-ligne" aria-hidden="true"></div><div class="fil-ligne-faite" style="width:' + pos(maint) + '%" aria-hidden="true"></div>' +
-        (groupes.length ? '<ul class="fil-groupes">' + liste + '</ul>' : '<p class="fe-vide">Aucun passage prévu aujourd’hui.</p>') +
+        (groupes.length ? '<ul class="fil-groupes">' + liste + '</ul>' : '<p class="fe-vide">Aucune tâche prévue aujourd’hui.</p>') +
       '</div>' +
     '</section>';
   }
@@ -362,7 +357,7 @@ var Plateforme = (function () {
             var fait = d === jour && ps.heure < maint;
             notes.push('<span class="pt-note' + (fait ? ' est-fait' : '') + '">' + (fait ? icone('check') : '') + heureCourte(ps.heure) + '</span>');
           });
-          return '<td class="' + (d === jour ? 'est-aujourdhui' : '') + '">' + (notes.length ? '<span class="pt-notes">' + notes.join('') + '</span>' : '<span class="sr-only">Aucun passage</span>') + '</td>';
+          return '<td class="' + (d === jour ? 'est-aujourdhui' : '') + '">' + (notes.length ? '<span class="pt-notes">' + notes.join('') + '</span>' : '<span class="sr-only">Rien ce jour-là</span>') + '</td>';
         }).join('');
       } else {
         cellules = '<td colspan="5" class="pt-demande"><span>' + esc(a.rythme.libelle) + (a.semaineDerniere ? ' · ' + esc(a.semaineDerniere) + ' la semaine dernière' : '') + '</span></td>';
@@ -417,45 +412,31 @@ var Plateforme = (function () {
         '<button type="button" class="btn btn--sombre" data-action="persona" data-persona="marc">Voir la démo en tant que Marc</button></div>';
     }
     var B = D.bilan;
-    var COULEURS = ['#C9E4F5', '#8FCBEF', '#3F95CF', '#2DD4BF'];
-    var points = '', i = 0;
-    B.parMois.forEach(function (m, k) {
-      for (var j = 0; j < m.heures; j++) { points += '<i style="--i:' + i + ';background:' + COULEURS[k] + '"></i>'; i++; }
-    });
-    var resumePoints = B.parMois.map(function (m) { return m.mois.toLowerCase() + ' ' + m.heures + ' h'; }).join(', ');
     var E = B.enveloppe;
 
     return '<section class="bl-hero" aria-labelledby="bl-titre">' +
-        '<div>' +
-          '<p class="auj-date">Bilan · depuis ' + B.depuis + '</p>' +
-          '<h1 class="titre bl-titre" id="bl-titre">Datako a fait gagner <em>' + B.heures + ' heures</em> à votre équipe.</h1>' +
-          '<p class="pf-sous">Soit ' + Math.round(B.heures / B.journee) + ' journées de travail de ' + B.journee + ' heures.</p>' +
-          '<p class="bl-legende">' + B.parMois.map(function (m, k) {
-            return '<span><i style="background:' + COULEURS[k] + '" aria-hidden="true"></i>' + m.mois + ' <small>' + m.heures + ' h' + (m.enCours ? ', en cours' : '') + '</small></span>';
-          }).join('') + '</p>' +
-        '</div>' +
-        '<figure class="bl-points-cadre"><div class="bl-points" role="img" aria-label="' + B.heures + ' points, un par heure gagnée : ' + resumePoints + '">' + points + '</div>' +
-          '<figcaption class="bl-points-note">Un point = une heure gagnée</figcaption></figure>' +
+        '<p class="auj-date">Bilan · depuis ' + B.depuis + '</p>' +
+        '<h1 class="titre bl-titre" id="bl-titre">Ce que vos agents ont fait <em>depuis ' + B.depuis + '</em></h1>' +
+        '<p class="pf-sous">' + B.qualite.sansCorrection + ' % des tâches ont été validées sans correction.</p>' +
       '</section>' +
       '<div class="bl-chiffres">' + B.chiffres.map(function (c) { return '<div><span class="chiffre">' + esc(c.valeur) + '</span><span>' + esc(c.libelle) + '</span></div>'; }).join('') + '</div>' +
-      '<p class="bl-qualite"><strong>' + B.qualite.sansCorrection + ' %</strong> des tâches validées sans correction. Temps moyen de validation : <strong>' + B.qualite.minutesValidation + ' minutes</strong>.</p>' +
 
       '<div class="bl-grille">' +
         '<section class="bl-carte" aria-labelledby="bl-env">' +
-          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-env">Enveloppe d’usage <em>· ' + D.date.mois + '</em></h2>' +
-            '<span class="puce puce--teal">' + icone('bouclier') + 'Montant plafonné</span></div>' +
-          '<div class="enveloppe" role="img" aria-label="' + E.consomme + ' % consommés au ' + E.jour + ' ' + D.date.mois + ', ' + E.projection + ' % prévus en fin de mois, alerte à ' + E.alerte + ' %">' +
+          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-env">Forfait <em>d’' + D.date.mois + '</em></h2>' +
+            '<span class="puce puce--teal">' + icone('bouclier') + 'Sans dépassement</span></div>' +
+          '<div class="enveloppe" role="img" aria-label="' + E.consomme + ' % du forfait utilisés au ' + E.jour + ' ' + D.date.mois + ', ' + E.projection + ' % prévus en fin de mois, alerte à ' + E.alerte + ' %">' +
             '<div class="enveloppe-proj" style="left:' + E.consomme + '%;width:' + (E.projection - E.consomme) + '%"></div>' +
             '<div class="enveloppe-conso" style="width:' + E.consomme + '%"></div>' +
-            '<div class="enveloppe-repere" style="left:' + E.alerte + '%"><span>Alerte ' + E.alerte + ' %</span></div>' +
-            '<span class="enveloppe-etiquette" style="left:' + E.consomme + '%">' + E.consomme + ' % au ' + E.jour + ' ' + D.date.mois + '</span>' +
+            '<div class="enveloppe-repere" style="left:' + E.alerte + '%"><span>Alerte à ' + E.alerte + ' %</span></div>' +
+            '<span class="enveloppe-etiquette" style="left:' + E.consomme + '%">' + E.consomme + ' % utilisés</span>' +
             '<span class="enveloppe-etiquette enveloppe-etiquette--proj" style="left:' + E.projection + '%">' + E.projection + ' % prévus</span>' +
           '</div>' +
-          '<p class="bl-carte-texte">Au rythme actuel, ' + D.date.mois + ' se terminera à ' + E.projection + ' % de l’enveloppe. Si le plafond est atteint, les agents s’arrêtent automatiquement : aucun dépassement n’est possible.</p>' +
+          '<p class="bl-carte-texte">Au rythme actuel, vous utiliserez ' + E.projection + ' % de votre forfait en ' + D.date.mois + '. Si le forfait est épuisé, les agents s’arrêtent : aucun dépassement n’est possible.</p>' +
           '<button type="button" class="btn btn--' + (Etat.pause ? 'valider' : 'contour') + ' bl-pause" data-action="pause">' + icone(Etat.pause ? 'lecture' : 'pause') + (Etat.pause ? 'Relancer les agents' : 'Mettre tous les agents en pause') + '</button>' +
         '</section>' +
         '<section class="bl-carte" aria-labelledby="bl-usage">' +
-          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-usage">Usage <em>par agent</em></h2></div>' +
+          '<div class="bl-carte-tete"><h2 class="pf-section-titre" id="bl-usage">Répartition <em>par agent</em></h2></div>' +
           '<ul class="usage">' + B.parAgent.map(function (u) {
             var a = agentParId(u.agent);
             return '<li>' + Cartes.pastille(a, 'petite') + '<span class="usage-barre"><span>' + esc(a.nom) + '</span><i style="width:' + (u.part / B.parAgent[0].part * 100) + '%" aria-hidden="true"></i></span><span class="usage-pct">' + u.part + ' %</span></li>';
@@ -697,9 +678,9 @@ var Plateforme = (function () {
       lc.reponse = D.reponsesDocuments[lc.valeurs.question] || null;
       if (!lc.reponse) notifier('Question transmise à ' + D.conseillere.prenom + ', votre conseillère Datako.', 'conversation');
     } else if (a.travail) {
-      notifier(a.nom + ' : rien de nouveau depuis le dernier passage.', 'info');
+      notifier(a.nom + ' : rien de nouveau pour l’instant.', 'info');
     } else {
-      notifier(a.nom + ' : passage effectué, rien à traiter pour l’instant.', 'info');
+      notifier(a.nom + ' : rien à traiter pour l’instant.', 'info');
     }
   }
 
@@ -708,20 +689,21 @@ var Plateforme = (function () {
      ====================================================================== */
 
   function ouvrirPalette() {
-    var options = [];
+    var demandes = [], lancements = [];
     agentsVisibles().forEach(function (a) {
       if (a.rythme.type === 'demande') {
-        options.push({ groupe: 'Faire une demande', agent: a, libelle: a.id === 'devis' ? 'Préparer un devis' : a.id === 'documents' ? 'Poser une question sur vos documents' : a.nom });
+        demandes.push({ groupe: 'Faire une demande', agent: a, libelle: a.id === 'devis' ? 'Préparer un devis' : a.id === 'documents' ? 'Poser une question sur vos documents' : a.nom });
       } else {
-        options.push({ groupe: 'Lancer un agent maintenant', agent: a, libelle: a.nom, lancer: true });
+        lancements.push({ groupe: 'Lancer un agent maintenant', agent: a, libelle: a.nom, lancer: true });
       }
     });
+    var options = demandes.concat(lancements);
     var html =
       '<h2 id="modale-titre" class="sr-only">Demander à Datako</h2>' +
       '<div class="palette-saisie">' + icone('etincelle') +
         '<input type="text" id="palette-q" autocomplete="off" placeholder="Que voulez-vous demander à Datako ?" aria-label="Que voulez-vous demander à Datako ?" aria-controls="palette-liste" autofocus></div>' +
       '<div class="palette-liste" id="palette-liste"></div>' +
-      '<p class="palette-pied">Raccourci : touche « / ». Les demandes qu’aucun agent ne couvre sont transmises à ' + D.conseillere.prenom + ', votre conseillère.</p>';
+      '<p class="palette-pied">Si aucun agent ne correspond, votre demande est transmise à ' + D.conseillere.prenom + ', votre conseillère.</p>';
     var m = Modale.ouvrir(html, { classe: 'modale--palette' });
     var champ = m.querySelector('#palette-q'), liste = m.querySelector('#palette-liste');
     var courantes = [];
@@ -743,7 +725,7 @@ var Plateforme = (function () {
         }
         if (o.groupe !== groupe) { groupe = o.groupe; h += '<p class="palette-groupe">' + esc(groupe) + '</p>'; }
         h += '<button type="button" class="palette-option" data-i="' + i + '">' + Cartes.pastille(o.agent) +
-          '<span class="palette-option-texte">' + esc(o.libelle) + '<small>' + esc(o.question ? '« ' + o.question + ' »' : o.lancer ? o.agent.rythme.libelle : o.agent.nom) + '</small></span>' + icone('fleche') + '</button>';
+          '<span class="palette-option-texte">' + esc(o.libelle) + '<small>' + esc(o.question ? '« ' + o.question + ' »' : o.lancer ? o.agent.rythme.libelle : (o.agent.aide || o.agent.nom)) + '</small></span>' + icone('fleche') + '</button>';
       });
       liste.innerHTML = h;
       Typo.appliquer(liste);

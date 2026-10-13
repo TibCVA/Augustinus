@@ -23,12 +23,12 @@ Toutes les entreprises, personnes et données sont **fictives** (PME de démonst
 |---|---|
 | **Aujourd’hui** | Les tâches préparées par les agents. Pour chacune : *Valider*, *Corriger* (on donne une consigne à l’agent), *Voir le détail* ou *Plus tard*. En bas, le planning du jour. |
 | **Équipe** | Les agents et leurs horaires de la semaine. La direction peut mettre un agent en pause. La conseillère Datako y propose de nouveaux agents. |
-| **Bilan** | Réservé à la direction : temps gagné, enveloppe d’usage plafonnée, mise en pause des agents, accès par e-mail et par rôle. |
+| **Bilan** | Réservé à la direction : activité des agents, forfait du mois (sans dépassement possible), mise en pause des agents, accès par e-mail et par rôle. |
 
 En plus de ces trois espaces :
 
 - **La fiche d’agent** est le même écran pour tous les agents : *ce qu’il utilise → ce qu’il fait → ce qu’il produit*.
-- **Le bouton « Demander »** (ou la touche `/`) permet de confier une tâche, de poser une question aux documents ou de lancer un agent.
+- **Le bouton « Demander »** permet de poser une question sur les documents, de demander un devis ou de lancer un agent.
 
 ---
 
@@ -38,7 +38,7 @@ En plus de ces trois espaces :
    - Sur la carte des factures, cliquez sur *Corriger*, choisissez la suggestion puis *Envoyer la consigne*.
    - Cliquez sur *Valider* et validez la pile jusqu’au bout.
 2. **Fiche d’agent (20 s)** : cliquez sur un agent dans la liste de gauche.
-3. **Demander (15 s)** : appuyez sur `/` puis tapez « Quelle est la garantie du four FM-10 ? ». La réponse cite ses sources.
+3. **Demander (15 s)** : cliquez sur *Demander* puis tapez « Quelle est la garantie du four FM-10 ? ». La réponse cite ses sources.
 4. **Marc, dirigeant (30 s)** : avatar en haut à droite, puis *Marc Bastide*. Ouvrez *Bilan*.
 
 Pour rejouer la démonstration, rechargez la page (touche F5).
