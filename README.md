@@ -88,9 +88,10 @@ La vitrine commerciale et le Studio Datako des versions précédentes ne font pl
 
 Le dossier `connecteur/` contient un **vrai connecteur Claude** (serveur MCP) qui affiche l’espace Datako dans une conversation Claude : la carte, le plein écran, la validation et la correction depuis l’interface. Il sert à prouver le point clé validé avec Guillaume dans un compte Claude Team. Mode d’emploi, critères de réussite et suites : `connecteur/README.md`.
 
-## 6. Contrôles effectués
+## 7. Contrôles effectués
 
-- **Parcours automatique** : 50 vérifications réussies, sans erreur dans la console.
+- **Parcours automatique** : 54 vérifications réussies, sans erreur dans la console.
 - **Affichage** : mobile (390 px), tablette (820 px) et ordinateur (1 440 px), sans débordement.
 - **Accessibilité** : audit axe (WCAG 2.1 A et AA) sur 14 écrans et états, sans anomalie.
 - **Polices** : Inter et Gelasio, sous licence SIL Open Font License (`assets/css/polices-licences.txt`).
+- **Connecteur** : 14 vérifications de la séquence MCP (`npm test` dans `connecteur/`) et 9 vérifications de l’interface dans un hôte MCP Apps simulé (carte, plein écran, validation, correction, lancement d’agent).
